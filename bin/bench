@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# bench launcher — builds the mcpshell benchmark CLI on demand and runs it.
+#
+#   ./bin/bench                  run the full LLM benchmark suite
+#   ./bin/bench --only factorial smoke-test a single teaser
+#   BUILD=true ./bin/bench       force a rebuild before running
+#
+# A per-arch binary is cached at bin/bench-<os>-<arch> and rebuilt automatically
+# when missing, when any Go source is newer than it, or when BUILD=true.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "bench: Go toolchain not found on PATH" >&2
+  exit 1
+fi
+
+goos="$(go env GOOS)"
+goarch="$(go env GOARCH)"
+bin="$root/bin/bench-${goos}-${goarch}"
+
+needs_build=false
+if [[ "${BUILD:-}" == "true" ]]; then
+  needs_build=true
+elif [[ ! -x "$bin" ]]; then
+  needs_build=true
+elif [[ -n "$(find "$root" -name '*.go' -not -path '*/bin/*' -newer "$bin" -print -quit 2>/dev/null)" ]]; then
+  needs_build=true
+fi
+
+if [[ "$needs_build" == "true" ]]; then
+  echo "bench: building ${goos}/${goarch}..." >&2
+  ( cd "$root" && go build -o "$bin" ./cmd/bench )
+fi
+
+exec "$bin" "$@"

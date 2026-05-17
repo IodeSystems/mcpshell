@@ -1,0 +1,49 @@
+# deep_clone
+
+**Status:** PASS
+**Duration:** 2393ms
+**Tool calls:** 1
+
+## Prompt
+
+> In mcpshell, write a function that deep-clones a nested object. Clone {a:1,b:{c:2,d:[3,4]}} and modify the clone's b.c to 99. Return both original and clone to prove they are independent.
+
+## Final Answer
+
+```
+{original: {a: 1, b: {c: 2, d: [3, 4]}}, clone: {a: 1, b: {c: 99, d: [3, 4]}}}
+```
+
+## Attempts
+
+### Attempt 1 (OK)
+
+```javascript
+function deepClone(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepClone(item));
+  }
+  const cloned = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      cloned[key] = deepClone(obj[key]);
+    }
+  }
+  return cloned;
+}
+
+const original = {a:1, b:{c:2, d:[3,4]}};
+const clone = deepClone(original);
+clone.b.c = 99;
+
+{original, clone}
+```
+
+**Result:**
+```
+{original: {a: 1, b: {c: 2, d: [3, 4]}}, clone: {a: 1, b: {c: 99, d: [3, 4]}}}
+```
+
