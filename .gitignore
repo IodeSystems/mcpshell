@@ -1,0 +1,21 @@
+# Per-arch binaries built on demand by the bin/ launchers (the launcher
+# scripts bin/mcpshell and bin/bench are themselves committed).
+/bin/mcpshell-*
+/bin/bench-*
+
+# Local machine config (LLM endpoint, model, API key). Copy from
+# env.local.example. Never committed.
+/env.local
+
+# Go build & test artifacts
+*.test
+*.out
+*.prof
+coverage.*
+
+# Editor & OS cruft
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
