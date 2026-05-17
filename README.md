@@ -1,5 +1,7 @@
 # mcpshell
 
+[![Release](https://img.shields.io/github/v/release/IodeSystems/mcpshell?label=release)](https://github.com/IodeSystems/mcpshell/releases/latest)
+
 A sandboxed JS-syntax scripting language that gives LLMs safe computation
 through a single `eval` tool.
 
