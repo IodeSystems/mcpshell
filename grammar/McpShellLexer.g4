@@ -102,9 +102,11 @@ RBRACE      : '}' -> popMode;
 
 // Literals
 NUMBER
-  : [0-9]+ ('.' [0-9]+)?
-  | '.' [0-9]+
+  : [0-9]+ ('.' [0-9]+)? EXPONENT?
+  | '.' [0-9]+ EXPONENT?
   ;
+
+fragment EXPONENT : [eE] [+-]? [0-9]+ ;
 
 STRING
   : '"' (~["\\\r\n] | '\\' .)* '"'

@@ -86,6 +86,12 @@ func TestMcpshellFeatures(t *testing.T) {
 		{"parseJson loose trailing comma obj", `parseJson("{a: 1, b: 2,}").a`, "1"},
 		{"parseJson loose trailing comma arr", `parseJson("[1, 2, 3,]").length`, "3"},
 		{"parseJson loose mixed quoted", `parseJson("{a: 1, \"b c\": 2}")["b c"]`, "2"},
+		// Number literals: scientific notation
+		{"sci notation int", `1e3`, "1000"},
+		{"sci notation frac neg exp", `1.5e-2`, "0.015"},
+		{"sci notation cap E plus", `2.5E+4`, "25000"},
+		{"sci notation leading dot", `.5e2`, "50"},
+		{"sci notation in object", `{a: 1e3}.a`, "1000"},
 		{"toJson", `toJson({a: 1, b: "hello"})`, `{"a":1,"b":"hello"}`},
 		{"toJson pipe", `{x: [1, 2, 3]} |> toJson()`, `{"x":[1,2,3]}`},
 		// Member access with keyword field names
