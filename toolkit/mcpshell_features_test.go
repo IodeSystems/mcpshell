@@ -79,6 +79,13 @@ func TestMcpshellFeatures(t *testing.T) {
 		{"parseJson array length", `parseJson("[1, 2, 3]").length`, "3"},
 		{"parseJson pipe", `"{\"x\": 42}" |> parseJson() |> (o => o.x)`, "42"},
 		{"parseJson nested", `parseJson("{\"a\": {\"b\": [1, true, null]}}").a.b`, "[1, true, null]"},
+		// parseJson LOOSE semantics: bare (unquoted) keys allowed; values stay
+		// strict (a bareword is never an implicit string); trailing commas tolerated.
+		{"parseJson loose bare key", `parseJson("{a: 1, b: 2}").b`, "2"},
+		{"parseJson loose nested", `parseJson("{a: {b: [1,2,3]}}").a.b.length`, "3"},
+		{"parseJson loose trailing comma obj", `parseJson("{a: 1, b: 2,}").a`, "1"},
+		{"parseJson loose trailing comma arr", `parseJson("[1, 2, 3,]").length`, "3"},
+		{"parseJson loose mixed quoted", `parseJson("{a: 1, \"b c\": 2}")["b c"]`, "2"},
 		{"toJson", `toJson({a: 1, b: "hello"})`, `{"a":1,"b":"hello"}`},
 		{"toJson pipe", `{x: [1, 2, 3]} |> toJson()`, `{"x":[1,2,3]}`},
 		// Member access with keyword field names

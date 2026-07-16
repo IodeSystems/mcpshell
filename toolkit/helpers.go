@@ -496,6 +496,31 @@ func parseJSONValue(s string, pos *int) Value {
 	}
 }
 
+// parseJSONKey reads an object key with LOOSE semantics: a quoted JSON string,
+// OR a bare identifier ([A-Za-z_$][A-Za-z0-9_$]*). This is the ONLY place looseness
+// is allowed — bare-word VALUES are still rejected (a bareword is never an implicit
+// string), matching the language's object-literal rule: bare keys, no bare values.
+func parseJSONKey(s string, pos *int) string {
+	if *pos < len(s) && s[*pos] == '"' {
+		return parseJSONString(s, pos)
+	}
+	start := *pos
+	for *pos < len(s) {
+		c := s[*pos]
+		isIdent := c == '_' || c == '$' ||
+			(c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(*pos > start && c >= '0' && c <= '9')
+		if !isIdent {
+			break
+		}
+		*pos++
+	}
+	if *pos == start {
+		panic(Runtime(fmt.Sprintf("parseJson: expected object key (quoted string or bare identifier) at position %d", *pos)))
+	}
+	return s[start:*pos]
+}
+
 func parseJSONObject(s string, pos *int) Value {
 	*pos++ // skip {
 	skipJSONWS(s, pos)
@@ -506,7 +531,7 @@ func parseJSONObject(s string, pos *int) Value {
 	}
 	for *pos < len(s) {
 		skipJSONWS(s, pos)
-		key := parseJSONString(s, pos)
+		key := parseJSONKey(s, pos)
 		skipJSONWS(s, pos)
 		if *pos >= len(s) || s[*pos] != ':' {
 			panic(Runtime(fmt.Sprintf("parseJson: expected ':' at position %d", *pos)))
@@ -516,6 +541,11 @@ func parseJSONObject(s string, pos *int) Value {
 		skipJSONWS(s, pos)
 		if *pos < len(s) && s[*pos] == ',' {
 			*pos++
+			skipJSONWS(s, pos)
+			if *pos < len(s) && s[*pos] == '}' { // trailing comma (loose)
+				*pos++
+				return obj
+			}
 			continue
 		}
 		if *pos < len(s) && s[*pos] == '}' {
@@ -540,6 +570,11 @@ func parseJSONArray(s string, pos *int) Value {
 		skipJSONWS(s, pos)
 		if *pos < len(s) && s[*pos] == ',' {
 			*pos++
+			skipJSONWS(s, pos)
+			if *pos < len(s) && s[*pos] == ']' { // trailing comma (loose)
+				*pos++
+				return &ArrayVal{Elements: elements}
+			}
 			continue
 		}
 		if *pos < len(s) && s[*pos] == ']' {

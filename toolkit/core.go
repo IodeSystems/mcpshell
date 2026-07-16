@@ -1158,7 +1158,7 @@ func InstallCore(sh *Shell) *Shell {
 
 	// --- JSON ---
 
-	reg("parseJson", "input: string", "JSON string → value", []string{`parseJson("{\"a\": 1}")`},
+	reg("parseJson", "input: string", "JSON string → value (loose: bare keys + trailing commas OK; values stay strict — no bare words)", []string{`parseJson("{\"a\": 1}")`, `parseJson("{a: 1, b: [2, 3],}")`},
 		func(args []Value) Value {
 			s := strings.TrimSpace(requireString("parseJson", arg(args, 0)))
 			pos := 0
