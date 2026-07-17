@@ -95,6 +95,42 @@ func InstallCore(sh *Shell) *Shell {
 			return acc
 		})
 
+	reg("sum", "input: array", "sums an array of numbers (empty → 0)",
+		[]string{`[1, 2, 3] |> sum()`},
+		func(args []Value) Value {
+			a := requireArray("sum", arg(args, 0))
+			var s float64
+			for _, el := range a.Elements {
+				s += elemNumber("sum", el)
+			}
+			return Num(s)
+		})
+
+	reg("avg", "input: array", "arithmetic mean of an array of numbers",
+		[]string{`[1, 2, 3] |> avg()`},
+		func(args []Value) Value {
+			a := requireArray("avg", arg(args, 0))
+			if len(a.Elements) == 0 {
+				panic(Runtime("avg: empty array"))
+			}
+			var s float64
+			for _, el := range a.Elements {
+				s += elemNumber("avg", el)
+			}
+			return Num(s / float64(len(a.Elements)))
+		})
+
+	reg("product", "input: array", "product of an array of numbers (empty → 1)",
+		[]string{`[2, 3, 4] |> product()`},
+		func(args []Value) Value {
+			a := requireArray("product", arg(args, 0))
+			p := 1.0
+			for _, el := range a.Elements {
+				p *= elemNumber("product", el)
+			}
+			return Num(p)
+		})
+
 	reg("sort", "input: array, keyOrComparator?: string | (a, b) => number",
 		`sorts; string key for objects, comparator fn, or "desc"/"asc" for direction`,
 		[]string{`[3, 1, 2] |> sort()`, `users |> sort("name")`, `[3, 1, 2] |> sort("desc")`},

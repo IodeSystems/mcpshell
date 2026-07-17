@@ -46,6 +46,15 @@ func requireNumber(cmd string, args []Value, idx int) float64 {
 	panic(WrongArguments(cmd, "number", args, ""))
 }
 
+// elemNumber requires that an array element is a number, for aggregators like
+// sum/avg/product.
+func elemNumber(cmd string, v Value) float64 {
+	if n, ok := v.(*NumberVal); ok {
+		return n.V
+	}
+	panic(TypeMismatch(cmd, "number", v, "all elements must be numbers"))
+}
+
 // requireArray coerces objects to their [[key, value], ...] entry array.
 func requireArray(cmd string, v Value) *ArrayVal {
 	switch x := v.(type) {
