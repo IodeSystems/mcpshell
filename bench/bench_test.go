@@ -102,7 +102,7 @@ func TestRunAgent(t *testing.T) {
 	llm := bench.NewLLM(srv.URL, "")
 
 	var ranCode string
-	answer, attempts, err := llm.RunAgent(context.Background(), "mpt-test-7b",
+	answer, attempts, stats, err := llm.RunAgent(context.Background(), "mpt-test-7b",
 		"system", "compute 2+3",
 		func(code string) string {
 			ranCode = code
@@ -110,6 +110,9 @@ func TestRunAgent(t *testing.T) {
 		}, 10)
 	if err != nil {
 		t.Fatalf("RunAgent: %v", err)
+	}
+	if stats.Turns != 2 {
+		t.Errorf("stats.Turns = %d, want 2 (one tool-call turn + one final)", stats.Turns)
 	}
 	if answer != "final answer" {
 		t.Errorf("answer = %q, want %q", answer, "final answer")

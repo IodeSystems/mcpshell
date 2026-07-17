@@ -31,8 +31,9 @@ type Result struct {
 	Teaser      Teaser
 	Success     bool
 	Attempts    []Attempt
-	DurationMs  int64 // total wall time for the teaser (model round-trips + tool runtime)
-	ToolMs      int64 // wall time spent inside the mcpshell interpreter across all tool calls
+	DurationMs  int64      // total wall time for the teaser (model round-trips + tool runtime)
+	ToolMs      int64      // wall time spent inside the mcpshell interpreter across all tool calls
+	Stats       AgentStats // model round-trips (turns) and token usage
 	FinalAnswer string
 	Error       string
 }
@@ -129,7 +130,7 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		start := time.Now()
-		answer, attempts, err := llm.RunAgent(ctx, model, opts.SystemPrompt,
+		answer, attempts, stats, err := llm.RunAgent(ctx, model, opts.SystemPrompt,
 			teaser.Prompt+"\n"+teaser.FormatHint, runTool, opts.MaxIters)
 		cancel()
 
@@ -142,6 +143,7 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 			Attempts:    attempts,
 			DurationMs:  time.Since(start).Milliseconds(),
 			ToolMs:      toolMs,
+			Stats:       stats,
 			FinalAnswer: answer,
 		}
 		switch {
@@ -154,17 +156,18 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 		}
 		results = append(results, res)
 
-		split := ""
+		meta := fmt.Sprintf(" [%d turns, %d proc (%d cached) tok, %dms", res.Stats.Turns, res.Stats.Tokens.Processed(), res.Stats.Tokens.Cached, res.DurationMs)
 		if len(attempts) > 0 {
-			split = fmt.Sprintf(" [tool %dms, model %dms]", res.ToolMs, res.ModelMs())
+			meta += fmt.Sprintf("; tool %dms, model %dms", res.ToolMs, res.ModelMs())
 		}
+		meta += "]"
 		switch {
 		case res.Success:
-			fmt.Printf("PASS (%d tool calls, %dms)%s\n", len(attempts), res.DurationMs, split)
+			fmt.Printf("PASS (%d tool calls)%s\n", len(attempts), meta)
 		case res.Error != "":
-			fmt.Printf("ERROR — %s (%d tool calls, %dms)%s\n", res.Error, len(attempts), res.DurationMs, split)
+			fmt.Printf("ERROR — %s (%d tool calls)%s\n", res.Error, len(attempts), meta)
 		default:
-			fmt.Printf("FAIL (%d tool calls, %dms)%s\n", len(attempts), res.DurationMs, split)
+			fmt.Printf("FAIL (%d tool calls)%s\n", len(attempts), meta)
 		}
 
 		if opts.FailFast && !res.Success {
@@ -230,6 +233,8 @@ func renderResult(r Result) string {
 	fmt.Fprintf(&b, "# %s\n\n", r.Teaser.Name)
 	fmt.Fprintf(&b, "**Status:** %s\n", status)
 	fmt.Fprintf(&b, "**Duration:** %dms (tool runtime %dms, model/round-trip %dms)\n", r.DurationMs, r.ToolMs, r.ModelMs())
+	fmt.Fprintf(&b, "**Turns:** %d model round-trips · **Processed tokens:** %d (%d prompt − %d cached + %d generated)\n",
+		r.Stats.Turns, r.Stats.Tokens.Processed(), r.Stats.Tokens.Prompt, r.Stats.Tokens.Cached, r.Stats.Tokens.Completion)
 	fmt.Fprintf(&b, "**Tool calls:** %d\n", len(r.Attempts))
 	if r.Error != "" {
 		fmt.Fprintf(&b, "**Error:** %s\n", r.Error)
@@ -285,29 +290,27 @@ func renderIndex(results []Result, model string) string {
 	fmt.Fprintf(&b, "**Date:** %s\n", time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "**Score:** %d/%d\n\n", passed, len(results))
 
-	b.WriteString("| Teaser | Status | Tool Calls | Errors | Total | Tool ms | Model ms | Details |\n")
-	b.WriteString("|--------|--------|-----------|--------|-------|---------|----------|---------|\n")
+	b.WriteString("| Teaser | Status | Turns | Proc(cached) | Total | Tool ms | Model ms | Details |\n")
+	b.WriteString("|--------|--------|------:|-------------:|------:|--------:|---------:|---------|\n")
 	var sumTool, sumModel int64
+	var sumTurns, sumProc, sumCached int
 	for _, r := range results {
 		status := "FAIL"
 		if r.Success {
 			status = "PASS"
 		}
-		errs := 0
-		for _, a := range r.Attempts {
-			if a.IsError {
-				errs++
-			}
-		}
 		sumTool += r.ToolMs
 		sumModel += r.ModelMs()
+		sumTurns += r.Stats.Turns
+		sumProc += r.Stats.Tokens.Processed()
+		sumCached += r.Stats.Tokens.Cached
 		note := ""
 		if r.Error != "" {
 			note = " (" + r.Error + ")"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %dms | %d | %d | [detail](%s/%s.md)%s |\n",
-			r.Teaser.Name, status, len(r.Attempts), errs, r.DurationMs, r.ToolMs, r.ModelMs(),
-			sanitizeModel(model), r.Teaser.Name, note)
+		fmt.Fprintf(&b, "| %s | %s | %d | %d(%d) | %dms | %d | %d | [detail](%s/%s.md)%s |\n",
+			r.Teaser.Name, status, r.Stats.Turns, r.Stats.Tokens.Processed(), r.Stats.Tokens.Cached,
+			r.DurationMs, r.ToolMs, r.ModelMs(), sanitizeModel(model), r.Teaser.Name, note)
 	}
 
 	b.WriteString("\n## Summary\n\n")
@@ -334,6 +337,9 @@ func renderIndex(results []Result, model string) string {
 	b.WriteString("| Metric | Value |\n|--------|-------|\n")
 	fmt.Fprintf(&b, "| Pass rate | %d%% (%d/%d) |\n", passRate, passed, n)
 	fmt.Fprintf(&b, "| First-try success | %d/%d |\n", firstTry, n)
+	fmt.Fprintf(&b, "| Total turns | %d |\n", sumTurns)
+	fmt.Fprintf(&b, "| Processed tokens | %d |\n", sumProc)
+	fmt.Fprintf(&b, "| Cached tokens (~free) | %d |\n", sumCached)
 	fmt.Fprintf(&b, "| Total tool calls | %d |\n", totalCalls)
 	fmt.Fprintf(&b, "| Tool errors | %d |\n", totalErrors)
 	fmt.Fprintf(&b, "| Avg tool calls/teaser | %.1f |\n", avgCalls)

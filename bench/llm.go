@@ -137,7 +137,30 @@ var mcpshellToolDef = json.RawMessage(`{"type":"function","function":{` +
 	`"parameters":{"type":"object","properties":{` +
 	`"code":{"type":"string","description":"mcpshell source code"}},"required":["code"]}}}`)
 
-func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, useTool bool) (chatMessage, error) {
+// TokenUsage totals a run's tokens. Prompt is the full context sent (re-sent
+// each turn), of which Cached is served from the prompt/KV cache — essentially
+// free on a lightly-loaded server. Completion is the model's generated output.
+type TokenUsage struct {
+	Prompt     int
+	Cached     int
+	Completion int
+}
+
+// Total is every prompt + completion token, cached or not.
+func (u TokenUsage) Total() int { return u.Prompt + u.Completion }
+
+// Processed is the tokens that actually cost compute: freshly-processed prompt
+// (prompt minus cache hits) plus generated completion. This is the honest cost
+// number — a large system prompt re-sent every turn is cached, not reprocessed.
+func (u TokenUsage) Processed() int { return u.Prompt - u.Cached + u.Completion }
+
+func (u *TokenUsage) add(o TokenUsage) {
+	u.Prompt += o.Prompt
+	u.Cached += o.Cached
+	u.Completion += o.Completion
+}
+
+func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, useTool bool) (chatMessage, TokenUsage, error) {
 	body := map[string]any{
 		"model":       model,
 		"messages":    messages,
@@ -149,46 +172,66 @@ func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, us
 	}
 	data, err := l.do(ctx, http.MethodPost, "/v1/chat/completions", body)
 	if err != nil {
-		return chatMessage{}, err
+		return chatMessage{}, TokenUsage{}, err
 	}
 	var r struct {
 		Choices []struct {
 			Message chatMessage `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &r); err != nil {
-		return chatMessage{}, err
+		return chatMessage{}, TokenUsage{}, err
 	}
 	if len(r.Choices) == 0 {
-		return chatMessage{}, fmt.Errorf("chat completion returned no choices")
+		return chatMessage{}, TokenUsage{}, fmt.Errorf("chat completion returned no choices")
 	}
-	return r.Choices[0].Message, nil
+	return r.Choices[0].Message, TokenUsage{
+		Prompt:     r.Usage.PromptTokens,
+		Cached:     r.Usage.PromptTokensDetails.CachedTokens,
+		Completion: r.Usage.CompletionTokens,
+	}, nil
+}
+
+// AgentStats aggregates cost across an agent run: model round-trips (turns) and
+// tokens processed (prompt) + generated (completion).
+type AgentStats struct {
+	Turns  int
+	Tokens TokenUsage
 }
 
 // RunAgent drives a tool-calling agent loop: it sends the prompt, executes any
 // mcpshell tool calls via runTool, feeds results back, and returns the model's
-// final text answer along with every tool attempt made. When runTool is nil the
-// mcpshell tool is not offered at all — a no-tool baseline where the model must
-// answer from its own reasoning in a single completion.
+// final text answer along with every tool attempt made and aggregate stats.
+// When runTool is nil the mcpshell tool is not offered at all — a no-tool
+// baseline where the model must answer from its own reasoning in one completion.
 func (l *LLM) RunAgent(
 	ctx context.Context,
 	model, systemPrompt, userPrompt string,
 	runTool func(code string) string,
 	maxIters int,
-) (answer string, attempts []Attempt, err error) {
+) (answer string, attempts []Attempt, stats AgentStats, err error) {
 	useTool := runTool != nil
 	messages := []chatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 	for range maxIters {
-		msg, err := l.chat(ctx, model, messages, useTool)
+		msg, usage, err := l.chat(ctx, model, messages, useTool)
+		stats.Turns++
+		stats.Tokens.add(usage)
 		if err != nil {
-			return "", attempts, err
+			return "", attempts, stats, err
 		}
 		messages = append(messages, msg)
 		if len(msg.ToolCalls) == 0 {
-			return strings.TrimSpace(msg.Content), attempts, nil
+			return strings.TrimSpace(msg.Content), attempts, stats, nil
 		}
 		for _, tc := range msg.ToolCalls {
 			code := extractCodeArg(tc.Function.Arguments)
@@ -207,7 +250,7 @@ func (l *LLM) RunAgent(
 			})
 		}
 	}
-	return "", attempts, fmt.Errorf("reached max iterations (%d) without a final answer", maxIters)
+	return "", attempts, stats, fmt.Errorf("reached max iterations (%d) without a final answer", maxIters)
 }
 
 // extractCodeArg pulls the `code` field out of a tool call's JSON arguments.
