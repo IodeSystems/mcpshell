@@ -152,8 +152,8 @@ func TestRunWritesResults(t *testing.T) {
 }
 
 func TestSuiteShape(t *testing.T) {
-	if len(bench.Suite) != 57 {
-		t.Errorf("suite has %d teasers, want 57", len(bench.Suite))
+	if len(bench.Suite) != 54 {
+		t.Errorf("suite has %d teasers, want 54", len(bench.Suite))
 	}
 	seen := map[string]bool{}
 	for _, teaser := range bench.Suite {

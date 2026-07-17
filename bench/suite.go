@@ -246,114 +246,91 @@ Extract just the filename (after the last backslash) from each path using the re
 		TimeoutSec: 60,
 	},
 
-	// --- Project Euler ------------------------------------------------------
-	// Neutrally phrased (no mention of mcpshell) so the same prompt is fair
-	// with and without the tool. Answers are exact integers, all within
-	// float64's safe-integer range (< 2^53). The harder ones can exceed the
-	// default 1M-step budget — the model must call extendLimit({steps}) after
-	// the tool reports the limit, which is itself part of what we measure.
+	// --- Project Euler (non-canonical) --------------------------------------
+	// Euler-style problems with perturbed constants so the answers are NOT the
+	// famous, memorized Project Euler numbers — the reasoning-only baseline must
+	// actually compute, not recall. Neutrally phrased (no mention of mcpshell) so
+	// the same prompt is fair with and without the tool. Answers are exact
+	// integers within float64's safe range; the heavier ones can exceed the
+	// default 1M-step budget, so the model must call extendLimit({steps}).
 	{
 		Name:       "euler_01_multiples_3_5",
-		Prompt:     "Find the sum of all the multiples of 3 or 5 below 1000.",
+		Prompt:     "Find the sum of all the multiples of 3 or 5 below 1379.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("233168"),
+		Validate:   all("443670"),
 	},
 	{
 		Name:       "euler_02_even_fibonacci",
-		Prompt:     "In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed four million.",
+		Prompt:     "In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed 20,000,000.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("4613732"),
+		Validate:   all("19544084"),
 	},
 	{
 		Name:       "euler_04_largest_palindrome",
-		Prompt:     "A palindromic number reads the same both ways. Find the largest palindrome that is the product of two 3-digit numbers.",
+		Prompt:     "A palindromic number reads the same both ways. Find the largest palindrome that is the product of two integers each between 100 and 900 inclusive.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("906609"),
+		Validate:   all("749947"),
 		TimeoutSec: 60,
 	},
 	{
 		Name:       "euler_05_smallest_multiple",
-		Prompt:     "What is the smallest positive number that is evenly divisible by every integer from 1 to 20?",
+		Prompt:     "What is the smallest positive number that is evenly divisible by every integer from 1 to 23?",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("232792560"),
+		Validate:   all("5354228880"),
 	},
 	{
 		Name:       "euler_06_sum_square_difference",
-		Prompt:     "Find the difference between the square of the sum of the first one hundred natural numbers (1 to 100) and the sum of their squares.",
+		Prompt:     "Find the difference between the square of the sum of the first 137 natural numbers (1 to 137) and the sum of their squares.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("25164150"),
+		Validate:   all("88492684"),
 	},
 	{
 		Name:       "euler_09_pythagorean_triplet",
-		Prompt:     "There is exactly one Pythagorean triplet of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1000. Find the product a*b*c.",
+		Prompt:     "Consider all Pythagorean triplets of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1716. Among them, find the largest product a*b*c.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("31875000"),
+		Validate:   all("175452420"),
 		TimeoutSec: 60,
 	},
 	{
 		Name:       "euler_07_10001st_prime",
-		Prompt:     "What is the 10001st prime number? (2 is the 1st.)",
+		Prompt:     "What is the 9001st prime number? (2 is the 1st.)",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("104743"),
-		TimeoutSec: 60,
+		Validate:   all("93187"),
+		TimeoutSec: 90,
 	},
 	{
 		Name:       "euler_21_amicable_numbers",
-		Prompt:     "Let d(n) be the sum of the proper divisors of n (divisors less than n). Two distinct numbers a and b are amicable if d(a) = b and d(b) = a. Find the sum of all amicable numbers below 10000.",
+		Prompt:     "Let d(n) be the sum of the proper divisors of n (divisors less than n). Two distinct numbers a and b are amicable if d(a) = b and d(b) = a. Find the sum of all amicable numbers below 15000.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("31626"),
+		Validate:   all("80106"),
 		TimeoutSec: 60,
 	},
 	{
 		Name:       "euler_12_triangle_divisors",
-		Prompt:     "The triangle numbers are 1, 3, 6, 10, 15, ...; the nth triangle number is the sum of the integers 1 to n. What is the value of the first triangle number to have more than five hundred divisors?",
+		Prompt:     "The triangle numbers are 1, 3, 6, 10, 15, ...; the nth triangle number is the sum of the integers 1 to n. What is the value of the first triangle number to have more than 420 divisors?",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("76576500"),
+		Validate:   all("17907120"),
 		TimeoutSec: 60,
 	},
 	{
 		Name:       "euler_03_largest_prime_factor",
-		Prompt:     "What is the largest prime factor of the number 600851475143?",
+		Prompt:     "What is the largest prime factor of the number 822999948151?",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("6857"),
+		Validate:   all("999999937"),
 		TimeoutSec: 60,
 	},
 	{
 		Name:       "euler_10_sum_of_primes",
-		Prompt:     "Find the sum of all the prime numbers below two million.",
+		Prompt:     "Find the sum of all the prime numbers below 1,500,000.",
 		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("142913828922"),
+		Validate:   all("82074443256"),
 		TimeoutSec: 90,
 	},
 	{
 		Name:       "euler_14_longest_collatz",
-		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below one million produces the longest chain?",
+		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below 700,000 produces the longest chain?",
 		FormatHint: "Return ONLY the starting number, with no commas, text, or explanation.",
-		Validate:   all("837799"),
-		TimeoutSec: 90,
-	},
-
-	// Non-canonical variants — perturbed parameters so the answer isn't a
-	// famous Project Euler number the model can recall instead of compute.
-	{
-		Name:       "euler_v1_5000th_prime",
-		Prompt:     "What is the 5000th prime number? (2 is the 1st.)",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("48611"),
-		TimeoutSec: 90,
-	},
-	{
-		Name:       "euler_v2_sum_primes_1m",
-		Prompt:     "Find the sum of all the prime numbers below one million.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("37550402023"),
-		TimeoutSec: 90,
-	},
-	{
-		Name:       "euler_v3_collatz_500k",
-		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below five hundred thousand produces the longest chain?",
-		FormatHint: "Return ONLY the starting number, with no commas, text, or explanation.",
-		Validate:   all("410011"),
+		Validate:   all("626331"),
 		TimeoutSec: 120,
 	},
 
