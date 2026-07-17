@@ -9,7 +9,8 @@ type Teaser struct {
 	Prompt     string
 	FormatHint string
 	Validate   func(string) bool
-	TimeoutSec int // per-teaser override; 0 uses the suite default
+	TimeoutSec int  // per-teaser override; 0 uses the suite default
+	ToolOnly   bool // needs data/state only the tool provides; excluded from the no-tool baseline
 }
 
 // all builds a validator that requires every substring to be present.
@@ -243,5 +244,186 @@ Extract just the filename (after the last backslash) from each path using the re
 		FormatHint: "Use the mcpshell tool. Return the joined string.",
 		Validate:   all("report_2024.csv", "build_log.txt", "prod_dump_2024-01-15.sql", "|"),
 		TimeoutSec: 60,
+	},
+
+	// --- Project Euler ------------------------------------------------------
+	// Neutrally phrased (no mention of mcpshell) so the same prompt is fair
+	// with and without the tool. Answers are exact integers, all within
+	// float64's safe-integer range (< 2^53). The harder ones can exceed the
+	// default 1M-step budget — the model must call extendLimit({steps}) after
+	// the tool reports the limit, which is itself part of what we measure.
+	{
+		Name:       "euler_01_multiples_3_5",
+		Prompt:     "Find the sum of all the multiples of 3 or 5 below 1000.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("233168"),
+	},
+	{
+		Name:       "euler_02_even_fibonacci",
+		Prompt:     "In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed four million.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("4613732"),
+	},
+	{
+		Name:       "euler_04_largest_palindrome",
+		Prompt:     "A palindromic number reads the same both ways. Find the largest palindrome that is the product of two 3-digit numbers.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("906609"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_05_smallest_multiple",
+		Prompt:     "What is the smallest positive number that is evenly divisible by every integer from 1 to 20?",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("232792560"),
+	},
+	{
+		Name:       "euler_06_sum_square_difference",
+		Prompt:     "Find the difference between the square of the sum of the first one hundred natural numbers (1 to 100) and the sum of their squares.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("25164150"),
+	},
+	{
+		Name:       "euler_09_pythagorean_triplet",
+		Prompt:     "There is exactly one Pythagorean triplet of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1000. Find the product a*b*c.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("31875000"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_07_10001st_prime",
+		Prompt:     "What is the 10001st prime number? (2 is the 1st.)",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("104743"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_21_amicable_numbers",
+		Prompt:     "Let d(n) be the sum of the proper divisors of n (divisors less than n). Two distinct numbers a and b are amicable if d(a) = b and d(b) = a. Find the sum of all amicable numbers below 10000.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("31626"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_12_triangle_divisors",
+		Prompt:     "The triangle numbers are 1, 3, 6, 10, 15, ...; the nth triangle number is the sum of the integers 1 to n. What is the value of the first triangle number to have more than five hundred divisors?",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("76576500"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_03_largest_prime_factor",
+		Prompt:     "What is the largest prime factor of the number 600851475143?",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("6857"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "euler_10_sum_of_primes",
+		Prompt:     "Find the sum of all the prime numbers below two million.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("142913828922"),
+		TimeoutSec: 90,
+	},
+	{
+		Name:       "euler_14_longest_collatz",
+		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below one million produces the longest chain?",
+		FormatHint: "Return ONLY the starting number, with no commas, text, or explanation.",
+		Validate:   all("837799"),
+		TimeoutSec: 90,
+	},
+
+	// Non-canonical variants — perturbed parameters so the answer isn't a
+	// famous Project Euler number the model can recall instead of compute.
+	{
+		Name:       "euler_v1_5000th_prime",
+		Prompt:     "What is the 5000th prime number? (2 is the 1st.)",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("48611"),
+		TimeoutSec: 90,
+	},
+	{
+		Name:       "euler_v2_sum_primes_1m",
+		Prompt:     "Find the sum of all the prime numbers below one million.",
+		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
+		Validate:   all("37550402023"),
+		TimeoutSec: 90,
+	},
+	{
+		Name:       "euler_v3_collatz_500k",
+		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below five hundred thousand produces the longest chain?",
+		FormatHint: "Return ONLY the starting number, with no commas, text, or explanation.",
+		Validate:   all("410011"),
+		TimeoutSec: 120,
+	},
+
+	// --- Composition -------------------------------------------------------
+	// These reward composing a whole pipeline into ONE eval rather than
+	// round-tripping through several tool calls. The core+math ones carry
+	// their data inline (fair with and without the tool); the SQL ones query
+	// the seeded `shop` fixture (meaningful only with the tool — the model
+	// cannot know the rows otherwise). Watch the tool-call count: a good
+	// composer solves each in a single call.
+	{
+		Name:       "compose_core_top_region",
+		Prompt:     `Given [{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}], total amt by region and return the region with the highest total and its total, formatted as region=total.`,
+		FormatHint: "Return ONLY the final value (e.g. Foo=42), no explanation.",
+		Validate:   all("North", "20"),
+	},
+	{
+		Name:       "compose_core_wordfreq_top",
+		Prompt:     `In the string "the cat sat on the mat the cat sat", find the most frequent word and its count, formatted as word:count.`,
+		FormatHint: "Return ONLY the final value (e.g. foo:5), no explanation.",
+		Validate:   all("the", "3"),
+	},
+	{
+		Name:       "compose_core_flatten_even_sum",
+		Prompt:     "Flatten the nested array [[1,2,[3,4]],[5,[6,7]],[8]] completely, keep only the even numbers, and return their sum.",
+		FormatHint: "Return ONLY the final number, no explanation.",
+		Validate:   all("20"),
+	},
+	{
+		Name:       "compose_core_csv_top_dept",
+		Prompt:     "Parse this CSV (first row is headers): \"name,dept,sales\\nalice,A,120\\nbob,B,90\\ncarol,A,75\\ndan,B,200\". Sum sales per dept and return the dept with the highest total and that total, formatted as dept=total.",
+		FormatHint: "Return ONLY the final value (e.g. X=999), no explanation.",
+		Validate:   all("B", "290"),
+	},
+	{
+		Name:       "compose_core_pipeline_stats",
+		Prompt:     "Take the integers 1 to 20, square each, keep only the odd squares, and return their sum.",
+		FormatHint: "Return ONLY the final number, no explanation.",
+		Validate:   all("1330"),
+	},
+	{
+		Name:       "compose_sql_top_region",
+		Prompt:     "A SQLite database is attached as the `shop` namespace with table orders(id, region, product, qty, unit_price, created). A row's revenue is qty*unit_price. Find the region with the highest total revenue and return it as region: revenue.",
+		FormatHint: "Return ONLY the final value (e.g. Foo: 123), no explanation.",
+		Validate:   all("West", "278"),
+		TimeoutSec: 60,
+		ToolOnly:   true,
+	},
+	{
+		Name:       "compose_sql_top_product",
+		Prompt:     "A SQLite database is attached as the `shop` namespace with table orders(id, region, product, qty, unit_price, created). A row's revenue is qty*unit_price. Which product has the highest total revenue across all orders?",
+		FormatHint: "Return ONLY the product name, no explanation.",
+		Validate:   all("gadget"),
+		TimeoutSec: 60,
+		ToolOnly:   true,
+	},
+	{
+		Name:       "compose_sql_top_month",
+		Prompt:     "A SQLite database is attached as the `shop` namespace with table orders(id, region, product, qty, unit_price, created); created is an ISO date like 2024-03-09. A row's revenue is qty*unit_price. Which calendar month (YYYY-MM) has the highest total revenue?",
+		FormatHint: "Return ONLY the month as YYYY-MM, no explanation.",
+		Validate:   all("2024-03"),
+		TimeoutSec: 60,
+		ToolOnly:   true,
+	},
+	{
+		Name:       "compose_sql_region_of_gizmo",
+		Prompt:     "A SQLite database is attached as the `shop` namespace with table orders(id, region, product, qty, unit_price, created). A row's revenue is qty*unit_price. For each region, find its single highest-revenue product. Which region's top product is 'gizmo'?",
+		FormatHint: "Return ONLY the region name, no explanation.",
+		Validate:   all("West"),
+		TimeoutSec: 60,
+		ToolOnly:   true,
 	},
 }

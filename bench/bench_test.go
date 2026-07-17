@@ -149,13 +149,18 @@ func TestRunWritesResults(t *testing.T) {
 }
 
 func TestSuiteShape(t *testing.T) {
-	if len(bench.Suite) != 33 {
-		t.Errorf("suite has %d teasers, want 33", len(bench.Suite))
+	if len(bench.Suite) != 57 {
+		t.Errorf("suite has %d teasers, want 57", len(bench.Suite))
 	}
+	seen := map[string]bool{}
 	for _, teaser := range bench.Suite {
 		if teaser.Name == "" || teaser.Prompt == "" || teaser.Validate == nil {
 			t.Errorf("teaser %q is incomplete", teaser.Name)
 		}
+		if seen[teaser.Name] {
+			t.Errorf("duplicate teaser name %q", teaser.Name)
+		}
+		seen[teaser.Name] = true
 	}
 	// Spot-check a validator.
 	fizz := bench.Suite[1]

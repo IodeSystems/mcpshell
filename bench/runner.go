@@ -22,6 +22,8 @@ type Options struct {
 	MaxIters     int
 	FailFast     bool
 	Only         string // if set, run only teasers whose name contains this
+	NoTool       bool   // if set, run without the mcpshell tool (reasoning-only baseline)
+	Label        string // if set, the name used in output paths/reports instead of the resolved model id
 }
 
 // Result is the outcome of one teaser.
@@ -29,9 +31,19 @@ type Result struct {
 	Teaser      Teaser
 	Success     bool
 	Attempts    []Attempt
-	DurationMs  int64
+	DurationMs  int64 // total wall time for the teaser (model round-trips + tool runtime)
+	ToolMs      int64 // wall time spent inside the mcpshell interpreter across all tool calls
 	FinalAnswer string
 	Error       string
+}
+
+// ModelMs is the wall time not spent in the interpreter — model round-trips,
+// network, and agent-loop overhead. Never negative.
+func (r Result) ModelMs() int64 {
+	if r.ToolMs > r.DurationMs {
+		return 0
+	}
+	return r.DurationMs - r.ToolMs
 }
 
 // Run executes the benchmark suite against the LLM and writes markdown results.
@@ -56,8 +68,36 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 			return fmt.Errorf("no teaser name contains %q", opts.Only)
 		}
 	}
+	// A reasoning-only baseline can't answer teasers that need data/state only
+	// the tool provides, so skip them rather than score guaranteed failures.
+	if opts.NoTool {
+		var self []Teaser
+		skipped := 0
+		for _, teaser := range suite {
+			if teaser.ToolOnly {
+				skipped++
+				continue
+			}
+			self = append(self, teaser)
+		}
+		suite = self
+		if skipped > 0 {
+			fmt.Printf("(no-tool: skipping %d tool-only teaser(s) that need data the model can't have)\n", skipped)
+		}
+		if len(suite) == 0 {
+			return fmt.Errorf("no self-contained teasers to run without the tool")
+		}
+	}
 
-	fmt.Printf("Running %d benchmarks against %s (model: %s)\n", len(suite), llm.BaseURL, model)
+	// displayModel names the run in output paths and reports; it defaults to
+	// the resolved model id but can be overridden (e.g. to avoid publishing an
+	// internal model name).
+	displayModel := model
+	if opts.Label != "" {
+		displayModel = opts.Label
+	}
+
+	fmt.Printf("Running %d benchmarks against %s (model: %s)\n", len(suite), llm.BaseURL, displayModel)
 	fmt.Println(strings.Repeat("-", 60))
 
 	var results []Result
@@ -69,17 +109,22 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 			timeout = teaser.TimeoutSec
 		}
 
-		sh := shellFactory()
-		runTool := func(code string) string {
-			v, err := sh.EvalExported(code, nil)
-			if err != nil {
-				return "ERROR: " + err.Error()
+		// runTool stays nil in no-tool mode; RunAgent then offers no tool and
+		// the model must answer from its own reasoning.
+		var runTool func(code string) string
+		if !opts.NoTool {
+			sh := shellFactory()
+			runTool = func(code string) string {
+				v, err := sh.EvalExported(code, nil)
+				if err != nil {
+					return "ERROR: " + err.Error()
+				}
+				out := v.Display()
+				if len(out) > toolMaxOutput {
+					out = out[:toolMaxOutput] + "\n\n... OUTPUT TRUNCATED"
+				}
+				return out
 			}
-			out := v.Display()
-			if len(out) > toolMaxOutput {
-				out = out[:toolMaxOutput] + "\n\n... OUTPUT TRUNCATED"
-			}
-			return out
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -88,10 +133,15 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 			teaser.Prompt+"\n"+teaser.FormatHint, runTool, opts.MaxIters)
 		cancel()
 
+		var toolMs int64
+		for _, a := range attempts {
+			toolMs += a.DurationMs
+		}
 		res := Result{
 			Teaser:      teaser,
 			Attempts:    attempts,
 			DurationMs:  time.Since(start).Milliseconds(),
+			ToolMs:      toolMs,
 			FinalAnswer: answer,
 		}
 		switch {
@@ -104,13 +154,17 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 		}
 		results = append(results, res)
 
+		split := ""
+		if len(attempts) > 0 {
+			split = fmt.Sprintf(" [tool %dms, model %dms]", res.ToolMs, res.ModelMs())
+		}
 		switch {
 		case res.Success:
-			fmt.Printf("PASS (%d tool calls, %dms)\n", len(attempts), res.DurationMs)
+			fmt.Printf("PASS (%d tool calls, %dms)%s\n", len(attempts), res.DurationMs, split)
 		case res.Error != "":
-			fmt.Printf("ERROR — %s (%d tool calls, %dms)\n", res.Error, len(attempts), res.DurationMs)
+			fmt.Printf("ERROR — %s (%d tool calls, %dms)%s\n", res.Error, len(attempts), res.DurationMs, split)
 		default:
-			fmt.Printf("FAIL (%d tool calls, %dms)\n", len(attempts), res.DurationMs)
+			fmt.Printf("FAIL (%d tool calls, %dms)%s\n", len(attempts), res.DurationMs, split)
 		}
 
 		if opts.FailFast && !res.Success {
@@ -120,7 +174,7 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 	}
 
 	fmt.Println(strings.Repeat("-", 60))
-	if err := writeResults(results, model, opts.OutputDir); err != nil {
+	if err := writeResults(results, displayModel, opts.OutputDir); err != nil {
 		return err
 	}
 	passed := 0
@@ -148,6 +202,9 @@ func writeResults(results []Result, model, outputDir string) error {
 		[]byte(renderIndex(results, model)), 0o644); err != nil {
 		return err
 	}
+	if err := writeRecords(results, outputDir); err != nil {
+		return err
+	}
 	fmt.Printf("Results written to %s\n", modelDir)
 	return nil
 }
@@ -172,7 +229,7 @@ func renderResult(r Result) string {
 	}
 	fmt.Fprintf(&b, "# %s\n\n", r.Teaser.Name)
 	fmt.Fprintf(&b, "**Status:** %s\n", status)
-	fmt.Fprintf(&b, "**Duration:** %dms\n", r.DurationMs)
+	fmt.Fprintf(&b, "**Duration:** %dms (tool runtime %dms, model/round-trip %dms)\n", r.DurationMs, r.ToolMs, r.ModelMs())
 	fmt.Fprintf(&b, "**Tool calls:** %d\n", len(r.Attempts))
 	if r.Error != "" {
 		fmt.Fprintf(&b, "**Error:** %s\n", r.Error)
@@ -187,7 +244,7 @@ func renderResult(r Result) string {
 			if a.IsError {
 				st = "ERROR"
 			}
-			fmt.Fprintf(&b, "### Attempt %d (%s)\n\n```javascript\n%s\n```\n\n", i+1, st, a.Code)
+			fmt.Fprintf(&b, "### Attempt %d (%s, %dms)\n\n```javascript\n%s\n```\n\n", i+1, st, a.DurationMs, a.Code)
 			res := a.Result
 			if len(res) > 500 {
 				res = res[:500] + "…"
@@ -228,8 +285,9 @@ func renderIndex(results []Result, model string) string {
 	fmt.Fprintf(&b, "**Date:** %s\n", time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "**Score:** %d/%d\n\n", passed, len(results))
 
-	b.WriteString("| Teaser | Status | Tool Calls | Errors | Duration | Details |\n")
-	b.WriteString("|--------|--------|-----------|--------|----------|---------|\n")
+	b.WriteString("| Teaser | Status | Tool Calls | Errors | Total | Tool ms | Model ms | Details |\n")
+	b.WriteString("|--------|--------|-----------|--------|-------|---------|----------|---------|\n")
+	var sumTool, sumModel int64
 	for _, r := range results {
 		status := "FAIL"
 		if r.Success {
@@ -241,12 +299,14 @@ func renderIndex(results []Result, model string) string {
 				errs++
 			}
 		}
+		sumTool += r.ToolMs
+		sumModel += r.ModelMs()
 		note := ""
 		if r.Error != "" {
 			note = " (" + r.Error + ")"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %dms | [detail](%s/%s.md)%s |\n",
-			r.Teaser.Name, status, len(r.Attempts), errs, r.DurationMs,
+		fmt.Fprintf(&b, "| %s | %s | %d | %d | %dms | %d | %d | [detail](%s/%s.md)%s |\n",
+			r.Teaser.Name, status, len(r.Attempts), errs, r.DurationMs, r.ToolMs, r.ModelMs(),
 			sanitizeModel(model), r.Teaser.Name, note)
 	}
 

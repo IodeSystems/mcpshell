@@ -8,13 +8,15 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Attempt records one mcpshell tool invocation made during an agent run.
 type Attempt struct {
-	Code    string
-	Result  string
-	IsError bool
+	Code       string
+	Result     string
+	IsError    bool
+	DurationMs int64 // wall time spent executing this tool call (interpreter runtime)
 }
 
 // LLM is a minimal client for an OpenAI-compatible chat-completions API.
@@ -135,14 +137,17 @@ var mcpshellToolDef = json.RawMessage(`{"type":"function","function":{` +
 	`"parameters":{"type":"object","properties":{` +
 	`"code":{"type":"string","description":"mcpshell source code"}},"required":["code"]}}}`)
 
-func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage) (chatMessage, error) {
-	data, err := l.do(ctx, http.MethodPost, "/v1/chat/completions", map[string]any{
+func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, useTool bool) (chatMessage, error) {
+	body := map[string]any{
 		"model":       model,
 		"messages":    messages,
-		"tools":       []json.RawMessage{mcpshellToolDef},
-		"tool_choice": "auto",
 		"temperature": 0,
-	})
+	}
+	if useTool {
+		body["tools"] = []json.RawMessage{mcpshellToolDef}
+		body["tool_choice"] = "auto"
+	}
+	data, err := l.do(ctx, http.MethodPost, "/v1/chat/completions", body)
 	if err != nil {
 		return chatMessage{}, err
 	}
@@ -162,19 +167,22 @@ func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage) (c
 
 // RunAgent drives a tool-calling agent loop: it sends the prompt, executes any
 // mcpshell tool calls via runTool, feeds results back, and returns the model's
-// final text answer along with every tool attempt made.
+// final text answer along with every tool attempt made. When runTool is nil the
+// mcpshell tool is not offered at all — a no-tool baseline where the model must
+// answer from its own reasoning in a single completion.
 func (l *LLM) RunAgent(
 	ctx context.Context,
 	model, systemPrompt, userPrompt string,
 	runTool func(code string) string,
 	maxIters int,
 ) (answer string, attempts []Attempt, err error) {
+	useTool := runTool != nil
 	messages := []chatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 	for range maxIters {
-		msg, err := l.chat(ctx, model, messages)
+		msg, err := l.chat(ctx, model, messages, useTool)
 		if err != nil {
 			return "", attempts, err
 		}
@@ -184,11 +192,13 @@ func (l *LLM) RunAgent(
 		}
 		for _, tc := range msg.ToolCalls {
 			code := extractCodeArg(tc.Function.Arguments)
+			toolStart := time.Now()
 			res := runTool(code)
 			attempts = append(attempts, Attempt{
-				Code:    code,
-				Result:  res,
-				IsError: strings.Contains(res, "ERROR:"),
+				Code:       code,
+				Result:     res,
+				IsError:    strings.Contains(res, "ERROR:"),
+				DurationMs: time.Since(toolStart).Milliseconds(),
 			})
 			messages = append(messages, chatMessage{
 				Role:       "tool",
