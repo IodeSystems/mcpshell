@@ -88,18 +88,50 @@ then execs it. The same launcher works across machines and architectures.
 
 ## Benchmark
 
-`bin/bench` is a separate side tool — it runs the 33-challenge LLM suite against
-an OpenAI-compatible endpoint. Copy `env.local.example` to `env.local`
+`bin/bench` is a separate side tool — it runs the LLM challenge suite (general
+mcpshell tasks, Project Euler, and composition problems) against an
+OpenAI-compatible endpoint. Copy `env.local.example` to `env.local`
 (gitignored) and set `MCPSHELL_LLM_URL` / `MCPSHELL_LLM_MODEL`, then:
 
 ```
-./bin/bench                    # full suite
-./bin/bench --only factorial   # one teaser (smoke test)
-./bin/bench --compact          # compact system prompt
+./bin/bench                       # full suite
+./bin/bench --only euler_         # one category (substring match on teaser name)
+./bin/bench --compact             # compact system prompt
+./bin/bench --no-tool             # reasoning-only baseline (no mcpshell tool)
+./bin/bench --label bonsai        # name used in output paths/reports
 ```
 
-Results are written as markdown to `benchmarks/results/<model>/`. `bin/bench`
-auto-builds the same way `bin/mcpshell` does.
+Results are written as markdown (+ a machine-readable `results.json`) to
+`benchmarks/results[-compact|-notool]/<model>/`, or wherever `--out` points.
+`bin/bench` auto-builds the same way `bin/mcpshell` does.
+
+### With vs. without the tool
+
+`--no-tool` offers the model no `mcpshell` tool, so it must answer from its own
+reasoning — a baseline for measuring what the tool buys. Teasers that need data
+only the tool can reach (the SQL ones) are marked tool-only and skipped in this
+mode. `bench compare` turns two runs into a side-by-side doc:
+
+```
+./bin/bench --only euler_ --label bonsai --out benchmarks/euler/with
+./bin/bench --only euler_ --no-tool --label bonsai --out benchmarks/euler/without
+./bin/bench compare --label bonsai benchmarks/euler/with benchmarks/euler/without
+```
+
+Every result carries a **tool-runtime vs. model-time** split (`tool ms` /
+`model ms`), which separates time spent inside the interpreter from time spent
+on model round-trips — e.g. it shows the heavy Euler timeouts are interpreter
+runtime, not multi-turn thinking. Sample runs live under `benchmarks/euler/` and
+`benchmarks/compose/` (see each `comparison.md`).
+
+### Reference solutions
+
+Every deterministic teaser (Project Euler + composition) has a canonical
+single-eval mcpshell solution in `bench/references.go`, verified against the
+teaser's expected answer with no LLM (`go test ./bench/`). Heavy solutions run
+only with `MCPSHELL_BENCH_HEAVY=1`; a coverage test fails if any such teaser
+lacks a reference. The composition problems query a seeded in-memory SQLite
+fixture (`bench/fixture.go`), attached as the `shop` namespace.
 
 ## Layout
 
