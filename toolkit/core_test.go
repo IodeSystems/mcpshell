@@ -88,7 +88,6 @@ func TestCoreToolkit(t *testing.T) {
 		{"charAt", `"hello" |> charAt(1)`, "e"},
 		{"padStart", `"42" |> padStart(5, "0")`, "00042"},
 		{"padEnd", `"hi" |> padEnd(5, ".")`, "hi..."},
-		{"columns", `"a,b,c,d" |> columns([1, 3])`, `["b", "d"]`},
 		// Regex
 		{"match global", `"abc123def456" |> match(/[0-9]+/g)`, `["123", "456"]`},
 		{"match groups", `"abc123" |> match(/([a-z]+)([0-9]+)/)`, `["abc123", "abc", "123"]`},

@@ -206,36 +206,6 @@ func InstallCore(sh *Shell) *Shell {
 			return strArr(stringChars(requireString("chars", arg(args, 0))))
 		})
 
-	reg("columns", "input: string, indices: array, sep?: string|regex", "extract fields by index from delimited string",
-		[]string{`"a,b,c,d" |> columns([1, 3])`},
-		func(args []Value) Value {
-			s := requireString("columns", arg(args, 0))
-			indices := requireArray("columns", arg(args, 1))
-			var fields []string
-			switch sep := argOpt(args, 2).(type) {
-			case *RegexVal:
-				fields = regexSplit(buildRegex(sep), s)
-			case *StringVal:
-				fields = strings.Split(s, sep.V)
-			default:
-				fields = strings.Split(s, ",")
-			}
-			out := make([]Value, len(indices.Elements))
-			for k, idxV := range indices.Elements {
-				n, ok := idxV.(*NumberVal)
-				if !ok {
-					panic(TypeMismatch("columns", "number", idxV, "indices must be numbers"))
-				}
-				i := int(n.V)
-				if i >= 0 && i < len(fields) {
-					out[k] = Str(fields[i])
-				} else {
-					out[k] = Null
-				}
-			}
-			return &ArrayVal{Elements: out}
-		})
-
 	reg("flat", "input: array", "flattens one level",
 		[]string{`[[1, 2], [3, 4]] |> flat()`},
 		func(args []Value) Value {
