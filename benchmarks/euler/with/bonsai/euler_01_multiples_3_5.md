@@ -1,7 +1,8 @@
 # euler_01_multiples_3_5
 
 **Status:** PASS
-**Duration:** 2509ms (tool runtime 37ms, model/round-trip 2472ms)
+**Duration:** 2546ms (tool runtime 37ms, model/round-trip 2509ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 727 (4318 prompt − 3772 cached + 181 generated)
 **Tool calls:** 1
 
 ## Prompt

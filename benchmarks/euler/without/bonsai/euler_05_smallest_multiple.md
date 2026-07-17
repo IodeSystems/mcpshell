@@ -1,7 +1,8 @@
 # euler_05_smallest_multiple
 
 **Status:** PASS
-**Duration:** 20333ms (tool runtime 0ms, model/round-trip 20333ms)
+**Duration:** 20971ms (tool runtime 0ms, model/round-trip 20971ms)
+**Turns:** 1 model round-trips · **Tokens:** 2348 (90 prompt + 2258 completion)
 **Tool calls:** 0
 
 ## Prompt

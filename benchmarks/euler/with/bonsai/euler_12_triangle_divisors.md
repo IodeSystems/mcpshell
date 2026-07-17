@@ -1,7 +1,8 @@
 # euler_12_triangle_divisors
 
 **Status:** FAIL
-**Duration:** 73831ms (tool runtime 64705ms, model/round-trip 9126ms)
+**Duration:** 74627ms (tool runtime 64495ms, model/round-trip 10132ms)
+**Turns:** 4 model round-trips · **Processed tokens:** 1984 (7372 prompt − 6256 cached + 868 generated)
 **Tool calls:** 3
 **Error:** TIMEOUT (60s)
 
@@ -17,7 +18,7 @@
 
 ## Attempts
 
-### Attempt 1 (ERROR, 5950ms)
+### Attempt 1 (ERROR, 6100ms)
 
 ```javascript
 function countDivisors(n) {
@@ -55,7 +56,7 @@ ERROR: Execution step limit exceeded (1000000 steps) at line 3
     - If your algorithm is correct but data is large, use extendLimit({steps: 5000000})
 ```
 
-### Attempt 2 (ERROR, 28750ms)
+### Attempt 2 (ERROR, 28388ms)
 
 ```javascript
 extendLimit({steps: 5000000})
@@ -95,7 +96,7 @@ ERROR: Execution step limit exceeded (5000000 steps) at line 5
     - If your algorithm is correct but data is large, use extendLimit({steps: 25000000})
 ```
 
-### Attempt 3 (ERROR, 30005ms)
+### Attempt 3 (ERROR, 30007ms)
 
 ```javascript
 extendLimit({steps: 25000000})

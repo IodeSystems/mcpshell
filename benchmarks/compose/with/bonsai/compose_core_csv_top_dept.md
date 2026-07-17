@@ -1,7 +1,8 @@
 # compose_core_csv_top_dept
 
 **Status:** PASS
-**Duration:** 4332ms (tool runtime 77ms, model/round-trip 4255ms)
+**Duration:** 4345ms (tool runtime 81ms, model/round-trip 4264ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 1133 (4574 prompt − 3821 cached + 380 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@ B=290
 
 ## Attempts
 
-### Attempt 1 (OK, 77ms)
+### Attempt 1 (OK, 81ms)
 
 ```javascript
 const csv = "name,dept,sales\nalice,A,120\nbob,B,90\ncarol,A,75\ndan,B,200";

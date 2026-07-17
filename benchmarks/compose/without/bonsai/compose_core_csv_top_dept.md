@@ -1,7 +1,8 @@
 # compose_core_csv_top_dept
 
 **Status:** PASS
-**Duration:** 7704ms (tool runtime 0ms, model/round-trip 7704ms)
+**Duration:** 8221ms (tool runtime 0ms, model/round-trip 8221ms)
+**Turns:** 1 model round-trips · **Tokens:** 976 (138 prompt + 838 completion)
 **Tool calls:** 0
 
 ## Prompt

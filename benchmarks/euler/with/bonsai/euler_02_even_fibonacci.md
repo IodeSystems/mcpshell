@@ -1,7 +1,8 @@
 # euler_02_even_fibonacci
 
 **Status:** PASS
-**Duration:** 4318ms (tool runtime 39ms, model/round-trip 4279ms)
+**Duration:** 4346ms (tool runtime 39ms, model/round-trip 4307ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 1003 (4428 prompt − 3807 cached + 382 generated)
 **Tool calls:** 1
 
 ## Prompt

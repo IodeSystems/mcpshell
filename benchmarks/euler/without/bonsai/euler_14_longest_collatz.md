@@ -1,7 +1,8 @@
 # euler_14_longest_collatz
 
 **Status:** PASS
-**Duration:** 3636ms (tool runtime 0ms, model/round-trip 3636ms)
+**Duration:** 3566ms (tool runtime 0ms, model/round-trip 3566ms)
+**Turns:** 1 model round-trips · **Tokens:** 437 (111 prompt + 326 completion)
 **Tool calls:** 0
 
 ## Prompt

@@ -1,7 +1,8 @@
 # compose_core_wordfreq_top
 
 **Status:** PASS
-**Duration:** 5785ms (tool runtime 87ms, model/round-trip 5698ms)
+**Duration:** 5782ms (tool runtime 101ms, model/round-trip 5681ms)
+**Turns:** 3 model round-trips · **Processed tokens:** 1330 (6938 prompt − 6103 cached + 495 generated)
 **Tool calls:** 2
 
 ## Prompt
@@ -16,7 +17,7 @@ the:3
 
 ## Attempts
 
-### Attempt 1 (ERROR, 50ms)
+### Attempt 1 (ERROR, 62ms)
 
 ```javascript
 const str = "the cat sat on the mat the cat sat";
@@ -38,7 +39,7 @@ ERROR: Type mismatch in comparison
   at line 4:50
 ```
 
-### Attempt 2 (OK, 37ms)
+### Attempt 2 (OK, 39ms)
 
 ```javascript
 const str = "the cat sat on the mat the cat sat";

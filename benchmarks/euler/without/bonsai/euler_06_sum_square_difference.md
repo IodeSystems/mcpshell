@@ -1,7 +1,8 @@
 # euler_06_sum_square_difference
 
 **Status:** FAIL
-**Duration:** 30018ms (tool runtime 0ms, model/round-trip 30018ms)
+**Duration:** 30027ms (tool runtime 0ms, model/round-trip 30027ms)
+**Turns:** 1 model round-trips · **Tokens:** 0 (0 prompt + 0 completion)
 **Tool calls:** 0
 **Error:** TIMEOUT (30s)
 

@@ -1,7 +1,8 @@
 # euler_05_smallest_multiple
 
 **Status:** PASS
-**Duration:** 4251ms (tool runtime 76ms, model/round-trip 4175ms)
+**Duration:** 6740ms (tool runtime 54ms, model/round-trip 6686ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 994 (4398 prompt − 3773 cached + 369 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 76ms)
+### Attempt 1 (OK, 54ms)
 
 ```javascript
 function gcd(a, b) {

@@ -1,7 +1,8 @@
 # euler_04_largest_palindrome
 
 **Status:** PASS
-**Duration:** 3588ms (tool runtime 250ms, model/round-trip 3338ms)
+**Duration:** 4619ms (tool runtime 217ms, model/round-trip 4402ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 912 (4415 prompt − 3779 cached + 276 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 250ms)
+### Attempt 1 (OK, 217ms)
 
 ```javascript
 let maxPal = 0;

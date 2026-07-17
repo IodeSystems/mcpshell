@@ -1,7 +1,8 @@
 # compose_sql_top_product
 
 **Status:** PASS
-**Duration:** 2212ms (tool runtime 1ms, model/round-trip 2211ms)
+**Duration:** 2270ms (tool runtime 1ms, model/round-trip 2269ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 734 (4371 prompt − 3794 cached + 157 generated)
 **Tool calls:** 1
 
 ## Prompt

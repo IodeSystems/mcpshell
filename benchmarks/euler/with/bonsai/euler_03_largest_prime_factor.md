@@ -1,7 +1,8 @@
 # euler_03_largest_prime_factor
 
 **Status:** PASS
-**Duration:** 3906ms (tool runtime 54ms, model/round-trip 3852ms)
+**Duration:** 5140ms (tool runtime 53ms, model/round-trip 5087ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 1009 (4451 prompt − 3775 cached + 333 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 54ms)
+### Attempt 1 (OK, 53ms)
 
 ```javascript
 let n = 600851475143;

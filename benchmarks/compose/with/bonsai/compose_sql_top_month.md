@@ -1,7 +1,8 @@
 # compose_sql_top_month
 
 **Status:** PASS
-**Duration:** 3575ms (tool runtime 2ms, model/round-trip 3573ms)
+**Duration:** 3587ms (tool runtime 2ms, model/round-trip 3585ms)
+**Turns:** 3 model round-trips · **Processed tokens:** 1036 (6896 prompt − 6121 cached + 261 generated)
 **Tool calls:** 2
 
 ## Prompt

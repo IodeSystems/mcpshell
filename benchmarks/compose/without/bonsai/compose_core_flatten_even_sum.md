@@ -1,7 +1,8 @@
 # compose_core_flatten_even_sum
 
 **Status:** PASS
-**Duration:** 5345ms (tool runtime 0ms, model/round-trip 5345ms)
+**Duration:** 5771ms (tool runtime 0ms, model/round-trip 5771ms)
+**Turns:** 1 model round-trips · **Tokens:** 672 (100 prompt + 572 completion)
 **Tool calls:** 0
 
 ## Prompt

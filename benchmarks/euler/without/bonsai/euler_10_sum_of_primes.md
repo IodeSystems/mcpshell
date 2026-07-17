@@ -1,7 +1,8 @@
 # euler_10_sum_of_primes
 
 **Status:** PASS
-**Duration:** 7382ms (tool runtime 0ms, model/round-trip 7382ms)
+**Duration:** 7368ms (tool runtime 0ms, model/round-trip 7368ms)
+**Turns:** 1 model round-trips · **Tokens:** 821 (81 prompt + 740 completion)
 **Tool calls:** 0
 
 ## Prompt

@@ -1,7 +1,8 @@
 # euler_21_amicable_numbers
 
 **Status:** PASS
-**Duration:** 20878ms (tool runtime 0ms, model/round-trip 20878ms)
+**Duration:** 20679ms (tool runtime 0ms, model/round-trip 20679ms)
+**Turns:** 1 model round-trips · **Tokens:** 2319 (128 prompt + 2191 completion)
 **Tool calls:** 0
 
 ## Prompt

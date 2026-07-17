@@ -1,7 +1,8 @@
 # compose_core_pipeline_stats
 
 **Status:** PASS
-**Duration:** 3672ms (tool runtime 13ms, model/round-trip 3659ms)
+**Duration:** 3712ms (tool runtime 12ms, model/round-trip 3700ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 860 (4310 prompt − 3770 cached + 320 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 13ms)
+### Attempt 1 (OK, 12ms)
 
 ```javascript
 range(1, 21) |> map(n => n * n) |> filter(s => s % 2 !== 0) |> sum()

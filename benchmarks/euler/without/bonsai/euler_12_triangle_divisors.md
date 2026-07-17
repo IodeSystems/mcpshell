@@ -2,6 +2,7 @@
 
 **Status:** FAIL
 **Duration:** 60000ms (tool runtime 0ms, model/round-trip 60000ms)
+**Turns:** 1 model round-trips · **Tokens:** 0 (0 prompt + 0 completion)
 **Tool calls:** 0
 **Error:** TIMEOUT (60s)
 

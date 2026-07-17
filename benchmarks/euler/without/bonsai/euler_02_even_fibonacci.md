@@ -1,7 +1,8 @@
 # euler_02_even_fibonacci
 
 **Status:** FAIL
-**Duration:** 30012ms (tool runtime 0ms, model/round-trip 30012ms)
+**Duration:** 30010ms (tool runtime 0ms, model/round-trip 30010ms)
+**Turns:** 1 model round-trips · **Tokens:** 0 (0 prompt + 0 completion)
 **Tool calls:** 0
 **Error:** TIMEOUT (30s)
 

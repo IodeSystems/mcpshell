@@ -1,7 +1,8 @@
 # compose_core_top_region
 
 **Status:** PASS
-**Duration:** 11354ms (tool runtime 195ms, model/round-trip 11159ms)
+**Duration:** 11067ms (tool runtime 180ms, model/round-trip 10887ms)
+**Turns:** 5 model round-trips · **Processed tokens:** 2294 (13005 prompt − 11633 cached + 922 generated)
 **Tool calls:** 4
 
 ## Prompt
@@ -16,7 +17,7 @@ North=20
 
 ## Attempts
 
-### Attempt 1 (ERROR, 75ms)
+### Attempt 1 (ERROR, 71ms)
 
 ```javascript
 let data = [{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}];
@@ -36,7 +37,7 @@ ERROR: Type mismatch in member access .total
   at line 4:36
 ```
 
-### Attempt 2 (ERROR, 34ms)
+### Attempt 2 (ERROR, 35ms)
 
 ```javascript
 let data = [{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}];
@@ -56,7 +57,7 @@ ERROR: Type mismatch in member access .total
   at line 4:36
 ```
 
-### Attempt 3 (ERROR, 34ms)
+### Attempt 3 (ERROR, 42ms)
 
 ```javascript
 let data = [{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}];
@@ -76,7 +77,7 @@ ERROR: Type mismatch in member access .total
   at line 4:36
 ```
 
-### Attempt 4 (OK, 52ms)
+### Attempt 4 (OK, 32ms)
 
 ```javascript
 let data = [{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}];

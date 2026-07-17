@@ -2,51 +2,56 @@
   {
     "name": "compose_core_top_region",
     "success": true,
+    "turns": 1,
     "tool_calls": 0,
+    "prompt_tokens": 145,
+    "completion_tokens": 571,
     "tool_ms": 0,
-    "model_ms": 5879,
-    "total_ms": 5879,
-    "error": "",
-    "tool_only": false
+    "model_ms": 5903,
+    "total_ms": 5903
   },
   {
     "name": "compose_core_wordfreq_top",
     "success": true,
+    "turns": 1,
     "tool_calls": 0,
+    "prompt_tokens": 99,
+    "completion_tokens": 340,
     "tool_ms": 0,
-    "model_ms": 3284,
-    "total_ms": 3284,
-    "error": "",
-    "tool_only": false
+    "model_ms": 3722,
+    "total_ms": 3722
   },
   {
     "name": "compose_core_flatten_even_sum",
     "success": true,
+    "turns": 1,
     "tool_calls": 0,
+    "prompt_tokens": 100,
+    "completion_tokens": 572,
     "tool_ms": 0,
-    "model_ms": 5345,
-    "total_ms": 5345,
-    "error": "",
-    "tool_only": false
+    "model_ms": 5771,
+    "total_ms": 5771
   },
   {
     "name": "compose_core_csv_top_dept",
     "success": true,
+    "turns": 1,
     "tool_calls": 0,
+    "prompt_tokens": 138,
+    "completion_tokens": 838,
     "tool_ms": 0,
-    "model_ms": 7704,
-    "total_ms": 7704,
-    "error": "",
-    "tool_only": false
+    "model_ms": 8221,
+    "total_ms": 8221
   },
   {
     "name": "compose_core_pipeline_stats",
     "success": true,
+    "turns": 1,
     "tool_calls": 0,
+    "prompt_tokens": 87,
+    "completion_tokens": 1597,
     "tool_ms": 0,
-    "model_ms": 14492,
-    "total_ms": 14492,
-    "error": "",
-    "tool_only": false
+    "model_ms": 15081,
+    "total_ms": 15081
   }
 ]

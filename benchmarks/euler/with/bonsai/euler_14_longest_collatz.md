@@ -1,8 +1,9 @@
 # euler_14_longest_collatz
 
 **Status:** FAIL
-**Duration:** 139063ms (tool runtime 98256ms, model/round-trip 40807ms)
-**Tool calls:** 12
+**Duration:** 90000ms (tool runtime 37373ms, model/round-trip 52627ms)
+**Turns:** 14 model round-trips · **Processed tokens:** 9255 (53801 prompt − 48841 cached + 4295 generated)
+**Tool calls:** 13
 **Error:** TIMEOUT (90s)
 
 ## Prompt
@@ -17,7 +18,7 @@
 
 ## Attempts
 
-### Attempt 1 (ERROR, 7502ms)
+### Attempt 1 (ERROR, 6392ms)
 
 ```javascript
 function collatzLength(n) {
@@ -56,7 +57,7 @@ ERROR: Execution step limit exceeded (1000000 steps) at line 3
     - If your algorithm is correct but data is large, use extendLimit({steps: 5000000})
 ```
 
-### Attempt 2 (ERROR, 109ms)
+### Attempt 2 (ERROR, 72ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -104,7 +105,7 @@ ERROR: Type mismatch in index
   at line 18:14
 ```
 
-### Attempt 3 (ERROR, 82ms)
+### Attempt 3 (ERROR, 71ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -152,7 +153,7 @@ ERROR: Type mismatch in index
   at line 18:14
 ```
 
-### Attempt 4 (ERROR, 91ms)
+### Attempt 4 (ERROR, 94ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -167,13 +168,13 @@ function collatzLength(n) {
     seen.push(n);
     if (n % 2 === 0) n = n / 2;
     else n = 3 * n + 1;
-    count++;
+    key = String(n);
   }
-  let base = cache[String(n)] !== undefined ? cache[String(n)] : 0;
+  let base = cache[key] !== undefined ? cache[key] : 0;
   for (let i = seen.length - 1; i >= 0; i--) {
     cache[String(seen[i])] = base + (seen.length - i);
   }
-  return cache[key];
+  return cache[String(seen[0])];
 }
 
 let maxLen = 0;
@@ -201,7 +202,7 @@ ERROR: Type mismatch in comparison
   Hint: Cannot compare null with number
 ```
 
-### Attempt 5 (ERROR, 79ms)
+### Attempt 5 (ERROR, 112ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -212,17 +213,21 @@ function collatzLength(n) {
   let count = 0;
   let seen = [];
   let key = String(n);
-  while (n !== 1 && cache[key] === undefined) {
+  while (n !== 1) {
+    if (cache[key] !== undefined) {
+      count += cache[key];
+      break;
+    }
     seen.push(n);
     if (n % 2 === 0) n = n / 2;
     else n = 3 * n + 1;
+    key = String(n);
     count++;
   }
-  let base = cache[String(n)] ?? 0;
   for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
+    cache[String(seen[i])] = count - i;
   }
-  return cache[key];
+  return cache[String(seen[0])];
 }
 
 let maxLen = 0;
@@ -250,7 +255,7 @@ ERROR: Type mismatch in comparison
   Hint: Cannot compare null with number
 ```
 
-### Attempt 6 (ERROR, 79ms)
+### Attempt 6 (ERROR, 80ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -261,17 +266,21 @@ function collatzLength(n) {
   let count = 0;
   let seen = [];
   let key = String(n);
-  while (n !== 1 && key in cache === false) {
+  while (n !== 1) {
+    if (cache[key] !== undefined) {
+      count += cache[key];
+      break;
+    }
     seen.push(n);
     if (n % 2 === 0) n = n / 2;
     else n = 3 * n + 1;
+    key = String(n);
     count++;
   }
-  let base = cache[String(n)] ?? 0;
   for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
+    cache[String(seen[i])] = count - i;
   }
-  return cache[key];
+  return cache[String(seen[0])];
 }
 
 let maxLen = 0;
@@ -299,7 +308,327 @@ ERROR: Type mismatch in comparison
   Hint: Cannot compare null with number
 ```
 
-### Attempt 7 (ERROR, 30000ms)
+### Attempt 7 (ERROR, 89ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (cache[key] !== undefined) {
+      count += cache[key];
+      break;
+    }
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 8 (ERROR, 83ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (key in cache) {
+      count += cache[key];
+      break;
+    }
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 9 (ERROR, 97ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (cache[key] !== undefined) {
+      count += cache[key];
+      break;
+    }
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 10 (ERROR, 91ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (cache[key] !== undefined) {
+      count += cache[key];
+      break;
+    }
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 11 (ERROR, 93ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (key in cache) {
+      count += cache[key];
+      break;
+    }
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 12 (ERROR, 94ms)
+
+```javascript
+extendLimit({steps: 10000000});
+
+let cache = {};
+let visited = {};
+
+function collatzLength(n) {
+  let count = 0;
+  let seen = [];
+  let key = String(n);
+  while (n !== 1) {
+    if (visited[key]) {
+      count += cache[key];
+      break;
+    }
+    visited[key] = true;
+    seen.push(n);
+    if (n % 2 === 0) n = n / 2;
+    else n = 3 * n + 1;
+    key = String(n);
+    count++;
+  }
+  for (let i = seen.length - 1; i >= 0; i--) {
+    cache[String(seen[i])] = count - i;
+  }
+  return cache[String(seen[0])];
+}
+
+let maxLen = 0;
+let maxN = 1;
+
+for (let i = 1; i < 1000000; i++) {
+  let len = collatzLength(i);
+  if (len > maxLen) {
+    maxLen = len;
+    maxN = i;
+  }
+}
+
+maxN;
+
+```
+
+**Result:**
+```
+ERROR: Type mismatch in comparison
+
+  Expected: matching number or string types
+  Got:      null (null)
+
+  Hint: Cannot compare null with number
+```
+
+### Attempt 13 (ERROR, 30005ms)
 
 ```javascript
 extendLimit({steps: 10000000});
@@ -338,244 +667,5 @@ ERROR: Execution timeout exceeded (30000ms / 30.0s elapsed) at line 5
     - Process less data: use limit() or filter early
     - Restructure to avoid redundant computation
     - If your algorithm is correct but data is large, use extendLimit({timeout: 60000})
-```
-
-### Attempt 8 (ERROR, 76ms)
-
-```javascript
-extendLimit({timeout: 60000, steps: 50000000});
-
-let cache = {};
-
-function collatzLength(n) {
-  let count = 0;
-  let seen = [];
-  let key = String(n);
-  while (n !== 1 && cache[key] === undefined) {
-    seen.push(n);
-    if (n % 2 === 0) n = n / 2;
-    else n = 3 * n + 1;
-    count++;
-  }
-  let base = cache[String(n)] ?? 0;
-  for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
-  }
-  return cache[key];
-}
-
-let maxLen = 0;
-let maxN = 1;
-
-for (let i = 1; i < 1000000; i++) {
-  let len = collatzLength(i);
-  if (len > maxLen) {
-    maxLen = len;
-    maxN = i;
-  }
-}
-
-maxN;
-
-```
-
-**Result:**
-```
-ERROR: Type mismatch in comparison
-
-  Expected: matching number or string types
-  Got:      null (null)
-
-  Hint: Cannot compare null with number
-```
-
-### Attempt 9 (ERROR, 80ms)
-
-```javascript
-extendLimit({timeout: 60000, steps: 50000000});
-
-let cache = {};
-
-function collatzLength(n) {
-  let count = 0;
-  let seen = [];
-  let key = String(n);
-  while (n !== 1 && !(key in cache)) {
-    seen.push(n);
-    if (n % 2 === 0) n = n / 2;
-    else n = 3 * n + 1;
-    count++;
-  }
-  let base = cache[String(n)] ?? 0;
-  for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
-  }
-  return cache[key];
-}
-
-let maxLen = 0;
-let maxN = 1;
-
-for (let i = 1; i < 1000000; i++) {
-  let len = collatzLength(i);
-  if (len > maxLen) {
-    maxLen = len;
-    maxN = i;
-  }
-}
-
-maxN;
-
-```
-
-**Result:**
-```
-ERROR: Type mismatch in comparison
-
-  Expected: matching number or string types
-  Got:      null (null)
-
-  Hint: Cannot compare null with number
-```
-
-### Attempt 10 (ERROR, 77ms)
-
-```javascript
-extendLimit({timeout: 60000, steps: 50000000});
-
-let cache = {};
-let cached = {};
-
-function collatzLength(n) {
-  let count = 0;
-  let seen = [];
-  let key = String(n);
-  while (n !== 1 && cached[key] === false) {
-    seen.push(n);
-    if (n % 2 === 0) n = n / 2;
-    else n = 3 * n + 1;
-    count++;
-  }
-  let base = cache[String(n)] ?? 0;
-  for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
-    cached[String(seen[i])] = true;
-  }
-  return cache[key];
-}
-
-let maxLen = 0;
-let maxN = 1;
-
-for (let i = 1; i < 1000000; i++) {
-  let len = collatzLength(i);
-  if (len > maxLen) {
-    maxLen = len;
-    maxN = i;
-  }
-}
-
-maxN;
-
-```
-
-**Result:**
-```
-ERROR: Type mismatch in comparison
-
-  Expected: matching number or string types
-  Got:      null (null)
-
-  Hint: Cannot compare null with number
-```
-
-### Attempt 11 (ERROR, 81ms)
-
-```javascript
-extendLimit({timeout: 60000, steps: 50000000});
-
-let cache = {};
-
-function collatzLength(n) {
-  let count = 0;
-  let seen = [];
-  let key = String(n);
-  while (n !== 1 && typeof cache[key] === 'undefined') {
-    seen.push(n);
-    if (n % 2 === 0) n = n / 2;
-    else n = 3 * n + 1;
-    count++;
-  }
-  let base = cache[String(n)] ?? 0;
-  for (let i = seen.length - 1; i >= 0; i--) {
-    cache[String(seen[i])] = base + (seen.length - i);
-  }
-  return cache[key];
-}
-
-let maxLen = 0;
-let maxN = 1;
-
-for (let i = 1; i < 1000000; i++) {
-  let len = collatzLength(i);
-  if (len > maxLen) {
-    maxLen = len;
-    maxN = i;
-  }
-}
-
-maxN;
-
-```
-
-**Result:**
-```
-ERROR: Type mismatch in comparison
-
-  Expected: matching number or string types
-  Got:      null (null)
-
-  Hint: Cannot compare null with number
-```
-
-### Attempt 12 (ERROR, 60000ms)
-
-```javascript
-extendLimit({timeout: 60000, steps: 50000000});
-
-function collatzLength(n) {
-  let count = 0;
-  while (n !== 1) {
-    if (n % 2 === 0) n = n / 2;
-    else n = 3 * n + 1;
-    count++;
-  }
-  return count;
-}
-
-let maxLen = 0;
-let maxN = 1;
-
-for (let i = 1; i < 1000000; i++) {
-  let len = collatzLength(i);
-  if (len > maxLen) {
-    maxLen = len;
-    maxN = i;
-  }
-}
-
-maxN;
-
-```
-
-**Result:**
-```
-ERROR: Execution timeout exceeded (60000ms / 60.0s elapsed) at line 5
-
-  Common fixes:
-    - Recursive algorithms (e.g. fib(n-1)+fib(n-2)) are O(2^n) — rewrite with a loop
-    - Process less data: use limit() or filter early
-    - Restructure to avoid redundant computation
-    - If your algorithm is correct but data is large, use extendLimit({timeout: 120000})
 ```
 

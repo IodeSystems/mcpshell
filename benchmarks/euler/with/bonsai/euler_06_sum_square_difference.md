@@ -1,7 +1,8 @@
 # euler_06_sum_square_difference
 
 **Status:** PASS
-**Duration:** 8736ms (tool runtime 53ms, model/round-trip 8683ms)
+**Duration:** 11056ms (tool runtime 51ms, model/round-trip 11005ms)
+**Turns:** 5 model round-trips · **Processed tokens:** 1744 (11821 prompt − 10879 cached + 802 generated)
 **Tool calls:** 4
 
 ## Prompt
@@ -53,7 +54,7 @@ ERROR: Type mismatch in call
   at line 3:42
 ```
 
-### Attempt 3 (ERROR, 10ms)
+### Attempt 3 (ERROR, 11ms)
 
 ```javascript
 let nums = range(1, 101)
@@ -72,13 +73,14 @@ ERROR: Type mismatch in call
   at line 3:42
 ```
 
-### Attempt 4 (OK, 10ms)
+### Attempt 4 (OK, 7ms)
 
 ```javascript
 let nums = range(1, 101)
 let s = sum(nums)
-let sq = nums |> map(n => n * n) |> sum()
-s * s - sq
+let sq = nums |> map(n => n * n)
+let ss = sum(sq)
+s * s - ss
 ```
 
 **Result:**

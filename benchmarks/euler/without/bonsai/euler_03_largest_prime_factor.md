@@ -1,7 +1,8 @@
 # euler_03_largest_prime_factor
 
 **Status:** PASS
-**Duration:** 30938ms (tool runtime 0ms, model/round-trip 30938ms)
+**Duration:** 29648ms (tool runtime 0ms, model/round-trip 29648ms)
+**Turns:** 1 model round-trips · **Tokens:** 3295 (92 prompt + 3203 completion)
 **Tool calls:** 0
 
 ## Prompt

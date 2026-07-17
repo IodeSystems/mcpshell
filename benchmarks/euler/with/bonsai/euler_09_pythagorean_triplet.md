@@ -1,7 +1,8 @@
 # euler_09_pythagorean_triplet
 
 **Status:** PASS
-**Duration:** 4771ms (tool runtime 969ms, model/round-trip 3802ms)
+**Duration:** 5357ms (tool runtime 936ms, model/round-trip 4421ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 999 (4474 prompt − 3803 cached + 328 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -16,7 +17,7 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 969ms)
+### Attempt 1 (OK, 936ms)
 
 ```javascript
 let result = null;
