@@ -40,6 +40,48 @@ also compose upstream MCP servers as namespaced commands
 (`--connect`/`--mcp`); an upstream that is itself mcpshell is skipped to avoid
 a recursive `eval` loop.
 
+## Toolkits
+
+Toolkits register namespaced commands into the shell. `core`, `math`, and
+`graph` are always on; the rest are opt-in via `mcpshell mcp` flags so the
+LLM only sees the capabilities you grant.
+
+| Toolkit | Enable with | Commands |
+|---------|-------------|----------|
+| **core** | always on | strings, arrays, objects, JSON, regex, pipes, control flow |
+| **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
+| **graph** | always on | in-memory node/edge graph: `addNode`, `link`, `nodes`, `setProps`, … |
+| **web** | `--web` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
+| **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
+| **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
+| **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
+
+### SQL
+
+Attach one or more databases; each becomes a namespace. The DSN is a SQLite
+path or a `postgres://` URL. Queries are **read-only by default** (only
+`select`/`with`/`show`/… are allowed) and capped at 500 rows; pass
+`--sql-writable` to permit writes and DDL via `ns.execute`.
+
+```
+mcpshell mcp --sql 'app=postgres://user:pass@localhost/app' \
+             --sql 'cache=./local.sqlite'
+# then, in eval:  app.query("select id, email from users where id = $1", [42])
+#                 app.schema()   ·   cache.tables("order")
+```
+
+### Browser
+
+`--browser` drives a real headless Chrome through chromedp — navigate, click,
+fill inputs, extract text/HTML, run in-page JS, and screenshot. Requires a
+Chrome/Chromium install on the host.
+
+```
+mcpshell mcp --browser
+# Browser.open("https://example.com")  ·  Browser.text("h1")
+# Browser.select("table tr")  ·  Browser.screenshot("shot.png")
+```
+
 `bin/mcpshell` is a launcher: it builds a per-arch binary (`bin/mcpshell-<os>-<arch>`)
 on demand — when missing, when any source is newer, or when `BUILD=true` is set —
 then execs it. The same launcher works across machines and architectures.
