@@ -1,0 +1,52 @@
+[
+  {
+    "name": "compose_core_top_region",
+    "success": true,
+    "tool_calls": 0,
+    "tool_ms": 0,
+    "model_ms": 5879,
+    "total_ms": 5879,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_wordfreq_top",
+    "success": true,
+    "tool_calls": 0,
+    "tool_ms": 0,
+    "model_ms": 3284,
+    "total_ms": 3284,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_flatten_even_sum",
+    "success": true,
+    "tool_calls": 0,
+    "tool_ms": 0,
+    "model_ms": 5345,
+    "total_ms": 5345,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_csv_top_dept",
+    "success": true,
+    "tool_calls": 0,
+    "tool_ms": 0,
+    "model_ms": 7704,
+    "total_ms": 7704,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_pipeline_stats",
+    "success": true,
+    "tool_calls": 0,
+    "tool_ms": 0,
+    "model_ms": 14492,
+    "total_ms": 14492,
+    "error": "",
+    "tool_only": false
+  }
+]

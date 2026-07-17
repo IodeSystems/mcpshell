@@ -1,0 +1,92 @@
+[
+  {
+    "name": "compose_core_top_region",
+    "success": true,
+    "tool_calls": 4,
+    "tool_ms": 195,
+    "model_ms": 11159,
+    "total_ms": 11354,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_wordfreq_top",
+    "success": true,
+    "tool_calls": 2,
+    "tool_ms": 87,
+    "model_ms": 5698,
+    "total_ms": 5785,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_flatten_even_sum",
+    "success": true,
+    "tool_calls": 2,
+    "tool_ms": 51,
+    "model_ms": 5549,
+    "total_ms": 5600,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_csv_top_dept",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 77,
+    "model_ms": 4255,
+    "total_ms": 4332,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_core_pipeline_stats",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 13,
+    "model_ms": 3659,
+    "total_ms": 3672,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "compose_sql_top_region",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 1,
+    "model_ms": 2178,
+    "total_ms": 2179,
+    "error": "",
+    "tool_only": true
+  },
+  {
+    "name": "compose_sql_top_product",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 1,
+    "model_ms": 2211,
+    "total_ms": 2212,
+    "error": "",
+    "tool_only": true
+  },
+  {
+    "name": "compose_sql_top_month",
+    "success": true,
+    "tool_calls": 2,
+    "tool_ms": 2,
+    "model_ms": 3573,
+    "total_ms": 3575,
+    "error": "",
+    "tool_only": true
+  },
+  {
+    "name": "compose_sql_region_of_gizmo",
+    "success": true,
+    "tool_calls": 2,
+    "tool_ms": 3,
+    "model_ms": 4096,
+    "total_ms": 4099,
+    "error": "",
+    "tool_only": true
+  }
+]

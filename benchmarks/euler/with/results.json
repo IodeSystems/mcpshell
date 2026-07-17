@@ -1,0 +1,122 @@
+[
+  {
+    "name": "euler_01_multiples_3_5",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 37,
+    "model_ms": 2472,
+    "total_ms": 2509,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_02_even_fibonacci",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 39,
+    "model_ms": 4279,
+    "total_ms": 4318,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_04_largest_palindrome",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 250,
+    "model_ms": 3338,
+    "total_ms": 3588,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_05_smallest_multiple",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 76,
+    "model_ms": 4175,
+    "total_ms": 4251,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_06_sum_square_difference",
+    "success": true,
+    "tool_calls": 4,
+    "tool_ms": 53,
+    "model_ms": 8683,
+    "total_ms": 8736,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_09_pythagorean_triplet",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 969,
+    "model_ms": 3802,
+    "total_ms": 4771,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_07_10001st_prime",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 6975,
+    "model_ms": 2815,
+    "total_ms": 9790,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_21_amicable_numbers",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 5132,
+    "model_ms": 3775,
+    "total_ms": 8907,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_12_triangle_divisors",
+    "success": false,
+    "tool_calls": 3,
+    "tool_ms": 64705,
+    "model_ms": 9126,
+    "total_ms": 73831,
+    "error": "TIMEOUT (60s",
+    "tool_only": false
+  },
+  {
+    "name": "euler_03_largest_prime_factor",
+    "success": true,
+    "tool_calls": 1,
+    "tool_ms": 54,
+    "model_ms": 3852,
+    "total_ms": 3906,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_10_sum_of_primes",
+    "success": true,
+    "tool_calls": 5,
+    "tool_ms": 69688,
+    "model_ms": 16051,
+    "total_ms": 85739,
+    "error": "",
+    "tool_only": false
+  },
+  {
+    "name": "euler_14_longest_collatz",
+    "success": false,
+    "tool_calls": 12,
+    "tool_ms": 98256,
+    "model_ms": 40807,
+    "total_ms": 139063,
+    "error": "TIMEOUT (90s",
+    "tool_only": false
+  }
+]
