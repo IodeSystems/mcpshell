@@ -1,14 +1,16 @@
 [
   {
     "name": "euler_01_multiples_3_5",
-    "success": true,
+    "success": false,
     "turns": 1,
     "tool_calls": 0,
-    "prompt_tokens": 89,
-    "completion_tokens": 1393,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 12680,
-    "total_ms": 12680
+    "model_ms": 30000,
+    "total_ms": 30000,
+    "error": "TIMEOUT (30s)"
   },
   {
     "name": "euler_02_even_fibonacci",
@@ -16,10 +18,11 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 30010,
-    "total_ms": 30010,
+    "model_ms": 30029,
+    "total_ms": 30029,
     "error": "TIMEOUT (30s)"
   },
   {
@@ -28,22 +31,25 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 60018,
-    "total_ms": 60018,
+    "model_ms": 60000,
+    "total_ms": 60000,
     "error": "TIMEOUT (60s)"
   },
   {
     "name": "euler_05_smallest_multiple",
-    "success": true,
+    "success": false,
     "turns": 1,
     "tool_calls": 0,
-    "prompt_tokens": 90,
-    "completion_tokens": 2258,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 20971,
-    "total_ms": 20971
+    "model_ms": 30000,
+    "total_ms": 30000,
+    "error": "TIMEOUT (30s)"
   },
   {
     "name": "euler_06_sum_square_difference",
@@ -51,6 +57,7 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
     "model_ms": 30027,
@@ -63,33 +70,37 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 60020,
-    "total_ms": 60020,
+    "model_ms": 60000,
+    "total_ms": 60000,
     "error": "TIMEOUT (60s)"
   },
   {
     "name": "euler_07_10001st_prime",
-    "success": true,
+    "success": false,
     "turns": 1,
     "tool_calls": 0,
-    "prompt_tokens": 90,
-    "completion_tokens": 450,
+    "prompt_tokens": 89,
+    "cached_tokens": 43,
+    "completion_tokens": 6495,
     "tool_ms": 0,
-    "model_ms": 4537,
-    "total_ms": 4537
+    "model_ms": 60448,
+    "total_ms": 60448
   },
   {
     "name": "euler_21_amicable_numbers",
-    "success": true,
+    "success": false,
     "turns": 1,
     "tool_calls": 0,
-    "prompt_tokens": 128,
-    "completion_tokens": 2191,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 20679,
-    "total_ms": 20679
+    "model_ms": 60000,
+    "total_ms": 60000,
+    "error": "TIMEOUT (60s)"
   },
   {
     "name": "euler_12_triangle_divisors",
@@ -97,6 +108,7 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
     "model_ms": 60000,
@@ -105,69 +117,40 @@
   },
   {
     "name": "euler_03_largest_prime_factor",
-    "success": true,
-    "turns": 1,
-    "tool_calls": 0,
-    "prompt_tokens": 92,
-    "completion_tokens": 3203,
-    "tool_ms": 0,
-    "model_ms": 29648,
-    "total_ms": 29648
-  },
-  {
-    "name": "euler_10_sum_of_primes",
-    "success": true,
-    "turns": 1,
-    "tool_calls": 0,
-    "prompt_tokens": 81,
-    "completion_tokens": 740,
-    "tool_ms": 0,
-    "model_ms": 7368,
-    "total_ms": 7368
-  },
-  {
-    "name": "euler_14_longest_collatz",
-    "success": true,
-    "turns": 1,
-    "tool_calls": 0,
-    "prompt_tokens": 111,
-    "completion_tokens": 326,
-    "tool_ms": 0,
-    "model_ms": 3566,
-    "total_ms": 3566
-  },
-  {
-    "name": "euler_v1_5000th_prime",
     "success": false,
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 0,
+    "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 90000,
-    "total_ms": 90000,
-    "error": "TIMEOUT (90s)"
+    "model_ms": 60002,
+    "total_ms": 60002,
+    "error": "TIMEOUT (60s)"
   },
   {
-    "name": "euler_v2_sum_primes_1m",
-    "success": true,
-    "turns": 1,
-    "tool_calls": 0,
-    "prompt_tokens": 81,
-    "completion_tokens": 1401,
-    "tool_ms": 0,
-    "model_ms": 12906,
-    "total_ms": 12906
-  },
-  {
-    "name": "euler_v3_collatz_500k",
+    "name": "euler_10_sum_of_primes",
     "success": false,
     "turns": 1,
     "tool_calls": 0,
-    "prompt_tokens": 112,
-    "completion_tokens": 5881,
+    "prompt_tokens": 89,
+    "cached_tokens": 0,
+    "completion_tokens": 4473,
     "tool_ms": 0,
-    "model_ms": 55278,
-    "total_ms": 55278
+    "model_ms": 41496,
+    "total_ms": 41496
+  },
+  {
+    "name": "euler_14_longest_collatz",
+    "success": false,
+    "turns": 1,
+    "tool_calls": 0,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "completion_tokens": 0,
+    "tool_ms": 0,
+    "model_ms": 120000,
+    "total_ms": 120000,
+    "error": "TIMEOUT (120s)"
   }
 ]

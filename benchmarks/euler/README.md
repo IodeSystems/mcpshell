@@ -1,48 +1,44 @@
-# Project Euler: with vs. without mcpshell
+# Project Euler (non-canonical): with vs. without mcpshell
 
-Fifteen Project Euler problems (easy → compute-heavy, plus non-canonical
-variants), phrased neutrally so the *same* prompt is fair with and without the
-tool. Answers are exact integers. Model: `bonsai`.
+Twelve Euler-style problems with **perturbed constants** — the answers are *not*
+the famous, memorized Project Euler numbers, so the reasoning-only baseline has
+to actually compute rather than recall. Phrased neutrally so the same prompt is
+fair with and without the tool. Answers are exact integers. Model: `bonsai`.
 
 - **[comparison.md](comparison.md)** — full head-to-head table + headline
 - **[with/](with/README.md)** — tool-equipped run · **[without/](without/README.md)** — reasoning-only run
 
 ## Headline
 
-| Metric (self-contained, 15 problems) | With mcpshell | Without |
-|--------------------------------------|:-------------:|:-------:|
-| **Solved** | **11/15** | 8/15 |
-| Total turns | 60 | 15 |
-| Processed tokens | 31,210 | 18,717* |
-| Cached tokens (~free) | 143,959 | 0 |
-| Total time | 495s | 498s |
-
-\* **Processed** = non-cached prompt + generated (the compute cost); the ~3.8k
-system prompt is cached each turn, so it lands in the free column, not here. The
-without total is still undercounted — reasoning-only timeouts abort before usage
-is returned, so 7 of the 15 report 0 tokens despite 30–120s of "thinking."
+| Metric (12 problems) | With mcpshell | Without |
+|----------------------|:-------------:|:-------:|
+| **Solved** | **9/12** | **0/12** |
+| Total turns | 57 | 12 |
+| Processed tokens | 31,257 | 11,103 |
+| Cached tokens (~free) | 147,453 | 43 |
+| Total time | 390s | 642s |
 
 ## What the numbers say
 
-- **The tool computes; the baseline guesses or recalls.** With the tool, bonsai
-  writes a small program and gets the exact answer (it wins 5 problems the
-  baseline fails outright: `euler_02/04/06/09/v1`). Without it, it passes only
-  what it can do in its head or *remembers* — and Project Euler answers are
-  famously memorized (`euler_07` → 104743 in 4.5s from recall). The non-canonical
-  variants (`euler_v1/v2/v3`, perturbed parameters) strip that crutch: the
-  baseline solved just one of three.
-- **Where the tool loses, it's the interpreter's compute ceiling, not thinking.**
-  The four with-tool failures (`euler_10`, `euler_12`, `euler_14`, `euler_v3`)
-  are the heaviest computations; the tree-walking interpreter can't finish inside
-  the budget. On those the model also *thrashes* — `euler_14` burned 14 turns
-  retrying and bumping `extendLimit`. The per-problem `tool ms` / `model ms`
-  split (in each detail file) shows whether time went to interpreter runtime or
-  model round-trips.
-- **Two problems invert the story** (`euler_10`, `euler_14`): with the tool they
-  ❌ time out grinding a 2M-prime sieve / ~1M Collatz chains; without it the model
-  ✅ *recalls* the famous answers (142913828922, 837799) in seconds. The tool's
-  limit is raw compute, not correctness — and the heavy-compute tail is where the
-  run-to-run score wobbles (10–12/15).
-- **Comparable wall time, more solved.** The reasoning-only baseline spends
-  roughly the same total time (498s) — most of it reasoning toward timeouts —
-  while solving 8 vs. 11.
+- **Remove memorization and the baseline goes to zero.** With the tool, bonsai
+  writes a small program and gets the exact answer (9/12). Without it — and with
+  no famous answer to recall — it solves **none**: it either times out reasoning
+  (0 tokens, aborted) or, on the few it attempts, computes a *wrong* value
+  (`euler_07` spent 60s and 6.5k tokens to miss the 9001st prime). An earlier run
+  on the *canonical* problems scored the baseline 8/15 — but those "wins" were
+  `euler_07/10/14` recited from memory. Perturbing the constants strips that
+  crutch and the true gap shows: **9 vs 0**.
+- **The tool is also faster here.** 390s with vs 642s without — the baseline
+  spends *more* wall time reasoning toward failures than the tool spends solving.
+- **Where the tool fails, it's the interpreter's compute ceiling.** The three
+  misses (`euler_10` 1.5M-prime sieve, `euler_12` divisor search, `euler_14`
+  700k Collatz) are the heaviest computations; the tree-walking interpreter
+  can't finish them in budget. Per-problem `tool ms` / `model ms` splits (in each
+  detail file) confirm the time goes to interpreter runtime.
+- **Turns: ~2 per solve, plus thrash on the hard tail.** No-tool is always 1
+  turn (one completion). With the tool, 9 of 12 solve in 2 turns (call `eval`,
+  read result); the 57 total is inflated by retries on the compute-heavy
+  problems — `euler_14` 14 turns, `euler_06` 11, `euler_10` 7, `euler_12` 6 —
+  where the model keeps bumping `extendLimit` against a computation that won't
+  finish. Those extra round-trips are cheap (seconds); the cost is interpreter
+  runtime, not thinking.

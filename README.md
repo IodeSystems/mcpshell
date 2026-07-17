@@ -89,10 +89,12 @@ then execs it. The same launcher works across machines and architectures.
 ## Benchmark
 
 **An LLM given mcpshell solves more, and unlocks problems it can't touch
-without a tool.** `bin/bench` runs a challenge suite (general mcpshell tasks,
-Project Euler, and composition problems) against an OpenAI-compatible endpoint,
-and can run the same problems *without* the tool to measure what it buys —
-scored on correctness, turns, tokens, and time-to-solution.
+without a tool.** On non-canonical Project Euler problems (perturbed constants,
+so no memorized answers), `bonsai` scores **9/12 with the tool vs. 0/12
+without** — and faster. `bin/bench` runs a challenge suite (general mcpshell
+tasks, Project Euler, and composition problems) against an OpenAI-compatible
+endpoint, and can run the same problems *without* the tool to measure what it
+buys — scored on correctness, turns, tokens, and time-to-solution.
 
 See **[`benchmarks/`](benchmarks/README.md)** for the full showcase, per-model
 result records, and with/without comparisons.

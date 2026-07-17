@@ -1,42 +1,41 @@
 # euler_09_pythagorean_triplet
 
 **Status:** PASS
-**Duration:** 5357ms (tool runtime 936ms, model/round-trip 4421ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 999 (4474 prompt − 3803 cached + 328 generated)
+**Duration:** 8957ms (tool runtime 3412ms, model/round-trip 5545ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 1290 (4641 prompt − 3806 cached + 455 generated)
 **Tool calls:** 1
 
 ## Prompt
 
-> There is exactly one Pythagorean triplet of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1000. Find the product a*b*c.
+> Consider all Pythagorean triplets of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1716. Among them, find the largest product a*b*c.
 
 ## Final Answer
 
 ```
-31875000
+175452420
 ```
 
 ## Attempts
 
-### Attempt 1 (OK, 936ms)
+### Attempt 1 (OK, 3412ms)
 
 ```javascript
-let result = null;
-for (let a = 1; a < 1000; a++) {
-  for (let b = a + 1; b < 1000; b++) {
-    let c = 1000 - a - b;
+let results = [];
+for (let a = 1; a < 572; a++) {
+  for (let b = a + 1; b < 1716 - a; b++) {
+    let c = 1716 - a - b;
     if (c <= b) break;
     if (a * a + b * b === c * c) {
-      result = a * b * c;
-      break;
+      results.push({a, b, c, product: a * b * c});
     }
   }
-  if (result !== null) break;
 }
-result;
+results;
+
 ```
 
 **Result:**
 ```
-31875000
+[{a: 143, b: 780, c: 793, product: 88451220}, {a: 195, b: 748, c: 773, product: 112749780}, {a: 264, b: 702, c: 750, product: 138996000}, {a: 364, b: 627, c: 725, product: 165465300}, {a: 429, b: 572, c: 715, product: 175452420}]
 ```
 

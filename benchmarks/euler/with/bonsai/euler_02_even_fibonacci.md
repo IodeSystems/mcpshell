@@ -1,37 +1,38 @@
 # euler_02_even_fibonacci
 
 **Status:** PASS
-**Duration:** 4346ms (tool runtime 39ms, model/round-trip 4307ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 1003 (4428 prompt − 3807 cached + 382 generated)
+**Duration:** 5533ms (tool runtime 60ms, model/round-trip 5473ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 1167 (4468 prompt − 3816 cached + 515 generated)
 **Tool calls:** 1
 
 ## Prompt
 
-> In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed four million.
+> In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed 20,000,000.
 
 ## Final Answer
 
 ```
-4613732
+19544084
 ```
 
 ## Attempts
 
-### Attempt 1 (OK, 39ms)
+### Attempt 1 (OK, 60ms)
 
 ```javascript
-let a = 1, b = 2, sum = 0;
-while (b <= 4000000) {
-  if (b % 2 === 0) sum += b;
-  let next = a + b;
-  a = b;
-  b = next;
+let fibs = [1, 2];
+while (true) {
+  let next = fibs[fibs.len() - 1] + fibs[fibs.len() - 2];
+  if (next > 20000000) break;
+  fibs.push(next);
 }
-sum
+let evenSum = fibs.filter(n => n % 2 === 0).sum();
+evenSum;
+
 ```
 
 **Result:**
 ```
-4613732
+19544084
 ```
 
