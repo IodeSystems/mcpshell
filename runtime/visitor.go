@@ -20,6 +20,7 @@ type Visitor struct {
 	numLitCache     map[antlr.ParserRuleContext]*NumberVal
 	opTextCache     map[antlr.TerminalNode]string
 	blockScopeCache map[parser.IBlockContext]bool
+	collapseCache   map[antlr.Tree]antlr.Tree
 }
 
 // blockDeclares reports whether a block introduces block-scoped bindings (let/
@@ -67,6 +68,7 @@ func newVisitor(itp *Interpreter, env *Environment) *Visitor {
 		numLitCache:     make(map[antlr.ParserRuleContext]*NumberVal),
 		opTextCache:     make(map[antlr.TerminalNode]string),
 		blockScopeCache: make(map[parser.IBlockContext]bool),
+		collapseCache:   make(map[antlr.Tree]antlr.Tree),
 	}
 }
 
@@ -89,8 +91,48 @@ func (v *Visitor) withLocation(ctx antlr.ParserRuleContext, block func() Value) 
 	return block()
 }
 
+// isPassthroughExpr reports whether a node is a binary-precedence wrapper — one
+// of the ~14 expression levels that, with a single child, is a pure passthrough
+// to the next level down. (Unary/Postfix are excluded: their single-child form
+// still routes through their own handling.)
+func isPassthroughExpr(tree antlr.Tree) bool {
+	switch tree.(type) {
+	case *parser.ExprTernaryContext, *parser.TernaryExprContext,
+		*parser.NullCoalesceExprContext, *parser.OrExprContext, *parser.AndExprContext,
+		*parser.BitwiseOrExprContext, *parser.BitwiseXorExprContext, *parser.BitwiseAndExprContext,
+		*parser.EqualityExprContext, *parser.ComparisonExprContext, *parser.ShiftExprContext,
+		*parser.PipeExprContext, *parser.AdditiveExprContext, *parser.MultiplicativeExprContext,
+		*parser.ExponentiationExprContext:
+		return true
+	}
+	return false
+}
+
+// collapseExpr skips single-child precedence-wrapper levels in one hop, so an
+// expression doesn't re-descend ~14 dispatch levels every visit. Cached per node.
+func (v *Visitor) collapseExpr(tree antlr.Tree) antlr.Tree {
+	if t, ok := v.collapseCache[tree]; ok {
+		return t
+	}
+	orig := tree
+	for isPassthroughExpr(tree) {
+		rc := tree.(antlr.ParserRuleContext)
+		if rc.GetChildCount() != 1 {
+			break
+		}
+		tree = rc.GetChild(0)
+	}
+	v.collapseCache[orig] = tree
+	return tree
+}
+
 // eval is the central dispatch from parse-tree node to visit method.
 func (v *Visitor) eval(tree antlr.Tree) Value {
+	// Only precedence wrappers can collapse; skip the cache lookup for leaves,
+	// statements, and operator nodes (a cheap type check vs. a map access each eval).
+	if isPassthroughExpr(tree) {
+		tree = v.collapseExpr(tree)
+	}
 	switch ctx := tree.(type) {
 	case *parser.ProgramContext:
 		return v.visitProgram(ctx)
