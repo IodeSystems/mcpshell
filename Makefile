@@ -14,7 +14,7 @@ TL  := $(M2)/org/abego/treelayout/org.abego.treelayout.core/1.0.3/org.abego.tree
 ICU := $(M2)/com/ibm/icu/icu4j/73.2/icu4j-73.2.jar
 ANTLR_CP := $(A4):$(A3):$(A4R):$(ST4):$(TL):$(ICU)
 
-.PHONY: generate build cli bench bench-cpu test fmt
+.PHONY: generate build cli bench test fmt
 
 generate:
 	java -cp "$(ANTLR_CP)" org.antlr.v4.Tool \
@@ -32,11 +32,6 @@ cli:
 
 bench:
 	go build -o bin/bench-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/bench
-
-# Interpreter CPU benchmarks (ns/op + allocs) over representative hot paths.
-# Distinct from `bench` above, which is the LLM benchmark harness.
-bench-cpu:
-	go test -run=X -bench=. -benchmem ./runtime/ ./toolkit/
 
 test:
 	go test ./...
