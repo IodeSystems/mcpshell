@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"fmt"
-	"math"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -141,9 +141,16 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		return v.visitPostfixExpr(ctx)
 	// Primary expressions
 	case *parser.NumberLiteralContext:
-		f, err := strconv.ParseFloat(ctx.NUMBER().GetText(), 64)
+		text := ctx.NUMBER().GetText()
+		// Parse the literal exactly (big.Rat handles integers, decimals, and
+		// scientific notation), so 0.1 stays 1/10 and huge integers keep every
+		// digit — auto-promotion with no float64 rounding at the source.
+		if r, ok := new(big.Rat).SetString(text); ok {
+			return numRat(r)
+		}
+		f, err := strconv.ParseFloat(text, 64)
 		if err != nil {
-			panic(Runtime("invalid number literal: " + ctx.NUMBER().GetText()))
+			panic(Runtime("invalid number literal: " + text))
 		}
 		return &NumberVal{V: f}
 	case *parser.StringLiteralContext:
@@ -894,7 +901,7 @@ func (v *Visitor) visitAdditiveExpr(ctx *parser.AdditiveExprContext) Value {
 		case "+":
 			result = add(result, right)
 		case "-":
-			result = numericOp(result, right, "-", func(a, b float64) float64 { return a - b })
+			result = sub(result, right)
 		}
 	}
 	return result
@@ -908,11 +915,11 @@ func (v *Visitor) visitMultiplicativeExpr(ctx *parser.MultiplicativeExprContext)
 		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
 		switch op {
 		case "*":
-			result = numericOp(result, right, "*", func(a, b float64) float64 { return a * b })
+			result = mul(result, right)
 		case "/":
-			result = numericOp(result, right, "/", func(a, b float64) float64 { return a / b })
+			result = divide(result, right)
 		case "%":
-			result = numericOp(result, right, "%", math.Mod)
+			result = modulo(result, right)
 		}
 	}
 	return result
@@ -924,7 +931,7 @@ func (v *Visitor) visitExponentiationExpr(ctx *parser.ExponentiationExprContext)
 	if expCtx == nil {
 		return base
 	}
-	return numericOp(base, v.eval(expCtx), "**", math.Pow)
+	return power(base, v.eval(expCtx))
 }
 
 func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {

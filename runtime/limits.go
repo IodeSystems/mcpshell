@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -26,6 +29,19 @@ type ExecutionLimits struct {
 	startTimeMs atomic.Int64
 	outputBytes atomic.Int64
 	cancelled   atomic.Bool
+
+	// Opt-in cost tracing: when profiling, Step attributes each step to its
+	// source line. Off by default (one atomic load per step, negligible).
+	profiling  atomic.Bool
+	profMu     sync.Mutex
+	lineSteps  map[int]int64
+	profStart0 int64
+}
+
+// LineCost is a source line's accumulated step count during profiling.
+type LineCost struct {
+	Line  int
+	Steps int64
 }
 
 const timeoutCheckInterval = 1000
@@ -59,15 +75,21 @@ func (l *ExecutionLimits) Step(line int) {
 		panic(Runtime("Execution cancelled"))
 	}
 	count := l.stepCount.Add(1)
+	if l.profiling.Load() {
+		l.profMu.Lock()
+		l.lineSteps[line]++
+		l.profMu.Unlock()
+	}
 	if count > int64(l.MaxSteps) {
 		panic(Runtime(fmt.Sprintf(
-			"Execution step limit exceeded (%d steps) at line %d\n\n"+
+			"Execution step limit exceeded (%d steps) at line %d%s\n\n"+
 				"  Common fixes:\n"+
 				"    - Recursive algorithms (e.g. fib(n-1)+fib(n-2)) are O(2^n) — rewrite with a loop\n"+
 				"    - Check while/for conditions for infinite loops\n"+
 				"    - Filter or limit() data earlier to reduce iterations\n"+
+				"    - profile(() => ...) to see which lines burn the steps\n"+
 				"    - If your algorithm is correct but data is large, use extendLimit({steps: %d})",
-			l.MaxSteps, line, l.MaxSteps*5)))
+			l.MaxSteps, line, l.hotLinesHint(), l.MaxSteps*5)))
 	}
 	if count%timeoutCheckInterval == 0 {
 		l.checkTimeout(line)
@@ -104,6 +126,58 @@ func (l *ExecutionLimits) PushCall(line int) {
 
 // PopCall leaves a call frame.
 func (l *ExecutionLimits) PopCall() { l.callDepth.Add(-1) }
+
+// Profiling reports whether cost tracing is currently active.
+func (l *ExecutionLimits) Profiling() bool { return l.profiling.Load() }
+
+// StartProfile begins per-line step attribution, resetting any prior trace.
+func (l *ExecutionLimits) StartProfile() {
+	l.profMu.Lock()
+	l.lineSteps = make(map[int]int64)
+	l.profMu.Unlock()
+	l.profStart0 = l.stepCount.Load()
+	l.profiling.Store(true)
+}
+
+// StopProfile ends attribution and returns per-line costs (highest first) plus
+// the total steps executed while profiling.
+func (l *ExecutionLimits) StopProfile() (lines []LineCost, total int64) {
+	l.profiling.Store(false)
+	l.profMu.Lock()
+	defer l.profMu.Unlock()
+	for ln, c := range l.lineSteps {
+		lines = append(lines, LineCost{Line: ln, Steps: c})
+	}
+	l.lineSteps = nil
+	sort.Slice(lines, func(i, j int) bool { return lines[i].Steps > lines[j].Steps })
+	return lines, l.stepCount.Load() - l.profStart0
+}
+
+// hotLinesHint returns a short " — hot lines: L3 ×842000, ..." fragment when a
+// profile is active (so a limit tripped inside profile(...) is actionable).
+func (l *ExecutionLimits) hotLinesHint() string {
+	if !l.profiling.Load() {
+		return ""
+	}
+	l.profMu.Lock()
+	lines := make([]LineCost, 0, len(l.lineSteps))
+	for ln, c := range l.lineSteps {
+		lines = append(lines, LineCost{Line: ln, Steps: c})
+	}
+	l.profMu.Unlock()
+	if len(lines) == 0 {
+		return ""
+	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i].Steps > lines[j].Steps })
+	var parts []string
+	for i, lc := range lines {
+		if i == 3 {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("L%d ×%d", lc.Line, lc.Steps))
+	}
+	return "\n  Hot lines: " + strings.Join(parts, ", ")
+}
 
 // TrackOutput accumulates output bytes, raising when the limit is exceeded.
 func (l *ExecutionLimits) TrackOutput(bytes int, source string) {

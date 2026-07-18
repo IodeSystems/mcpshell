@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
@@ -469,15 +468,15 @@ func (v *Visitor) applyCompoundOp(op string, current, rhs Value) Value {
 	case "+=":
 		return add(current, rhs)
 	case "-=":
-		return numericOp(current, rhs, "-", func(a, b float64) float64 { return a - b })
+		return sub(current, rhs)
 	case "**=":
-		return numericOp(current, rhs, "**", math.Pow)
+		return power(current, rhs)
 	case "*=":
-		return numericOp(current, rhs, "*", func(a, b float64) float64 { return a * b })
+		return mul(current, rhs)
 	case "/=":
-		return numericOp(current, rhs, "/", func(a, b float64) float64 { return a / b })
+		return divide(current, rhs)
 	case "%=":
-		return numericOp(current, rhs, "%", math.Mod)
+		return modulo(current, rhs)
 	case "&=":
 		return intBitwiseOp(current, rhs, "&", func(a, b int32) int32 { return a & b })
 	case "|=":

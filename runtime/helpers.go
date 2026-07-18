@@ -1,6 +1,9 @@
 package runtime
 
 import (
+	"math"
+	"math/big"
+
 	"github.com/antlr4-go/antlr/v4"
 )
 
@@ -63,7 +66,8 @@ func startCol(ctx antlr.ParserRuleContext) int {
 }
 
 // numericOp applies fn to two numbers, raising a type mismatch otherwise.
-func numericOp(left, right Value, op string, fn func(a, b float64) float64) Value {
+// binNums type-checks both operands of a binary numeric operator.
+func binNums(left, right Value, op string) (*NumberVal, *NumberVal) {
 	l, ok := left.(*NumberVal)
 	if !ok {
 		panic(TypeMismatch("'"+op+"'", "number", left, ""))
@@ -72,8 +76,167 @@ func numericOp(left, right Value, op string, fn func(a, b float64) float64) Valu
 	if !ok {
 		panic(TypeMismatch("'"+op+"'", "number", right, ""))
 	}
-	return &NumberVal{V: fn(l.V, r.V)}
+	return l, r
 }
+
+// Overflow-checked int64 ops — the alloc-free fast path. ok=false means the
+// exact result doesn't fit int64 and the caller promotes to big.Int.
+func addOvf(a, b int64) (int64, bool) { s := a + b; return s, (a^s) >= 0 || (b^s) >= 0 }
+func subOvf(a, b int64) (int64, bool) { s := a - b; return s, (a^b) >= 0 || (a^s) >= 0 }
+func mulOvf(a, b int64) (int64, bool) {
+	if a == 0 {
+		return 0, true
+	}
+	s := a * b
+	if a == -1 && b == math.MinInt64 {
+		return 0, false
+	}
+	return s, s/a == b
+}
+
+// bothInt returns the operands as int64 when both are on the exact int64 tier.
+func bothInt(l, r *NumberVal) (int64, int64, bool) {
+	if l.kind == kInt && r.kind == kInt {
+		return l.i, r.i, true
+	}
+	return 0, 0, false
+}
+
+// bothIntegers returns both operands as big.Int when both are exact integers.
+func bothIntegers(l, r *NumberVal) (*big.Int, *big.Int, bool) {
+	a, aok := l.asBigInt()
+	b, bok := r.asBigInt()
+	return a, b, aok && bok
+}
+
+func sub(left, right Value) Value {
+	l, r := binNums(left, right, "-")
+	if a, b, ok := bothInt(l, r); ok {
+		if s, ok := subOvf(a, b); ok {
+			return numInt(s)
+		}
+	}
+	if a, b, ok := bothIntegers(l, r); ok {
+		return numBigInt(new(big.Int).Sub(a, b))
+	}
+	if l.isExact() && r.isExact() {
+		return numRat(new(big.Rat).Sub(l.asRat(), r.asRat()))
+	}
+	return Num(l.V - r.V)
+}
+
+func mul(left, right Value) Value {
+	l, r := binNums(left, right, "*")
+	if a, b, ok := bothInt(l, r); ok {
+		if s, ok := mulOvf(a, b); ok {
+			return numInt(s)
+		}
+	}
+	if a, b, ok := bothIntegers(l, r); ok {
+		return numBigInt(new(big.Int).Mul(a, b))
+	}
+	if l.isExact() && r.isExact() {
+		return numRat(new(big.Rat).Mul(l.asRat(), r.asRat()))
+	}
+	return Num(l.V * r.V)
+}
+
+func divide(left, right Value) Value {
+	l, r := binNums(left, right, "/")
+	if l.isExact() && r.isExact() {
+		rb := r.asRat()
+		if rb.Sign() != 0 {
+			return numRat(new(big.Rat).Quo(l.asRat(), rb))
+		}
+	}
+	return Num(l.V / r.V) // division by zero → ±Inf/NaN, as before
+}
+
+func modulo(left, right Value) Value {
+	l, r := binNums(left, right, "%")
+	if a, b, ok := bothInt(l, r); ok && b != 0 && !(a == math.MinInt64 && b == -1) {
+		return numInt(a % b)
+	}
+	if a, b, ok := bothIntegers(l, r); ok && b.Sign() != 0 {
+		return numBigInt(new(big.Int).Rem(a, b))
+	}
+	return Num(math.Mod(l.V, r.V))
+}
+
+// ratPowMaxExp caps the exponent for exact integer powers so a runaway like
+// 2 ** 10000000 falls back to float instead of allocating gigabytes.
+const ratPowMaxExp = 100000
+
+func power(left, right Value) Value {
+	l, r := binNums(left, right, "**")
+	if l.isExact() && r.kind != kFloat {
+		if e, ok := r.asBigInt(); ok && e.IsInt64() {
+			n := e.Int64()
+			mag := n
+			if mag < 0 {
+				mag = -mag
+			}
+			if mag <= ratPowMaxExp {
+				if res := ratPow(l.asRat(), n); res != nil {
+					return numRat(res)
+				}
+			}
+		}
+	}
+	return Num(math.Pow(l.V, r.V))
+}
+
+// ratPow raises an exact rational to an integer power exactly.
+func ratPow(base *big.Rat, n int64) *big.Rat {
+	if base.Sign() == 0 && n <= 0 {
+		return nil // 0**0 / 0**negative: let float semantics decide
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	exp := big.NewInt(n)
+	num := new(big.Int).Exp(base.Num(), exp, nil)
+	den := new(big.Int).Exp(base.Denom(), exp, nil)
+	if neg {
+		num, den = den, num
+	}
+	if den.Sign() == 0 {
+		return nil
+	}
+	return new(big.Rat).SetFrac(num, den)
+}
+
+// numbersCmp orders two numbers exactly when both are exact (int64/big.Int/rat),
+// else by their float64 views.
+func numbersCmp(x, y *NumberVal) int {
+	if x.kind == kInt && y.kind == kInt {
+		switch {
+		case x.i < y.i:
+			return -1
+		case x.i > y.i:
+			return 1
+		default:
+			return 0
+		}
+	}
+	if a, b, ok := bothIntegers(x, y); ok {
+		return a.Cmp(b)
+	}
+	if x.isExact() && y.isExact() {
+		return x.asRat().Cmp(y.asRat())
+	}
+	switch {
+	case x.V < y.V:
+		return -1
+	case x.V > y.V:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func numbersEqual(x, y *NumberVal) bool { return numbersCmp(x, y) == 0 }
 
 // intBitwiseOp applies fn to two numbers truncated to 32-bit integers.
 func intBitwiseOp(left, right Value, op string, fn func(a, b int32) int32) Value {
@@ -95,7 +258,19 @@ func add(left, right Value) Value {
 	if ls || rs {
 		return &StringVal{V: left.Display() + right.Display()}
 	}
-	return numericOp(left, right, "+", func(a, b float64) float64 { return a + b })
+	l, r := binNums(left, right, "+")
+	if a, b, ok := bothInt(l, r); ok {
+		if s, ok := addOvf(a, b); ok {
+			return numInt(s)
+		}
+	}
+	if a, b, ok := bothIntegers(l, r); ok {
+		return numBigInt(new(big.Int).Add(a, b))
+	}
+	if l.isExact() && r.isExact() {
+		return numRat(new(big.Rat).Add(l.asRat(), r.asRat()))
+	}
+	return Num(l.V + r.V)
 }
 
 // Equal is exported structural (deep) equality, for toolkit commands.
@@ -109,7 +284,10 @@ func valueEquals(a, b Value) bool {
 		return ok
 	case *NumberVal:
 		y, ok := b.(*NumberVal)
-		return ok && x.V == y.V
+		if !ok {
+			return false
+		}
+		return numbersEqual(x, y)
 	case *StringVal:
 		y, ok := b.(*StringVal)
 		return ok && x.V == y.V
@@ -153,14 +331,7 @@ func compareValues(a, b Value) int {
 	switch x := a.(type) {
 	case *NumberVal:
 		if y, ok := b.(*NumberVal); ok {
-			switch {
-			case x.V < y.V:
-				return -1
-			case x.V > y.V:
-				return 1
-			default:
-				return 0
-			}
+			return numbersCmp(x, y)
 		}
 	case *StringVal:
 		if y, ok := b.(*StringVal); ok {

@@ -673,11 +673,10 @@ func parseJSONNumber(s string, pos *int) Value {
 		}
 	}
 	numStr := s[start:*pos]
-	f, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		panic(Runtime("parseJson: invalid number '" + numStr + "'"))
+	if n, ok := ParseNumber(numStr); ok {
+		return n // exact: big integers and decimals survive the round-trip
 	}
-	return Num(f)
+	panic(Runtime("parseJson: invalid number '" + numStr + "'"))
 }
 
 func parseJSONBool(s string, pos *int) Value {

@@ -574,11 +574,10 @@ func InstallCore(sh *Shell) *Shell {
 			case *NumberVal:
 				return v
 			case *StringVal:
-				f, err := strconv.ParseFloat(strings.TrimSpace(v.V), 64)
-				if err != nil {
-					panic(TypeMismatch("num", "numeric string", v, ""))
+				if n, ok := ParseNumber(strings.TrimSpace(v.V)); ok {
+					return n // exact for big integers and decimals
 				}
-				return Num(f)
+				panic(TypeMismatch("num", "numeric string", v, ""))
 			case *BoolVal:
 				if v.V {
 					return Num(1)
@@ -1104,6 +1103,34 @@ func InstallCore(sh *Shell) *Shell {
 		})
 
 	// --- Execution limits ---
+
+	reg("profile", "fn: () => any",
+		"runs fn with cost tracing; returns {result, steps, lines: [{line, steps}]} sorted by cost",
+		[]string{`profile(() => range(1, 1000) |> map(x => x * x) |> sum())`},
+		func(args []Value) Value {
+			fn := requireFn("profile", args, 0)
+			lim := sh.Limits()
+			lim.StartProfile()
+			defer func() {
+				if lim.Profiling() {
+					lim.StopProfile() // ensure tracing is off if fn panicked (e.g. hit a limit)
+				}
+			}()
+			result := Call(fn, nil)
+			lines, total := lim.StopProfile()
+			out := NewObject()
+			out.Set("result", result)
+			out.Set("steps", Num(float64(total)))
+			rows := make([]Value, 0, len(lines))
+			for _, lc := range lines {
+				row := NewObject()
+				row.Set("line", Num(float64(lc.Line)))
+				row.Set("steps", Num(float64(lc.Steps)))
+				rows = append(rows, row)
+			}
+			out.Set("lines", &ArrayVal{Elements: rows})
+			return out
+		})
 
 	reg("extendLimit", "opts: {steps?: number, timeout?: number, callDepth?: number, outputBytes?: number}",
 		"increases execution limits for this eval. Call before heavy computation",
