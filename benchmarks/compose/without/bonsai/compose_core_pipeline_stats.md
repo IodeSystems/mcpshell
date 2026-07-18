@@ -1,8 +1,8 @@
 # compose_core_pipeline_stats
 
 **Status:** PASS
-**Duration:** 15081ms (tool runtime 0ms, model/round-trip 15081ms)
-**Turns:** 1 model round-trips · **Tokens:** 1684 (87 prompt + 1597 completion)
+**Duration:** 16249ms (tool runtime 0ms, model/round-trip 16249ms)
+**Turns:** 1 model round-trips · **Processed tokens:** 1641 (87 prompt − 43 cached + 1597 generated)
 **Tool calls:** 0
 
 ## Prompt

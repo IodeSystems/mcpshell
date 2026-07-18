@@ -1,7 +1,7 @@
 # llm_hard_anagram
 
 **Status:** PASS
-**Duration:** 10470ms (tool runtime 0ms, model/round-trip 10470ms)
+**Duration:** 10479ms (tool runtime 0ms, model/round-trip 10479ms)
 **Turns:** 1 model round-trips · **Processed tokens:** 1136 (77 prompt − 43 cached + 1102 generated)
 **Tool calls:** 0
 

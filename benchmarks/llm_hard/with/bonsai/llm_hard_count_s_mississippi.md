@@ -1,8 +1,8 @@
 # llm_hard_count_s_mississippi
 
 **Status:** PASS
-**Duration:** 2850ms (tool runtime 6ms, model/round-trip 2844ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 807 (4270 prompt − 3688 cached + 225 generated)
+**Duration:** 2494ms (tool runtime 6ms, model/round-trip 2488ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 752 (4558 prompt − 3976 cached + 170 generated)
 **Tool calls:** 1
 
 ## Prompt

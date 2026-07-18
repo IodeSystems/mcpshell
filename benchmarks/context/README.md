@@ -7,27 +7,27 @@ single `eval` tool instead — capabilities are *commands inside the language*,
 not tools in the prompt.
 
 Measured with the model's own tokenizer (`bench context`, prompt tokens above an
-empty baseline; core + math + web + graph only — 112 commands):
+empty baseline; core + math + web + graph only — 113 commands):
 
 | Strategy | Tools in prompt | Tokens / request | vs. discrete |
 |----------|:---------------:|:----------------:|:------------:|
-| **N discrete MCP tools** | 112 | **8366** | — |
-| mcpshell `eval` + full reference | 1 | 2323 | −72% |
-| mcpshell `eval` + compact reference | 1 | 888 | **−89%** |
+| **N discrete MCP tools** | 113 | **8453** | — |
+| mcpshell `eval` + full reference | 1 | 2467 | −71% |
+| mcpshell `eval` + compact reference | 1 | 1001 | **−88%** |
 | mcpshell `eval` + deferred `help()` | 2 | **341** | **−96%** |
 
 Reproduce: `./bin/bench context`.
 
 ## Why it compounds
 
-- **The tax is per request, not per session.** 8366 tokens of tool schema ride
-  along on every single call. The compact reference (888) or deferred base (341)
+- **The tax is per request, not per session.** 8453 tokens of tool schema ride
+  along on every single call. The compact reference (1001) or deferred base (341)
   replaces it with a fixed, tiny surface.
 - **It stays flat as you add capabilities.** Register 50 more commands and the
   discrete-tools prompt grows by ~50 more schemas on every request; the `eval`
   tool schema is unchanged, and with `help()` the base stays 341 tokens —
   new commands are discovered at runtime, not front-loaded. (The four toolkits
-  measured here are already 112 commands; add file/SQL/browser and the discrete
+  measured here are already 113 commands; add file/SQL/browser and the discrete
   side only grows.)
 - **KV-cache friendly.** Because the tool surface doesn't change when
   capabilities change, the cached prefix stays valid — where adding or removing

@@ -1,8 +1,8 @@
 # compose_sql_top_region
 
 **Status:** PASS
-**Duration:** 2214ms (tool runtime 1ms, model/round-trip 2213ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 738 (4394 prompt − 3809 cached + 153 generated)
+**Duration:** 2271ms (tool runtime 1ms, model/round-trip 2270ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 808 (4682 prompt − 4027 cached + 153 generated)
 **Tool calls:** 1
 
 ## Prompt

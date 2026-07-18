@@ -1,8 +1,8 @@
 # llm_hard_digit_sum_pow
 
 **Status:** PASS
-**Duration:** 2443ms (tool runtime 23ms, model/round-trip 2420ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 774 (4290 prompt − 3692 cached + 176 generated)
+**Duration:** 2485ms (tool runtime 21ms, model/round-trip 2464ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 774 (4578 prompt − 3980 cached + 176 generated)
 **Tool calls:** 1
 
 ## Prompt
@@ -17,11 +17,11 @@
 
 ## Attempts
 
-### Attempt 1 (OK, 23ms)
+### Attempt 1 (OK, 21ms)
 
 ```javascript
 let result = 2 ** 20;
-let digits = str(result).split('').map(n => num(n));
+let digits = str(result).split('').map(c => num(c));
 sum(digits)
 ```
 

@@ -13,9 +13,9 @@ so the same prompt is fair with and without the tool. Model: `bonsai`.
 | Metric (10 problems) | With mcpshell | Without |
 |----------------------|:-------------:|:-------:|
 | **Solved** | **10/10** | 9/10 |
-| Total turns | 24 | 10 |
-| Processed tokens | 10,811 | 6,315* |
-| Total time | **36s** | 89s |
+| Total turns | 20 | 10 |
+| Processed tokens | 9,608 | 6,315* |
+| Total time | **27s** | 89s |
 
 \* undercounted — the one failure timed out and reported 0 tokens.
 
@@ -25,8 +25,8 @@ so the same prompt is fair with and without the tool. Model: `bonsai`.
   strawberry (3), multiplied 3947×5821 (22975487), and summed digits of 2^20 (31)
   *without* the tool. The "LLMs can't count letters" era is fading for strong
   models, so the raw solve gap here is small: 10 vs 9.
-- **But the tool is 2.5× faster and never silently wrong.** Without it the model
-  grinds through chain-of-thought — 89s total vs 36s — and it *did* fail one:
+- **But the tool is 3.3× faster and never silently wrong.** Without it the model
+  grinds through chain-of-thought — 89s total vs 27s — and it *did* fail one:
   counting vowels in `floccinaucinihilipilification` (a 29-letter word), where it
   ran out its budget. With the tool every answer is exact by construction; the
   reasoning-only path is exact *until it isn't*, with no signal about which.

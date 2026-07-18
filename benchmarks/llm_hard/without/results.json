@@ -8,8 +8,8 @@
     "cached_tokens": 0,
     "completion_tokens": 188,
     "tool_ms": 0,
-    "model_ms": 2398,
-    "total_ms": 2398
+    "model_ms": 2361,
+    "total_ms": 2361
   },
   {
     "name": "llm_hard_count_s_mississippi",
@@ -20,8 +20,8 @@
     "cached_tokens": 43,
     "completion_tokens": 713,
     "tool_ms": 0,
-    "model_ms": 6777,
-    "total_ms": 6777
+    "model_ms": 6843,
+    "total_ms": 6843
   },
   {
     "name": "llm_hard_big_multiply",
@@ -32,8 +32,8 @@
     "cached_tokens": 43,
     "completion_tokens": 1535,
     "tool_ms": 0,
-    "model_ms": 14231,
-    "total_ms": 14231
+    "model_ms": 14304,
+    "total_ms": 14304
   },
   {
     "name": "llm_hard_digit_sum_pow",
@@ -44,8 +44,8 @@
     "cached_tokens": 43,
     "completion_tokens": 739,
     "tool_ms": 0,
-    "model_ms": 7224,
-    "total_ms": 7224
+    "model_ms": 7262,
+    "total_ms": 7262
   },
   {
     "name": "llm_hard_last_digit_pow",
@@ -56,8 +56,8 @@
     "cached_tokens": 43,
     "completion_tokens": 584,
     "tool_ms": 0,
-    "model_ms": 5841,
-    "total_ms": 5841
+    "model_ms": 5781,
+    "total_ms": 5781
   },
   {
     "name": "llm_hard_anagram",
@@ -68,8 +68,8 @@
     "cached_tokens": 43,
     "completion_tokens": 1102,
     "tool_ms": 0,
-    "model_ms": 10470,
-    "total_ms": 10470
+    "model_ms": 10479,
+    "total_ms": 10479
   },
   {
     "name": "llm_hard_sort_words",
@@ -80,8 +80,8 @@
     "cached_tokens": 43,
     "completion_tokens": 205,
     "tool_ms": 0,
-    "model_ms": 2490,
-    "total_ms": 2490
+    "model_ms": 2523,
+    "total_ms": 2523
   },
   {
     "name": "llm_hard_substring",
@@ -92,8 +92,8 @@
     "cached_tokens": 43,
     "completion_tokens": 217,
     "tool_ms": 0,
-    "model_ms": 2516,
-    "total_ms": 2516
+    "model_ms": 2615,
+    "total_ms": 2615
   },
   {
     "name": "llm_hard_count_words_with_o",
@@ -104,8 +104,8 @@
     "cached_tokens": 43,
     "completion_tokens": 662,
     "tool_ms": 0,
-    "model_ms": 6554,
-    "total_ms": 6554
+    "model_ms": 6492,
+    "total_ms": 6492
   },
   {
     "name": "llm_hard_count_vowels",
@@ -116,8 +116,8 @@
     "cached_tokens": 0,
     "completion_tokens": 0,
     "tool_ms": 0,
-    "model_ms": 30006,
-    "total_ms": 30006,
+    "model_ms": 30008,
+    "total_ms": 30008,
     "error": "TIMEOUT (30s)"
   }
 ]

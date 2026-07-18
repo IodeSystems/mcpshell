@@ -1,8 +1,8 @@
 # compose_core_flatten_even_sum
 
 **Status:** PASS
-**Duration:** 5640ms (tool runtime 50ms, model/round-trip 5590ms)
-**Turns:** 3 model round-trips · **Processed tokens:** 1203 (6749 prompt − 6032 cached + 486 generated)
+**Duration:** 4626ms (tool runtime 30ms, model/round-trip 4596ms)
+**Turns:** 3 model round-trips · **Processed tokens:** 1136 (7164 prompt − 6388 cached + 360 generated)
 **Tool calls:** 2
 
 ## Prompt
@@ -20,26 +20,26 @@
 ### Attempt 1 (ERROR, 18ms)
 
 ```javascript
-let arr = [[1,2,[3,4]],[5,[6,7]],[8]]
-let flatten = (a) => a.flat(Infinity)
-let evens = flatten(arr).filter(n => n % 2 === 0)
-evens.sum()
+let arr = [[1,2,[3,4]],[5,[6,7]],[8]];
+let flattened = arr.flat(Infinity);
+let evens = flattened.filter(n => n % 2 === 0);
+evens.sum();
 ```
 
 **Result:**
 ```
 ERROR: mcpshell does not have Infinity — use numeric checks instead
 
-  at line 2:27
+  at line 2:24
 ```
 
-### Attempt 2 (OK, 32ms)
+### Attempt 2 (OK, 12ms)
 
 ```javascript
-let arr = [[1,2,[3,4]],[5,[6,7]],[8]]
-let flatten = (a) => a.flatMap(x => Array.isArray(x) ? flatten(x) : [x])
-let evens = flatten(arr).filter(n => n % 2 === 0)
-evens.sum()
+let arr = [[1,2,[3,4]],[5,[6,7]],[8]];
+let flattened = arr.flatMap(x => Array.isArray(x) ? x.flat(2) : x);
+let evens = flattened.filter(n => n % 2 === 0);
+evens.sum();
 ```
 
 **Result:**

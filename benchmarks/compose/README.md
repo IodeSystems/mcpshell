@@ -14,16 +14,16 @@ with and without the tool); four query a seeded SQLite `shop` fixture and are
 |--------|:-------------:|:-------:|
 | Self-contained solved | 5/5 | 5/5 |
 | Tool-only (SQL) solved | **4/4** | — (impossible) |
-| Self-contained turns | 15 | 5 |
-| Self-contained processed tokens | 6,820 | 4,487 |
-| Self-contained cached (~free) | 31,359 | 0 |
+| Self-contained turns | 17 | 5 |
+| Self-contained processed tokens | 7,678 | 4,272 |
+| Self-contained cached (~free) | 38,734 | 215 |
 
 ## What the numbers say
 
 - **On small inline data, the tool doesn't change correctness** — bonsai groups,
   sums, and sorts a six-row array in its head as well as in code (5/5 either
   way). The tool costs a few more turns and ~2k more *processed* tokens here
-  (6.8k vs 4.5k; the ~31k of re-sent system prompt is cached, ~free) — the
+  (7.7k vs 4.3k; the ~39k of re-sent system prompt is cached, ~free) — the
   overhead of *having* a tool, and the wrong place to look for its value.
 - **The value shows on the SQL problems.** Composing `shop.query(...)` with core
   pipes (`groupBy` / `sum` / `sort`) solves revenue-by-region, top-product, and

@@ -1,8 +1,8 @@
 # compose_core_wordfreq_top
 
 **Status:** PASS
-**Duration:** 3722ms (tool runtime 0ms, model/round-trip 3722ms)
-**Turns:** 1 model round-trips · **Tokens:** 439 (99 prompt + 340 completion)
+**Duration:** 3751ms (tool runtime 0ms, model/round-trip 3751ms)
+**Turns:** 1 model round-trips · **Processed tokens:** 396 (99 prompt − 43 cached + 340 generated)
 **Tool calls:** 0
 
 ## Prompt

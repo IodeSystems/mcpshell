@@ -1,8 +1,8 @@
 # compose_core_top_region
 
 **Status:** PASS
-**Duration:** 5903ms (tool runtime 0ms, model/round-trip 5903ms)
-**Turns:** 1 model round-trips · **Tokens:** 716 (145 prompt + 571 completion)
+**Duration:** 5930ms (tool runtime 0ms, model/round-trip 5930ms)
+**Turns:** 1 model round-trips · **Processed tokens:** 673 (145 prompt − 43 cached + 571 generated)
 **Tool calls:** 0
 
 ## Prompt

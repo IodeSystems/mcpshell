@@ -15,7 +15,7 @@ tools can't offer at once:
   or ambient I/O, plus step/time limits, so model-authored code can't reach or
   hang the host.
 
-Measured against the reasoning-only baseline — 96% context cut, 2.5× faster on
+Measured against the reasoning-only baseline — 96% context cut, 3.3× faster on
 LLM-hard tasks, every host escape blocked — in [`benchmarks/`](benchmarks/README.md).
 
 **Status: complete.** Parser, runtime, interpreter, all toolkits

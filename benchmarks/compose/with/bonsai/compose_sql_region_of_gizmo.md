@@ -1,8 +1,8 @@
 # compose_sql_region_of_gizmo
 
 **Status:** PASS
-**Duration:** 4060ms (tool runtime 2ms, model/round-trip 4058ms)
-**Turns:** 3 model round-trips · **Processed tokens:** 1122 (6909 prompt − 6101 cached + 314 generated)
+**Duration:** 4095ms (tool runtime 3ms, model/round-trip 4092ms)
+**Turns:** 3 model round-trips · **Processed tokens:** 1192 (7341 prompt − 6463 cached + 314 generated)
 **Tool calls:** 2
 
 ## Prompt
@@ -28,7 +28,7 @@ shop.schema()
 [{table: "orders", columns: [{name: "id", type: "integer", nullable: true}, {name: "region", type: "text", nullable: false}, {name: "product", type: "text", nullable: false}, {name: "qty", type: "integer", nullable: false}, {name: "unit_price", type: "real", nullable: false}, {name: "created", type: "text", nullable: false}]}]
 ```
 
-### Attempt 2 (OK, 1ms)
+### Attempt 2 (OK, 2ms)
 
 ```javascript
 shop.query(`

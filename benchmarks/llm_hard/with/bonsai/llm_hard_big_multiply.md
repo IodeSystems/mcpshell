@@ -1,8 +1,8 @@
 # llm_hard_big_multiply
 
 **Status:** PASS
-**Duration:** 1940ms (tool runtime 1ms, model/round-trip 1939ms)
-**Turns:** 2 model round-trips · **Processed tokens:** 706 (4267 prompt − 3687 cached + 126 generated)
+**Duration:** 2025ms (tool runtime 1ms, model/round-trip 2024ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 707 (4555 prompt − 3975 cached + 127 generated)
 **Tool calls:** 1
 
 ## Prompt

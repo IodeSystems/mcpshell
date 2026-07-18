@@ -5,10 +5,11 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 145,
+    "cached_tokens": 43,
     "completion_tokens": 571,
     "tool_ms": 0,
-    "model_ms": 5903,
-    "total_ms": 5903
+    "model_ms": 5930,
+    "total_ms": 5930
   },
   {
     "name": "compose_core_wordfreq_top",
@@ -16,10 +17,11 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 99,
+    "cached_tokens": 43,
     "completion_tokens": 340,
     "tool_ms": 0,
-    "model_ms": 3722,
-    "total_ms": 3722
+    "model_ms": 3751,
+    "total_ms": 3751
   },
   {
     "name": "compose_core_flatten_even_sum",
@@ -27,10 +29,11 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 100,
+    "cached_tokens": 43,
     "completion_tokens": 572,
     "tool_ms": 0,
-    "model_ms": 5771,
-    "total_ms": 5771
+    "model_ms": 5677,
+    "total_ms": 5677
   },
   {
     "name": "compose_core_csv_top_dept",
@@ -38,10 +41,11 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 138,
+    "cached_tokens": 43,
     "completion_tokens": 838,
     "tool_ms": 0,
-    "model_ms": 8221,
-    "total_ms": 8221
+    "model_ms": 8205,
+    "total_ms": 8205
   },
   {
     "name": "compose_core_pipeline_stats",
@@ -49,9 +53,10 @@
     "turns": 1,
     "tool_calls": 0,
     "prompt_tokens": 87,
+    "cached_tokens": 43,
     "completion_tokens": 1597,
     "tool_ms": 0,
-    "model_ms": 15081,
-    "total_ms": 15081
+    "model_ms": 16249,
+    "total_ms": 16249
   }
 ]

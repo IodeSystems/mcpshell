@@ -1,7 +1,7 @@
 # llm_hard_substring
 
 **Status:** PASS
-**Duration:** 2516ms (tool runtime 0ms, model/round-trip 2516ms)
+**Duration:** 2615ms (tool runtime 0ms, model/round-trip 2615ms)
 **Turns:** 1 model round-trips · **Processed tokens:** 267 (93 prompt − 43 cached + 217 generated)
 **Tool calls:** 0
 

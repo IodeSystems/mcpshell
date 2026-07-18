@@ -1,9 +1,9 @@
 # llm_hard_anagram
 
 **Status:** PASS
-**Duration:** 3758ms (tool runtime 33ms, model/round-trip 3725ms)
-**Turns:** 3 model round-trips · **Processed tokens:** 1023 (6663 prompt − 5917 cached + 277 generated)
-**Tool calls:** 2
+**Duration:** 2264ms (tool runtime 14ms, model/round-trip 2250ms)
+**Turns:** 2 model round-trips · **Processed tokens:** 773 (4593 prompt − 3978 cached + 158 generated)
+**Tool calls:** 1
 
 ## Prompt
 
@@ -17,32 +17,14 @@ true
 
 ## Attempts
 
-### Attempt 1 (ERROR, 12ms)
+### Attempt 1 (OK, 14ms)
 
 ```javascript
-const w1 = "conversation";
-const w2 = "conservation";
-const isAnagram = w1.length === w2.length && [...w1].sort().join("") === [...w2].sort().join("");
-isAnagram
-```
-
-**Result:**
-```
-ERROR: Type mismatch in spread
-
-  Expected: array
-  Got:      string ("conversation")
-
-  Hint: ... can only spread arrays into arrays
-```
-
-### Attempt 2 (OK, 21ms)
-
-```javascript
-const w1 = "conversation";
-const w2 = "conservation";
-const isAnagram = w1.length === w2.length && w1.split("").sort().join("") === w2.split("").sort().join("");
-isAnagram
+let w1 = "conversation";
+let w2 = "conservation";
+let sorted1 = w1.split("").sort().join("");
+let sorted2 = w2.split("").sort().join("");
+sorted1 === sorted2;
 ```
 
 **Result:**

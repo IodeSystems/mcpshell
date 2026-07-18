@@ -1,8 +1,8 @@
 # compose_sql_top_month
 
 **Status:** PASS
-**Duration:** 3587ms (tool runtime 2ms, model/round-trip 3585ms)
-**Turns:** 3 model round-trips · **Processed tokens:** 1036 (6896 prompt − 6121 cached + 261 generated)
+**Duration:** 3557ms (tool runtime 2ms, model/round-trip 3555ms)
+**Turns:** 3 model round-trips · **Processed tokens:** 1091 (7322 prompt − 6483 cached + 252 generated)
 **Tool calls:** 2
 
 ## Prompt
@@ -31,11 +31,11 @@ shop.schema()
 ### Attempt 2 (OK, 1ms)
 
 ```javascript
-shop.query("SELECT substr(created, 1, 7) AS month, SUM(qty * unit_price) AS total_revenue FROM orders GROUP BY substr(created, 1, 7) ORDER BY total_revenue DESC LIMIT 1")
+shop.query("SELECT substr(created, 1, 7) AS month, SUM(qty * unit_price) AS revenue FROM orders GROUP BY substr(created, 1, 7) ORDER BY revenue DESC LIMIT 1")
 ```
 
 **Result:**
 ```
-[{month: "2024-03", total_revenue: 269.5}]
+[{month: "2024-03", revenue: 269.5}]
 ```
 
