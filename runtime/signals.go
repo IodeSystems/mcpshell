@@ -1,11 +1,8 @@
 package runtime
 
-// Non-local control flow is implemented with panic/recover — an
-// exception-driven interpreter structure. The top-level Eval recovers these;
-// they must never escape the package.
-
-// ReturnSignal carries a function's return value out of nested statements.
-type ReturnSignal struct{ Value Value }
+// break/continue are implemented with panic/recover, caught by the nearest
+// enclosing loop; they must never escape the package. (return is not here — it
+// uses a flag on the Visitor, since it fires on every call and panic is costly.)
 
 // BreakSignal unwinds to the nearest enclosing loop.
 type BreakSignal struct{}

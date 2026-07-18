@@ -23,6 +23,13 @@ type Visitor struct {
 	collapseCache   map[antlr.Tree]antlr.Tree
 	stmtCache       map[parser.IBlockContext][]parser.IStatementContext
 	postfixCache    map[*parser.PostfixExprContext][]parser.IPostfixOpContext
+
+	// return is signalled by a flag rather than a panic — it fires on every
+	// function call, and panic/recover is expensive. Statement runners (blocks,
+	// loops, switch) check returning and stop; runFunctionBlock consumes it.
+	// break/continue stay panic-based (they only unwind loops, not hot).
+	returning   bool
+	returnValue Value
 }
 
 // blockStatements returns a block's statements, cached — AllStatement() rebuilds
@@ -342,6 +349,9 @@ func (v *Visitor) visitProgram(ctx *parser.ProgramContext) Value {
 	for _, stmt := range ctx.AllStatement() {
 		v.step(stmt)
 		result = v.eval(stmt)
+		if v.returning {
+			break
+		}
 	}
 	return result
 }
@@ -479,7 +489,9 @@ func (v *Visitor) visitReturnStatement(ctx *parser.ReturnStatementContext) Value
 	if ctx.Expression() != nil {
 		value = v.eval(ctx.Expression())
 	}
-	panic(ReturnSignal{Value: value})
+	v.returnValue = value
+	v.returning = true
+	return value
 }
 
 func (v *Visitor) visitTryCatchStatement(ctx *parser.TryCatchStatementContext) Value {
@@ -656,11 +668,17 @@ func (v *Visitor) visitSwitchStatement(ctx *parser.SwitchStatementContext) (resu
 		}
 		for _, stmt := range cc.AllStatement() {
 			result = v.eval(stmt)
+			if v.returning {
+				return result
+			}
 		}
 	}
 	if def := ctx.SwitchDefault(); def != nil {
 		for _, stmt := range def.(*parser.SwitchDefaultContext).AllStatement() {
 			result = v.eval(stmt)
+			if v.returning {
+				return result
+			}
 		}
 	}
 	return result
@@ -671,7 +689,7 @@ func (v *Visitor) visitDoWhileStatement(ctx *parser.DoWhileStatementContext) Val
 	for {
 		v.step(ctx)
 		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
-		if brk {
+		if brk || v.returning {
 			break
 		}
 		if !v.eval(ctx.Expression()).IsTruthy() {
@@ -693,7 +711,7 @@ func (v *Visitor) visitWhileStatement(ctx *parser.WhileStatementContext) Value {
 				result = v.visitBlockOrStatement(ctx.BlockOrStatement())
 			}
 		})
-		if brk {
+		if brk || v.returning {
 			break
 		}
 	}
@@ -721,7 +739,7 @@ func (v *Visitor) visitForOfStatement(ctx *parser.ForOfStatementContext) Value {
 		v.bindDestructure(ctx.Destructure(), item)
 		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		v.env = outer
-		if brk {
+		if brk || v.returning {
 			break
 		}
 	}
@@ -752,7 +770,7 @@ func (v *Visitor) visitForInStatement(ctx *parser.ForInStatementContext) Value {
 		v.env.Define(varName, key)
 		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		v.env = outer
-		if brk {
+		if brk || v.returning {
 			break
 		}
 	}
@@ -782,7 +800,7 @@ func (v *Visitor) visitForStatement(ctx *parser.ForStatementContext) Value {
 			}
 		}
 		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
-		if brk {
+		if brk || v.returning {
 			break
 		}
 		if ua := ctx.ForUpdateAssign(); ua != nil {
@@ -809,6 +827,9 @@ func (v *Visitor) visitBlock(ctx parser.IBlockContext) Value {
 	var result Value = Null
 	for _, stmt := range v.blockStatements(ctx) {
 		result = v.eval(stmt)
+		if v.returning {
+			break
+		}
 	}
 	return result
 }

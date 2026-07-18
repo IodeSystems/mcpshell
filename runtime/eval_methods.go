@@ -111,17 +111,14 @@ func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 }
 
 // runFunctionBlock runs a block body, converting a return signal into a value.
-func (v *Visitor) runFunctionBlock(node parser.IBlockContext) (result Value) {
-	defer func() {
-		if r := recover(); r != nil {
-			if rs, ok := r.(ReturnSignal); ok {
-				result = rs.Value
-				return
-			}
-			panic(r)
-		}
-	}()
-	return v.visitBlock(node)
+func (v *Visitor) runFunctionBlock(node parser.IBlockContext) Value {
+	result := v.visitBlock(node)
+	if v.returning {
+		result = v.returnValue
+		v.returning = false
+		v.returnValue = nil
+	}
+	return result
 }
 
 func (v *Visitor) bindParamsWithDefaults(fn *FuncVal, args []Value, fnEnv *Environment) {

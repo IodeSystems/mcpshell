@@ -35,19 +35,12 @@ func NewInterpreter(commands *CommandRegistry, globals *Environment, limits *Exe
 func (itp *Interpreter) Eval(source string) EvalResult {
 	tree := itp.parse(source)
 	v := newVisitor(itp, itp.globals)
-	value := func() (value Value) {
-		value = Null
-		defer func() {
-			if r := recover(); r != nil {
-				if rs, ok := r.(ReturnSignal); ok {
-					value = rs.Value
-					return
-				}
-				panic(r)
-			}
-		}()
-		return v.eval(tree)
-	}()
+	value := v.eval(tree)
+	if v.returning { // a top-level `return`
+		value = v.returnValue
+		v.returning = false
+		v.returnValue = nil
+	}
 	return EvalResult{Value: value, ExportedNames: v.exportedNames}
 }
 
