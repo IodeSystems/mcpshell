@@ -17,6 +17,19 @@ type Visitor struct {
 	env            *Environment
 	exportedNames  map[string]struct{}
 	commandFnCache map[string]*FuncVal
+	numLitCache    map[antlr.ParserRuleContext]*NumberVal
+	opTextCache    map[antlr.TerminalNode]string
+}
+
+// opText returns a terminal (operator) node's text, cached — GetText allocates a
+// fresh string each call, so a loop re-extracting the same operator is pure waste.
+func (v *Visitor) opText(t antlr.TerminalNode) string {
+	if s, ok := v.opTextCache[t]; ok {
+		return s
+	}
+	s := t.GetText()
+	v.opTextCache[t] = s
+	return s
 }
 
 func newVisitor(itp *Interpreter, env *Environment) *Visitor {
@@ -25,6 +38,8 @@ func newVisitor(itp *Interpreter, env *Environment) *Visitor {
 		env:            env,
 		exportedNames:  make(map[string]struct{}),
 		commandFnCache: make(map[string]*FuncVal),
+		numLitCache:    make(map[antlr.ParserRuleContext]*NumberVal),
+		opTextCache:    make(map[antlr.TerminalNode]string),
 	}
 }
 
@@ -141,18 +156,26 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		return v.visitPostfixExpr(ctx)
 	// Primary expressions
 	case *parser.NumberLiteralContext:
+		// Literals are immutable — parse once per node and reuse. Without this a
+		// loop re-parses the same literal text through big.Rat.SetString on every
+		// iteration (the dominant cost in arithmetic-heavy loops).
+		if n, ok := v.numLitCache[ctx]; ok {
+			return n
+		}
 		text := ctx.NUMBER().GetText()
 		// Parse the literal exactly (big.Rat handles integers, decimals, and
 		// scientific notation), so 0.1 stays 1/10 and huge integers keep every
 		// digit — auto-promotion with no float64 rounding at the source.
+		var n *NumberVal
 		if r, ok := new(big.Rat).SetString(text); ok {
-			return numRat(r)
-		}
-		f, err := strconv.ParseFloat(text, 64)
-		if err != nil {
+			n = numRat(r)
+		} else if f, err := strconv.ParseFloat(text, 64); err == nil {
+			n = &NumberVal{V: f}
+		} else {
 			panic(Runtime("invalid number literal: " + text))
 		}
-		return &NumberVal{V: f}
+		v.numLitCache[ctx] = n
+		return n
 	case *parser.StringLiteralContext:
 		raw := ctx.STRING().GetText()
 		return &StringVal{V: unescapeString(raw[1 : len(raw)-1])}
@@ -764,7 +787,7 @@ func (v *Visitor) visitBitwiseOrExpr(ctx *parser.BitwiseOrExprContext) Value {
 	xors := ctx.AllBitwiseXorExpr()
 	result := v.eval(xors[0])
 	for i := 1; i < len(xors); i++ {
-		opText := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		opText := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		if opText == "|" {
 			truncHint := ""
 			if xors[i].GetText() == "0" {
@@ -786,7 +809,7 @@ func (v *Visitor) visitBitwiseXorExpr(ctx *parser.BitwiseXorExprContext) Value {
 	ands := ctx.AllBitwiseAndExpr()
 	result := v.eval(ands[0])
 	for i := 1; i < len(ands); i++ {
-		opText := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		opText := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		if opText == "^" {
 			panic(Runtime("'^' is not supported. Did you mean:\n" +
 				"  **   exponentiation  (2 ** 10 → 1024)\n" +
@@ -813,7 +836,7 @@ func (v *Visitor) visitEqualityExpr(ctx *parser.EqualityExprContext) Value {
 	result := v.eval(cmps[0])
 	for i := 1; i < len(cmps); i++ {
 		right := v.eval(cmps[i])
-		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "==", "===":
 			result = &BoolVal{V: valueEquals(result, right)}
@@ -831,7 +854,7 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 	result := v.eval(shifts[0])
 	for i := 1; i < len(shifts); i++ {
 		right := v.eval(shifts[i])
-		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		if op == "in" {
 			switch r := right.(type) {
 			case *ObjectVal:
@@ -876,7 +899,7 @@ func (v *Visitor) visitShiftExpr(ctx *parser.ShiftExprContext) Value {
 	result := v.eval(pipes[0])
 	for i := 1; i < len(pipes); i++ {
 		right := v.eval(pipes[i])
-		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "<<":
 			result = intBitwiseOp(result, right, "<<", func(a, b int32) int32 { return a << (b & 0x1f) })
@@ -896,7 +919,7 @@ func (v *Visitor) visitAdditiveExpr(ctx *parser.AdditiveExprContext) Value {
 	result := v.eval(mults[0])
 	for i := 1; i < len(mults); i++ {
 		right := v.eval(mults[i])
-		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "+":
 			result = add(result, right)
@@ -912,7 +935,7 @@ func (v *Visitor) visitMultiplicativeExpr(ctx *parser.MultiplicativeExprContext)
 	result := v.eval(exps[0])
 	for i := 1; i < len(exps); i++ {
 		right := v.eval(exps[i])
-		op := ctx.GetChild(2*i - 1).(antlr.TerminalNode).GetText()
+		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "*":
 			result = mul(result, right)
