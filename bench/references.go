@@ -16,36 +16,30 @@ type Reference struct {
 	Ceiling bool
 }
 
-// References gives every deterministic teaser (Project Euler + composition) a
+// References gives every deterministic teaser (the composition suite) a
 // verified canonical solution. reference_test.go asserts this list stays in
-// sync with the euler_*/compose_* teasers in Suite.
+// sync with the compose_* teasers in Suite.
 var References = []Reference{
-	{Name: "euler_01_multiples_3_5",
-		Code: `range(0, 1379) |> filter(n => n % 3 == 0 || n % 5 == 0) |> sum()`},
-	{Name: "euler_02_even_fibonacci",
-		Code: `let a = 1; let b = 2; let s = 0; while (b <= 20000000) { if (b % 2 == 0) { s = s + b } let t = a + b; a = b; b = t } s`},
-	{Name: "euler_03_largest_prime_factor",
-		Code: `let n = 822999948151; let mp = 1; let d = 2; while (d * d <= n) { while (n % d == 0) { mp = d; n = n / d } d = d + 1 } if (n > 1) { mp = n } mp`},
-	{Name: "euler_04_largest_palindrome", Heavy: true,
-		Code: `extendLimit({steps: 50000000}); let best = 0; for (let a = 100; a <= 900; a = a + 1) { for (let b = a; b <= 900; b = b + 1) { let p = a * b; let s = str(p); if (s == reverse(s) && p > best) { best = p } } } best`},
-	{Name: "euler_05_smallest_multiple",
-		Code: `function gcd(a, b) { while (b != 0) { let t = b; b = a % b; a = t } return a } let l = 1; for (let i = 2; i <= 23; i = i + 1) { l = l * i / gcd(l, i) } l`},
-	{Name: "euler_06_sum_square_difference",
-		Code: `let n = range(1, 138); sum(n) ** 2 - sum(map(n, x => x * x))`},
-	{Name: "euler_07_10001st_prime", Heavy: true,
-		Code: `extendLimit({steps: 50000000}); function isPrime(n) { if (n < 2) { return false } let d = 2; while (d * d <= n) { if (n % d == 0) { return false } d = d + 1 } return true } let c = 0; let n = 1; while (c < 9001) { n = n + 1; if (isPrime(n)) { c = c + 1 } } n`},
-	{Name: "euler_09_pythagorean_triplet", Heavy: true,
-		Code: `let best = 0; for (let a = 1; a < 1716; a = a + 1) { for (let b = a + 1; b < 1716 - a; b = b + 1) { let c = 1716 - a - b; if (a * a + b * b == c * c) { let p = a * b * c; if (p > best) { best = p } } } } best`},
-	{Name: "euler_10_sum_of_primes", Heavy: true,
-		Code: `extendLimit({steps: 200000000, timeout: 120000}); let limit = 1500000; let sieve = fill(range(0, limit), true); let s = 0; for (let i = 2; i < limit; i = i + 1) { if (sieve[i]) { s = s + i; for (let j = i + i; j < limit; j = j + i) { sieve[j] = false } } } s`},
-	{Name: "euler_12_triangle_divisors", Heavy: true,
-		Code: `extendLimit({steps: 50000000}); function nDiv(n) { let c = 0; let d = 1; while (d * d <= n) { if (n % d == 0) { c = c + 2; if (d * d == n) { c = c - 1 } } d = d + 1 } return c } let n = 1; while (true) { let a = n % 2 == 0 ? n / 2 : n; let b = n % 2 == 0 ? n + 1 : (n + 1) / 2; if (nDiv(a) * nDiv(b) > 420) { break } n = n + 1 } n * (n + 1) / 2`},
-	{Name: "euler_14_longest_collatz", Heavy: true,
-		// Memoized chain lengths bring the search down to ~1min in the
-		// tree-walking interpreter (the naive version exceeds several minutes).
-		Code: `extendLimit({steps: 300000000, timeout: 280000}); let cache = {"1": 0}; function clen(start) { let n = start; let extra = 0; while (true) { let c = cache[str(n)]; if (c != null) { return c + extra } if (n % 2 == 0) { n = n / 2 } else { n = 3 * n + 1 } extra = extra + 1 } } let best = 0; let bestLen = 0; for (let s = 1; s < 700000; s = s + 1) { let l = clen(s); cache[str(s)] = l; if (l > bestLen) { bestLen = l; best = s } } best`},
-	{Name: "euler_21_amicable_numbers", Heavy: true,
-		Code: `extendLimit({steps: 50000000}); function dsum(n) { let s = 1; let d = 2; while (d * d <= n) { if (n % d == 0) { s = s + d; if (d * d != n) { s = s + n / d } } d = d + 1 } return s } let total = 0; for (let a = 2; a < 15000; a = a + 1) { let b = dsum(a); if (b != a && dsum(b) == a) { total = total + a } } total`},
+	{Name: "llm_hard_count_r_strawberry",
+		Code: `"strawberry" |> chars() |> filter(c => c == "r") |> len()`},
+	{Name: "llm_hard_count_s_mississippi",
+		Code: `"mississippi" |> chars() |> filter(c => c == "s") |> len()`},
+	{Name: "llm_hard_big_multiply",
+		Code: `3947 * 5821`},
+	{Name: "llm_hard_digit_sum_pow",
+		Code: `str(2 ** 20) |> chars() |> map(d => num(d)) |> sum()`},
+	{Name: "llm_hard_last_digit_pow",
+		Code: `let r = 1; for (let i = 0; i < 100; i = i + 1) { r = (r * 7) % 10 } r`},
+	{Name: "llm_hard_anagram",
+		Code: `("conversation" |> chars() |> sort() |> join("")) == ("conservation" |> chars() |> sort() |> join(""))`},
+	{Name: "llm_hard_sort_words",
+		Code: `["banana", "apple", "cherry", "date"] |> sort() |> join(",")`},
+	{Name: "llm_hard_substring",
+		Code: `"benchmark" |> substring(4, 7)`},
+	{Name: "llm_hard_count_words_with_o",
+		Code: `"the quick brown fox jumps over the lazy dog" |> split(" ") |> filter(w => w |> contains("o")) |> len()`},
+	{Name: "llm_hard_count_vowels",
+		Code: `"floccinaucinihilipilification" |> chars() |> filter(c => "aeiou" |> contains(c)) |> len()`},
 
 	{Name: "compose_core_top_region",
 		Code: `[{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}] |> groupBy(r => r.region) |> entries |> map(e => [e[0], e[1] |> map(r => r.amt) |> sum()]) |> sort((a,b) => b[1] - a[1]) |> at(0) |> (e => e[0] + "=" + str(e[1]))`},

@@ -60,14 +60,14 @@ func TestReferenceSolutions(t *testing.T) {
 }
 
 // TestReferenceCoverage keeps References in lockstep with the deterministic
-// teasers: every euler_*/compose_* teaser must have a reference solution.
+// teasers: every compose_* teaser must have a reference solution.
 func TestReferenceCoverage(t *testing.T) {
 	haveRef := map[string]bool{}
 	for _, r := range References {
 		haveRef[r.Name] = true
 	}
 	for _, ts := range Suite {
-		if strings.HasPrefix(ts.Name, "euler_") || strings.HasPrefix(ts.Name, "compose_") {
+		if strings.HasPrefix(ts.Name, "compose_") || strings.HasPrefix(ts.Name, "llm_hard_") {
 			if !haveRef[ts.Name] {
 				t.Errorf("teaser %q has no reference solution in References", ts.Name)
 			}

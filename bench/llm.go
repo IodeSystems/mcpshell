@@ -206,6 +206,45 @@ type AgentStats struct {
 	Tokens TokenUsage
 }
 
+// PromptTokens sends a one-shot request with the given system prompt and tool
+// set and returns how many prompt tokens the model billed — used to measure the
+// context cost of different tool-exposure strategies. An empty system and nil
+// tools gives the baseline overhead to subtract.
+func (l *LLM) PromptTokens(ctx context.Context, model, system string, tools []json.RawMessage) (int, error) {
+	messages := []chatMessage{}
+	if system != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: system})
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: "ok"})
+	body := map[string]any{
+		"model":       model,
+		"messages":    messages,
+		"max_tokens":  1,
+		"temperature": 0,
+	}
+	if len(tools) > 0 {
+		body["tools"] = tools
+		body["tool_choice"] = "none"
+	}
+	data, err := l.do(ctx, http.MethodPost, "/v1/chat/completions", body)
+	if err != nil {
+		return 0, err
+	}
+	var r struct {
+		Usage struct {
+			PromptTokens int `json:"prompt_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return 0, err
+	}
+	return r.Usage.PromptTokens, nil
+}
+
+// EvalToolSchema is the single-tool schema mcpshell exposes: one `mcpshell` tool
+// instead of one per capability.
+var EvalToolSchema = mcpshellToolDef
+
 // RunAgent drives a tool-calling agent loop: it sends the prompt, executes any
 // mcpshell tool calls via runTool, feeds results back, and returns the model's
 // final text answer along with every tool attempt made and aggregate stats.

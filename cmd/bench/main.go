@@ -29,6 +29,10 @@ func main() {
 		runCompare(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "context" {
+		runContext(os.Args[2:])
+		return
+	}
 	_ = bench.LoadEnvFile("env.local")
 
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
@@ -128,6 +132,42 @@ func benchSystemPrompt(compact bool, shellFactory func() *runtime.Shell) string 
 	b.WriteString("Even if you know the answer, compute it with mcpshell to verify. ")
 	b.WriteString("Return ONLY the raw result from the tool — no explanation, no markdown, no wrapping. Just the value.")
 	return b.String()
+}
+
+// runContext measures the per-request context cost of exposing capabilities as
+// N discrete MCP tools vs. one mcpshell eval tool, using the model's tokenizer.
+//
+//	bench context
+func runContext(args []string) {
+	_ = bench.LoadEnvFile("env.local")
+	fs := flag.NewFlagSet("bench context", flag.ExitOnError)
+	url := fs.String("url", os.Getenv("MCPSHELL_LLM_URL"), "LLM API base URL")
+	model := fs.String("model", os.Getenv("MCPSHELL_LLM_MODEL"), "model id or substring")
+	_ = fs.Parse(args)
+
+	sh := runtime.NewShell()
+	toolkit.InstallCore(sh)
+	toolkit.InstallMath(sh)
+	toolkit.InstallWeb(sh)
+	toolkit.InstallGraph(sh)
+
+	llm := bench.NewLLM(*url, os.Getenv("MCPSHELL_LLM_API_KEY"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	resolved, err := llm.ResolveModel(ctx, *model)
+	if err != nil {
+		fail("%v", err)
+	}
+	rows, err := bench.MeasureContext(ctx, llm, resolved, sh)
+	if err != nil {
+		fail("measure context: %v", err)
+	}
+	fmt.Printf("Per-request context cost (prompt tokens above baseline), model %q:\n\n", resolved)
+	fmt.Printf("%-38s %6s  %s\n", "Strategy", "Tools", "Tokens")
+	fmt.Println(strings.Repeat("-", 58))
+	for _, r := range rows {
+		fmt.Printf("%-38s %6d  %d\n", r.Strategy, r.Tools, r.Tokens)
+	}
 }
 
 // runCompare builds a with/without comparison doc from two runs' results.json.

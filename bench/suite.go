@@ -246,92 +246,70 @@ Extract just the filename (after the last backslash) from each path using the re
 		TimeoutSec: 60,
 	},
 
-	// --- Project Euler (non-canonical) --------------------------------------
-	// Euler-style problems with perturbed constants so the answers are NOT the
-	// famous, memorized Project Euler numbers — the reasoning-only baseline must
-	// actually compute, not recall. Neutrally phrased (no mention of mcpshell) so
-	// the same prompt is fair with and without the tool. Answers are exact
-	// integers within float64's safe range; the heavier ones can exceed the
-	// default 1M-step budget, so the model must call extendLimit({steps}).
+	// --- LLM-hard -----------------------------------------------------------
+	// The "how many r's in strawberry" class: things LLMs reliably get wrong
+	// from memory — exact letter counting, arithmetic on ugly numbers, digit
+	// manipulation, exact string ops — but that are trivial with a line of code.
+	// Neutrally phrased so the same prompt is fair with and without the tool.
 	{
-		Name:       "euler_01_multiples_3_5",
-		Prompt:     "Find the sum of all the multiples of 3 or 5 below 1379.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("443670"),
+		Name:       "llm_hard_count_r_strawberry",
+		Prompt:     "How many times does the letter r appear in the word strawberry?",
+		FormatHint: "Return ONLY the count as a number.",
+		Validate:   all("3"),
 	},
 	{
-		Name:       "euler_02_even_fibonacci",
-		Prompt:     "In the Fibonacci sequence 1, 2, 3, 5, 8, 13, 21, ... each term is the sum of the previous two. Find the sum of the even-valued terms whose value does not exceed 20,000,000.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("19544084"),
+		Name:       "llm_hard_count_s_mississippi",
+		Prompt:     "How many times does the letter s appear in the word Mississippi?",
+		FormatHint: "Return ONLY the count as a number.",
+		Validate:   all("4"),
 	},
 	{
-		Name:       "euler_04_largest_palindrome",
-		Prompt:     "A palindromic number reads the same both ways. Find the largest palindrome that is the product of two integers each between 100 and 900 inclusive.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("749947"),
-		TimeoutSec: 60,
+		Name:       "llm_hard_big_multiply",
+		Prompt:     "What is 3947 multiplied by 5821?",
+		FormatHint: "Return ONLY the number.",
+		Validate:   all("22975487"),
 	},
 	{
-		Name:       "euler_05_smallest_multiple",
-		Prompt:     "What is the smallest positive number that is evenly divisible by every integer from 1 to 23?",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("5354228880"),
+		Name:       "llm_hard_digit_sum_pow",
+		Prompt:     "What is the sum of the decimal digits of 2 raised to the 20th power?",
+		FormatHint: "Return ONLY the number.",
+		Validate:   all("31"),
 	},
 	{
-		Name:       "euler_06_sum_square_difference",
-		Prompt:     "Find the difference between the square of the sum of the first 137 natural numbers (1 to 137) and the sum of their squares.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("88492684"),
+		Name:       "llm_hard_last_digit_pow",
+		Prompt:     "What is the last digit of 7 raised to the 100th power?",
+		FormatHint: "Return ONLY the digit.",
+		Validate:   all("1"),
 	},
 	{
-		Name:       "euler_09_pythagorean_triplet",
-		Prompt:     "Consider all Pythagorean triplets of positive integers a < b < c (with a^2 + b^2 = c^2) for which a + b + c = 1716. Among them, find the largest product a*b*c.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("175452420"),
-		TimeoutSec: 60,
+		Name:       "llm_hard_anagram",
+		Prompt:     "Are the words 'conversation' and 'conservation' anagrams of each other?",
+		FormatHint: "Return ONLY true or false.",
+		Validate:   all("true"),
 	},
 	{
-		Name:       "euler_07_10001st_prime",
-		Prompt:     "What is the 9001st prime number? (2 is the 1st.)",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("93187"),
-		TimeoutSec: 90,
+		Name:       "llm_hard_sort_words",
+		Prompt:     "Sort these words into alphabetical order and join them with commas: banana, apple, cherry, date.",
+		FormatHint: "Return ONLY the joined string.",
+		Validate:   func(s string) bool { return has(strings.ReplaceAll(s, " ", ""), "apple,banana,cherry,date") },
 	},
 	{
-		Name:       "euler_21_amicable_numbers",
-		Prompt:     "Let d(n) be the sum of the proper divisors of n (divisors less than n). Two distinct numbers a and b are amicable if d(a) = b and d(b) = a. Find the sum of all amicable numbers below 15000.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("80106"),
-		TimeoutSec: 60,
+		Name:       "llm_hard_substring",
+		Prompt:     "In the word 'benchmark', what are the three characters at positions 5, 6, and 7 (1-based)? Return them as a single string.",
+		FormatHint: "Return ONLY the three characters.",
+		Validate:   all("hma"),
 	},
 	{
-		Name:       "euler_12_triangle_divisors",
-		Prompt:     "The triangle numbers are 1, 3, 6, 10, 15, ...; the nth triangle number is the sum of the integers 1 to n. What is the value of the first triangle number to have more than 420 divisors?",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("17907120"),
-		TimeoutSec: 60,
+		Name:       "llm_hard_count_words_with_o",
+		Prompt:     "In the sentence 'the quick brown fox jumps over the lazy dog', how many words contain the letter o?",
+		FormatHint: "Return ONLY the count as a number.",
+		Validate:   all("4"),
 	},
 	{
-		Name:       "euler_03_largest_prime_factor",
-		Prompt:     "What is the largest prime factor of the number 822999948151?",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("999999937"),
-		TimeoutSec: 60,
-	},
-	{
-		Name:       "euler_10_sum_of_primes",
-		Prompt:     "Find the sum of all the prime numbers below 1,500,000.",
-		FormatHint: "Return ONLY the final number, with no commas, text, or explanation.",
-		Validate:   all("82074443256"),
-		TimeoutSec: 90,
-	},
-	{
-		Name:       "euler_14_longest_collatz",
-		Prompt:     "The Collatz iteration sends n to n/2 when n is even and to 3n+1 when n is odd, stopping at 1. Which starting number below 700,000 produces the longest chain?",
-		FormatHint: "Return ONLY the starting number, with no commas, text, or explanation.",
-		Validate:   all("626331"),
-		TimeoutSec: 120,
+		Name:       "llm_hard_count_vowels",
+		Prompt:     "How many vowels (a, e, i, o, u) are in the word floccinaucinihilipilification?",
+		FormatHint: "Return ONLY the count as a number.",
+		Validate:   all("14"),
 	},
 
 	// --- Composition -------------------------------------------------------
