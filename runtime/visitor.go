@@ -21,6 +21,30 @@ type Visitor struct {
 	opTextCache     map[antlr.TerminalNode]string
 	blockScopeCache map[parser.IBlockContext]bool
 	collapseCache   map[antlr.Tree]antlr.Tree
+	stmtCache       map[parser.IBlockContext][]parser.IStatementContext
+	postfixCache    map[*parser.PostfixExprContext][]parser.IPostfixOpContext
+}
+
+// blockStatements returns a block's statements, cached — AllStatement() rebuilds
+// the slice from children on every call (once per loop iteration / recursion).
+func (v *Visitor) blockStatements(ctx parser.IBlockContext) []parser.IStatementContext {
+	if s, ok := v.stmtCache[ctx]; ok {
+		return s
+	}
+	s := ctx.AllStatement()
+	v.stmtCache[ctx] = s
+	return s
+}
+
+// postfixOps returns a postfix expression's operators, cached (call/index/member
+// chains re-fetch this on every visit).
+func (v *Visitor) postfixOps(ctx *parser.PostfixExprContext) []parser.IPostfixOpContext {
+	if s, ok := v.postfixCache[ctx]; ok {
+		return s
+	}
+	s := ctx.AllPostfixOp()
+	v.postfixCache[ctx] = s
+	return s
 }
 
 // blockDeclares reports whether a block introduces block-scoped bindings (let/
@@ -48,8 +72,9 @@ func (v *Visitor) blockDeclares(ctx parser.IBlockContext) bool {
 	return declares
 }
 
-// opText returns a terminal (operator) node's text, cached — GetText allocates a
-// fresh string each call, so a loop re-extracting the same operator is pure waste.
+// opText returns a terminal node's text, cached — GetText allocates a fresh
+// string each call, so re-extracting the same operator/identifier in a loop or
+// on every recursive call is pure waste.
 func (v *Visitor) opText(t antlr.TerminalNode) string {
 	if s, ok := v.opTextCache[t]; ok {
 		return s
@@ -57,6 +82,17 @@ func (v *Visitor) opText(t antlr.TerminalNode) string {
 	s := t.GetText()
 	v.opTextCache[t] = s
 	return s
+}
+
+// identText is the cached form of identOrFunctionText for hot lookup paths.
+func (v *Visitor) identText(ident, fn antlr.TerminalNode) string {
+	if ident != nil {
+		return v.opText(ident)
+	}
+	if fn != nil {
+		return v.opText(fn)
+	}
+	panic(Runtime("Expected identifier"))
 }
 
 func newVisitor(itp *Interpreter, env *Environment) *Visitor {
@@ -69,6 +105,8 @@ func newVisitor(itp *Interpreter, env *Environment) *Visitor {
 		opTextCache:     make(map[antlr.TerminalNode]string),
 		blockScopeCache: make(map[parser.IBlockContext]bool),
 		collapseCache:   make(map[antlr.Tree]antlr.Tree),
+		stmtCache:       make(map[parser.IBlockContext][]parser.IStatementContext),
+		postfixCache:    make(map[*parser.PostfixExprContext][]parser.IPostfixOpContext),
 	}
 }
 
@@ -769,7 +807,7 @@ func (v *Visitor) visitBlock(ctx parser.IBlockContext) Value {
 		defer func() { v.env = outer }()
 	}
 	var result Value = Null
-	for _, stmt := range ctx.AllStatement() {
+	for _, stmt := range v.blockStatements(ctx) {
 		result = v.eval(stmt)
 	}
 	return result
@@ -1161,7 +1199,7 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 		lvaluePath = append(lvaluePath, identOrFunctionText(id.IDENTIFIER(), id.FUNCTION()))
 	}
 
-	ops := ctx.AllPostfixOp()
+	ops := v.postfixOps(ctx)
 	for opIdx, op := range ops {
 		opc := op.(*parser.PostfixOpContext)
 		isOptional := opc.OPTIONAL_CHAIN() != nil
@@ -1318,7 +1356,7 @@ func (v *Visitor) visitRawTemplateString(ctx *parser.RawTemplateStringContext) V
 }
 
 func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
-	name := identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())
+	name := v.identText(ctx.IDENTIFIER(), ctx.FUNCTION())
 	if val := v.env.Get(name); val != nil {
 		return val
 	}
