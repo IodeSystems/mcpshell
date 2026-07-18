@@ -348,8 +348,26 @@ func Num(f float64) *NumberVal {
 	return &NumberVal{V: f, kind: kFloat}
 }
 
-// numInt is the alloc-free exact-integer constructor.
-func numInt(i int64) *NumberVal { return &NumberVal{V: float64(i), kind: kInt, i: i} }
+// Small integers are interned: results in this range reuse a shared immutable
+// NumberVal instead of allocating. NumberVals are never mutated in place, so
+// sharing is safe (same pattern as the Null singleton).
+const internMin, internMax = -128, 256
+
+var internedInts = func() [internMax - internMin + 1]*NumberVal {
+	var a [internMax - internMin + 1]*NumberVal
+	for i := internMin; i <= internMax; i++ {
+		a[i-internMin] = &NumberVal{V: float64(i), kind: kInt, i: int64(i)}
+	}
+	return a
+}()
+
+// numInt is the exact-integer constructor; small values are interned (no alloc).
+func numInt(i int64) *NumberVal {
+	if i >= internMin && i <= internMax {
+		return internedInts[i-internMin]
+	}
+	return &NumberVal{V: float64(i), kind: kInt, i: i}
+}
 
 // numBigInt builds an exact integer, demoting to int64 when it fits.
 func numBigInt(b *big.Int) *NumberVal {

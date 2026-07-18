@@ -13,12 +13,38 @@ import (
 // Visitor walks a parse tree and evaluates it. It carries the mutable current
 // scope; the immutable interpreter context (commands, limits) lives on itp.
 type Visitor struct {
-	itp            *Interpreter
-	env            *Environment
-	exportedNames  map[string]struct{}
-	commandFnCache map[string]*FuncVal
-	numLitCache    map[antlr.ParserRuleContext]*NumberVal
-	opTextCache    map[antlr.TerminalNode]string
+	itp             *Interpreter
+	env             *Environment
+	exportedNames   map[string]struct{}
+	commandFnCache  map[string]*FuncVal
+	numLitCache     map[antlr.ParserRuleContext]*NumberVal
+	opTextCache     map[antlr.TerminalNode]string
+	blockScopeCache map[parser.IBlockContext]bool
+}
+
+// blockDeclares reports whether a block introduces block-scoped bindings (let/
+// const/var/function/export). Cached per node. Bare assignment can't create a
+// binding (it errors on undefined vars), so a declaration-free block needs no
+// child scope at all — skipping it avoids an allocation per loop iteration.
+func (v *Visitor) blockDeclares(ctx parser.IBlockContext) bool {
+	if b, ok := v.blockScopeCache[ctx]; ok {
+		return b
+	}
+	declares := false
+	for _, stmt := range ctx.AllStatement() {
+		if stmt.GetChildCount() == 0 {
+			continue
+		}
+		switch stmt.GetChild(0).(type) {
+		case *parser.LetDeclContext, *parser.FnDeclContext, *parser.ExportStatementContext:
+			declares = true
+		}
+		if declares {
+			break
+		}
+	}
+	v.blockScopeCache[ctx] = declares
+	return declares
 }
 
 // opText returns a terminal (operator) node's text, cached — GetText allocates a
@@ -34,12 +60,13 @@ func (v *Visitor) opText(t antlr.TerminalNode) string {
 
 func newVisitor(itp *Interpreter, env *Environment) *Visitor {
 	return &Visitor{
-		itp:            itp,
-		env:            env,
-		exportedNames:  make(map[string]struct{}),
-		commandFnCache: make(map[string]*FuncVal),
-		numLitCache:    make(map[antlr.ParserRuleContext]*NumberVal),
-		opTextCache:    make(map[antlr.TerminalNode]string),
+		itp:             itp,
+		env:             env,
+		exportedNames:   make(map[string]struct{}),
+		commandFnCache:  make(map[string]*FuncVal),
+		numLitCache:     make(map[antlr.ParserRuleContext]*NumberVal),
+		opTextCache:     make(map[antlr.TerminalNode]string),
+		blockScopeCache: make(map[parser.IBlockContext]bool),
 	}
 }
 
@@ -694,9 +721,11 @@ func (v *Visitor) visitForStatement(ctx *parser.ForStatementContext) Value {
 }
 
 func (v *Visitor) visitBlock(ctx parser.IBlockContext) Value {
-	outer := v.env
-	v.env = v.env.Child()
-	defer func() { v.env = outer }()
+	if v.blockDeclares(ctx) {
+		outer := v.env
+		v.env = v.env.Child()
+		defer func() { v.env = outer }()
+	}
 	var result Value = Null
 	for _, stmt := range ctx.AllStatement() {
 		result = v.eval(stmt)
