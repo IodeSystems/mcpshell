@@ -179,6 +179,11 @@ fn(name: "Alice", age: 30)  // named args
 [1,2,3] |* (x => x * 2) |> reduce((a, x) => a + x, 0)  // scatter then pipe
 "hello".toUpperCase()        // JS methods auto-resolve to commands
 
+## Numbers are exact (no float64 rounding)
+2 ** 1000, 100!, and big sums keep every digit; 0.1 + 0.2 === 0.3; 1/3 + 1/3 + 1/3 === 1.
+Only sqrt/sin/log/non-integer powers are floating-point. So compute exactly — don't hedge about precision.
+profile(() => ...) // returns {result, steps, lines} to see which lines cost the most
+
 ## Composition
 all(() => a(), () => b()) // parallel   race() // first success
 chain(() => getData(), d => transform(d)) // sequential`

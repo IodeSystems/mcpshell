@@ -53,6 +53,26 @@ also compose upstream MCP servers as namespaced commands
 (`--connect`/`--mcp`); an upstream that is itself mcpshell is skipped to avoid
 a recursive `eval` loop.
 
+## Numbers & cost
+
+Numbers are **exact and arbitrary-precision** — no silent float64 rounding.
+Integer arithmetic auto-promotes past 2^53, decimals and rationals stay exact,
+and only transcendental ops (`sqrt`/`sin`/`log`/non-integer powers) are
+floating-point (the precision boundary). A tiered `int64 → big.Int → big.Rat`
+representation keeps the common integer path allocation-free (~1.3× the float
+baseline on hot loops).
+
+```
+2 ** 1000            // 302 exact digits
+0.1 + 0.2 == 0.3     // true
+1/3 + 1/3 + 1/3      // 1
+```
+
+Every eval is bounded (step, call-depth, wall-clock, and output limits) so
+untrusted code can't hang the host. `profile(() => …)` returns
+`{result, steps, lines}` to see which lines cost the most, and a tripped step
+limit names the hot lines instead of just a number.
+
 ## Toolkits
 
 Toolkits register namespaced commands into the shell. `core`, `math`, and
