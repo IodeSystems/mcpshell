@@ -1,0 +1,122 @@
+[
+  {
+    "name": "llm_hard_count_r_strawberry",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4271,
+    "cached_tokens": 2100,
+    "completion_tokens": 185,
+    "tool_ms": 27,
+    "model_ms": 3230,
+    "total_ms": 3257
+  },
+  {
+    "name": "llm_hard_count_s_mississippi",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4270,
+    "cached_tokens": 3688,
+    "completion_tokens": 225,
+    "tool_ms": 6,
+    "model_ms": 2844,
+    "total_ms": 2850
+  },
+  {
+    "name": "llm_hard_big_multiply",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4267,
+    "cached_tokens": 3687,
+    "completion_tokens": 126,
+    "tool_ms": 1,
+    "model_ms": 1939,
+    "total_ms": 1940
+  },
+  {
+    "name": "llm_hard_digit_sum_pow",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4290,
+    "cached_tokens": 3692,
+    "completion_tokens": 176,
+    "tool_ms": 23,
+    "model_ms": 2420,
+    "total_ms": 2443
+  },
+  {
+    "name": "llm_hard_last_digit_pow",
+    "success": true,
+    "turns": 5,
+    "tool_calls": 4,
+    "prompt_tokens": 11261,
+    "cached_tokens": 10373,
+    "completion_tokens": 966,
+    "tool_ms": 25,
+    "model_ms": 10618,
+    "total_ms": 10643
+  },
+  {
+    "name": "llm_hard_anagram",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 2,
+    "prompt_tokens": 6663,
+    "cached_tokens": 5917,
+    "completion_tokens": 277,
+    "tool_ms": 33,
+    "model_ms": 3725,
+    "total_ms": 3758
+  },
+  {
+    "name": "llm_hard_sort_words",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4294,
+    "cached_tokens": 3693,
+    "completion_tokens": 161,
+    "tool_ms": 11,
+    "model_ms": 2299,
+    "total_ms": 2310
+  },
+  {
+    "name": "llm_hard_substring",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4318,
+    "cached_tokens": 3706,
+    "completion_tokens": 311,
+    "tool_ms": 13,
+    "model_ms": 3620,
+    "total_ms": 3633
+  },
+  {
+    "name": "llm_hard_count_words_with_o",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4309,
+    "cached_tokens": 3697,
+    "completion_tokens": 155,
+    "tool_ms": 13,
+    "model_ms": 2233,
+    "total_ms": 2246
+  },
+  {
+    "name": "llm_hard_count_vowels",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 4328,
+    "cached_tokens": 3703,
+    "completion_tokens": 214,
+    "tool_ms": 14,
+    "model_ms": 2743,
+    "total_ms": 2757
+  }
+]

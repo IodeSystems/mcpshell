@@ -88,25 +88,30 @@ then execs it. The same launcher works across machines and architectures.
 
 ## Benchmark
 
-**An LLM given mcpshell solves more, and unlocks problems it can't touch
-without a tool.** On non-canonical Project Euler problems (perturbed constants,
-so no memorized answers), `bonsai` scores **9/12 with the tool vs. 0/12
-without** — and faster. `bin/bench` runs a challenge suite (general mcpshell
-tasks, Project Euler, and composition problems) against an OpenAI-compatible
-endpoint, and can run the same problems *without* the tool to measure what it
-buys — scored on correctness, turns, tokens, and time-to-solution.
+mcpshell isn't a faster calculator (hand an LLM `bc` for that). It earns one
+sandboxed `eval` tool on three things a pile of discrete tools can't offer at
+once — see **[`benchmarks/`](benchmarks/README.md)** for the full showcase:
 
-See **[`benchmarks/`](benchmarks/README.md)** for the full showcase, per-model
-result records, and with/without comparisons.
+1. **LLM-hard reliability** — the "how many r's in strawberry" class: exact by
+   construction and ~2.5× faster than reasoning it out, with the gap widening as
+   inputs grow.
+2. **Context savings** — one `eval` vs. one tool per capability is **−96%**
+   context per request (341 vs 8366 prompt tokens for 112 tools), flat as you add
+   capabilities, KV-cache friendly. Reproduce with `./bin/bench context`.
+3. **Safe untrusted execution** — no imports, `eval`, `process`, prototype chain,
+   or ambient I/O, plus step/time limits, so model-authored code can't reach or
+   hang the host (`toolkit/sandbox_test.go`).
 
-Quick start — copy `env.local.example` to `env.local` (gitignored), set
-`MCPSHELL_LLM_URL` / `MCPSHELL_LLM_MODEL`, then:
+`bin/bench` runs the challenge suite against an OpenAI-compatible endpoint and
+can run the same problems *without* the tool to measure the difference (scored on
+correctness, turns, processed/cached tokens, time):
 
 ```
 ./bin/bench                                  # full suite
-./bin/bench --only euler_                    # one category
+./bin/bench --only llm_hard_                  # one category
 ./bin/bench --no-tool                        # reasoning-only baseline (no tool)
 ./bin/bench compare with_dir without_dir     # side-by-side comparison doc
+./bin/bench context                          # tool-context cost measurement
 ```
 
 Results are written as markdown + a machine-readable `results.json`. Every
