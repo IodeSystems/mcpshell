@@ -2,8 +2,21 @@
 
 [![Release](https://img.shields.io/github/v/release/IodeSystems/mcpshell?label=release)](https://github.com/IodeSystems/mcpshell/releases/latest)
 
-A sandboxed JS-syntax scripting language that gives LLMs safe computation
-through a single `eval` tool.
+A sandboxed JS-syntax scripting language that gives an LLM **one `eval` tool
+instead of twenty**. It earns that one tool on three things a pile of discrete
+tools can't offer at once:
+
+- **Reliability on LLM-hard tasks** — exact letter counting, arithmetic, string
+  and data wrangling: right by construction and faster than reasoning it out.
+- **~96% less tool-schema context** — one `eval` + a compact reference (or a
+  deferred `help()`) replaces one tool schema per capability, and stays flat as
+  you add capabilities (KV-cache friendly).
+- **Safe untrusted execution** — no imports, `eval`, `process`, prototype chain,
+  or ambient I/O, plus step/time limits, so model-authored code can't reach or
+  hang the host.
+
+Measured against the reasoning-only baseline — 96% context cut, 2.5× faster on
+LLM-hard tasks, every host escape blocked — in [`benchmarks/`](benchmarks/README.md).
 
 **Status: complete.** Parser, runtime, interpreter, all toolkits
 (core, math, web, file, graph, SQL, browser), the MCP server, and the LLM
@@ -88,20 +101,8 @@ then execs it. The same launcher works across machines and architectures.
 
 ## Benchmark
 
-mcpshell isn't a faster calculator (hand an LLM `bc` for that). It earns one
-sandboxed `eval` tool on three things a pile of discrete tools can't offer at
-once — see **[`benchmarks/`](benchmarks/README.md)** for the full showcase:
-
-1. **LLM-hard reliability** — the "how many r's in strawberry" class: exact by
-   construction and ~2.5× faster than reasoning it out, with the gap widening as
-   inputs grow.
-2. **Context savings** — one `eval` vs. one tool per capability is **−96%**
-   context per request (341 vs 8366 prompt tokens for 112 tools), flat as you add
-   capabilities, KV-cache friendly. Reproduce with `./bin/bench context`.
-3. **Safe untrusted execution** — no imports, `eval`, `process`, prototype chain,
-   or ambient I/O, plus step/time limits, so model-authored code can't reach or
-   hang the host (`toolkit/sandbox_test.go`).
-
+The three claims above are measured in **[`benchmarks/`](benchmarks/README.md)**
+(context cost, sandbox properties, and a with/without-tool showcase per suite).
 `bin/bench` runs the challenge suite against an OpenAI-compatible endpoint and
 can run the same problems *without* the tool to measure the difference (scored on
 correctness, turns, processed/cached tokens, time):
