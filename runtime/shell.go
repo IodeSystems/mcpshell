@@ -173,6 +173,7 @@ Not supported: class, new, this, import, yield, async/await, generators.
 Last expression is the output. ` + "`let`" + ` returns null — end with the value you want.
 
 ## Key differences from JS
+let x = 5                    // REQUIRED: assigning to an undeclared name is an error
 export let x = 10            // persists across eval calls; without export, discarded
 fn(name: "Alice", age: 30)  // named args
 [1,2,3] |> map(n => n * 10) // pipe: passes left as first arg
