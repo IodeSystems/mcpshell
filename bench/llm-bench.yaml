@@ -1,0 +1,59 @@
+# mcpshell's llm-bench probe config.
+#
+# This is NOT the whole of mcpshell's measurement, and is not meant to be.
+# bench/ (Go) and benchmarks/ measure what llm-bench structurally cannot:
+# context bytes per request, wall-clock against a reasoning-only baseline, and
+# host-escape safety. Those need their own harness and should keep it.
+#
+# What llm-bench adds is the axis those cannot reach — a model's CONDUCT, graded
+# with a justification: did it follow the instructions the tool ships, and does
+# holding eval change what it proposes and how well it argues for it.
+#
+#   llm-bench run --config bench/llm-bench.yaml --toolsets baseline,mcpshell
+#
+# Or register the directory once on the box, in <corrallm-home>/llm-bench.yaml:
+#
+#   # The DEPLOYED arm — its numbers are the score. baseline is the control: the
+# stable reference the score is measured against, recorded as a delta and never
+# scored itself. A control is supposed to lose the instructions probe; it has no
+# eval tool to use correctly.
+profile: mcpshell
+
+probeDirs:
+#     - ~/local/src/iodesystems/mcpshell/bench/probes
+
+llm:
+  baseURL: "http://127.0.0.1:8111"
+  apiKeyEnv: CORRALLM_BENCH_KEY
+
+models:
+  - ternary-bonsai-27b
+  - Qwen3-6-27B-MPT
+
+judge:
+  model: "chat"
+  maxTranscriptBytes: 65536
+
+# The DEPLOYED arm — its numbers are the score. baseline is the control: the
+# stable reference the score is measured against, recorded as a delta and never
+# scored itself. A control is supposed to lose the instructions probe; it has no
+# eval tool to use correctly.
+profile: mcpshell
+
+probeDirs:
+  - ./probes
+
+toolsets:
+  # The control arm. mcpshell-architecture is an A/B against this; the
+  # instructions probe scores 0 here by construction, since there is no eval
+  # tool to use correctly — which is the arm's job, not a bug.
+  baseline: []
+
+  # `mcpshell mcp` — one eval tool plus the compact reference. File tools stay:
+  # mcpshell is an eval sandbox with no file surface of its own, so ceding them
+  # would leave the architecture probe unable to write its own answer.
+  mcpshell:
+    cedeFileTools: false
+    servers:
+      - cmd: mcpshell
+        args: ["mcp"]

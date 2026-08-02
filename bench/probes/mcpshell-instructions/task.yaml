@@ -1,0 +1,65 @@
+name: mcpshell-instructions
+class: tooluse
+weight: 2
+# Three INDEPENDENT instructions, not a sequential task: vars, export, help().
+# Under the default worst-stage fold, getting two of three right scores the same
+# as getting none — which is exactly how the first real A/B came back a wash.
+stageFold: mean
+description: |
+  Can a model USE mcpshell's documented instructions, as distinct from solving
+  the problem it was given?
+
+  The 52 teasers in bench/ cannot tell those apart. A model that fails
+  `regex_extract` might have failed the regex or failed mcpshell, and the score
+  is identical either way — so a change to the tool description cannot be
+  measured, only guessed at.
+
+  These stages are deliberately TRIVIAL as problems. Each one is answerable by a
+  competent model in one line; the only thing that can go wrong is not following
+  what the tool description said. Every assertion here targets a sentence
+  mcpshell actually ships in ToolDescription (runtime/shell.go).
+
+  Ground truth was verified against the live server before this probe was
+  written, so a failure is the model's, not the fixture's.
+limits: { maxTurnsPerStage: 4, maxToolCallsPerStage: 4 }
+stages:
+  # "Never embed complex strings (paths, regex, user data) as literals in code.
+  # Instead pass them via vars." The one instruction mcpshell ships a mitigation
+  # for, which means someone hit it for real.
+  - prompt: |
+      Using the eval tool, split this Windows path on the backslash separator
+      and tell me how many segments it has:
+
+          C:\Users\nthalk\src\app\main.go
+
+      Reply with just the number.
+    checks:
+      - response_contains: "6"
+      - tool_called: { name: eval, argContains: vars }
+      - judge: >-
+          The model passed the path and the separator through `vars` rather than
+          embedding them as backslash-escaped literals inside the code string.
+
+  # "export persists values across calls; without export, state is discarded."
+  - prompt: |
+      Using the eval tool: first compute 41 + 1 and persist the result so a LATER
+      eval call can read it back. Then, in a SEPARATE eval call, read that
+      persisted value and double it. Reply with just the final number.
+    checks:
+      - response_contains: "84"
+      - judge: >-
+          The model used `export` to persist the value, and its second eval call
+          READ the persisted binding rather than recomputing 41 + 1 inline.
+
+  # "help() lists commands." Discovery instead of guessing at an API that is not
+  # in the tool schema — the whole premise of one eval tool over twenty.
+  - prompt: |
+      You do not know mcpshell's regex API. Find out what it offers WITHOUT
+      guessing, then use it to report how many whitespace-separated words are in
+      the string "alpha beta gamma delta". Reply with just the number.
+    checks:
+      - response_contains: "4"
+      - tool_called: { name: eval, argContains: "help(" }
+      - judge: >-
+          The model called help() to discover the API before using it, rather
+          than guessing a function name and correcting after an error.

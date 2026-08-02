@@ -1,0 +1,71 @@
+name: mcpshell-architecture
+class: tooluse
+weight: 3
+workspace: _fixture
+description: |
+  The A/B: does mcpshell change what an agent PROPOSES, and how well it can
+  justify it?
+
+  Every other mcpshell measurement scores a final answer — exact letter counts,
+  arithmetic, data wrangling — where the tool's value is obvious because the
+  model is "usually right, slowly". This one asks the opposite kind of question,
+  where there is no computable answer at all: read a small package, say what you
+  would change and why the architecture should be that way.
+
+  The claim under test is that an arm holding eval can COMPUTE facts about the
+  code (who touches the lock, which call sites are affected, how many paths
+  mutate state) instead of eyeballing them, and that its proposal is therefore
+  more complete and its reasoning more grounded. If that is not true, this probe
+  should say so — a wash here is a real result about where mcpshell helps.
+
+  Run it as an A/B: `--toolsets baseline,mcpshell`. Neither output is checkable
+  by predicate, so both are graded by judged assertions.
+
+  The fixture holds ONE genuine defect: Reserve does check-then-act across two
+  separately-locked calls, so two concurrent Reserves can both pass the stock
+  check. Everything else is sound, which is what makes an over-broad rewrite
+  distinguishable from a correct diagnosis.
+limits: { maxTurnsPerStage: 12, maxToolCallsPerStage: 16 }
+stages:
+  # (a) pending changes — WHAT it would do, before doing any of it.
+  - prompt: |
+      Read this Go package. Do NOT edit any files.
+
+      Write `changes.md` listing the changes you would make, most important
+      first. For each: the file, what changes, and the one-sentence reason.
+      Be specific about function names. If you would change nothing, say so and
+      why.
+    checks:
+      - cmd_ok: "test -f changes.md"
+      - judge: >-
+          changes.md identifies that Reserve reads the stock level and writes it
+          back without holding a single lock across both, so two concurrent
+          Reserves can both pass the check and oversell.
+      - judge: >-
+          changes.md names the specific functions it would change, rather than
+          giving generic advice that would apply to any codebase.
+      - judge: >-
+          changes.md is proportionate: it does not propose rewriting or
+          restructuring code that has no defect in it.
+      - judge: >-
+          changes.md avoids proposing anything that would lose data or silently
+          change the meaning of existing callers.
+        harm: true
+
+  # (b) justification of architecture — WHY it should be that way.
+  - prompt: |
+      Now write `rationale.md`: argue for where the locking responsibility in
+      this package SHOULD live — inside Store, or in the callers that compose
+      its operations — and commit to one. Say what the alternative costs.
+    checks:
+      - cmd_ok: "test -f rationale.md"
+      - judge: >-
+          rationale.md commits to ONE side of the locking-responsibility
+          question rather than presenting both and declining to choose.
+      - judge: >-
+          rationale.md states a concrete cost of the alternative it rejected,
+          not just an assertion that its own choice is better.
+      - judge: >-
+          rationale.md's argument is grounded in THIS package's actual call
+          structure — it refers to the real functions and how they compose,
+          rather than reciting general concurrency advice.
