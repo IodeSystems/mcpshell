@@ -146,18 +146,6 @@ func toolDefs() []toolDef {
 				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true}` +
 				`},"required":["code"]}`),
 		},
-		{
-			Name:        "help",
-			Description: "List available mcpshell commands or get detailed help for a specific command",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-				`"search":{"type":"string","description":"command name to search for"}}}`),
-		},
-		{
-			Name:        "prompt",
-			Description: "Get the mcpshell language reference. Default: compact (names only, use help() for details). detail=true for full signatures.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-				`"detail":{"type":"boolean","description":"true for full signatures; false (default) for a compact listing"}}}`),
-		},
 	}
 }
 
@@ -180,12 +168,6 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 	switch p.Name {
 	case "eval":
 		return s.evalTool(p.Arguments)
-	case "help":
-		search, _ := p.Arguments["search"].(string)
-		return toolResult(s.shell.Commands().Help(search), false)
-	case "prompt":
-		detail, _ := p.Arguments["detail"].(bool)
-		return toolResult(s.shell.ToPrompt(!detail), false)
 	default:
 		return toolResult("ERROR: unknown tool '"+p.Name+"'", true)
 	}

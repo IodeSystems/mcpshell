@@ -48,7 +48,11 @@ echo 'range(5) |> map(n => n * n)' | ./bin/mcpshell
 ./bin/mcpshell mcp --web --files-dir ./data    # run as an MCP server over stdio
 ```
 
-As an MCP server, mcpshell exposes `eval`, `help`, and `prompt` tools. It can
+As an MCP server, mcpshell exposes exactly ONE tool, `eval` — the claim at the
+top of this file, made literal. The reference is reachable from inside the
+language (`help()`, `prompt()`), which is where it belongs: a separate `help`
+tool would be a second schema on every turn to describe a thing `eval` can
+already answer. It can
 also compose upstream MCP servers as namespaced commands
 (`--connect`/`--mcp`); an upstream that is itself mcpshell is skipped to avoid
 a recursive `eval` loop.

@@ -54,8 +54,8 @@ func TestServerProtocol(t *testing.T) {
 	}
 	// tools/list
 	tools := resps[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 3 {
-		t.Errorf("expected 3 tools, got %d", len(tools))
+	if len(tools) != 1 {
+		t.Errorf("expected 1 tool, got %d", len(tools))
 	}
 	// eval success
 	if got := toolText(t, resps[2]); got != "5" {
