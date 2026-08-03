@@ -13,14 +13,10 @@
 #
 # Or register the directory once on the box, in <corrallm-home>/llm-bench.yaml:
 #
-#   # The DEPLOYED arm — its numbers are the score. baseline is the control: the
-# stable reference the score is measured against, recorded as a delta and never
-# scored itself. A control is supposed to lose the instructions probe; it has no
-# eval tool to use correctly.
-profile: mcpshell
-
-probeDirs:
+#   probeDirs:
 #     - ~/local/src/iodesystems/mcpshell/bench/probes
+#
+# Then a UI-driven run picks up edits here with no restart and nothing copied.
 
 llm:
   baseURL: "http://127.0.0.1:8111"
