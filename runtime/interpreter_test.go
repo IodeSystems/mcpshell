@@ -141,6 +141,51 @@ func TestEvalExportPersists(t *testing.T) {
 	}
 }
 
+// `export x = 1` declares. The grammar admits EXPORT assignStatement, but plain
+// assignment cannot create a binding, so the form used to error on every name it
+// had not already declared — the one export form that did not declare.
+func TestExportAssignDeclares(t *testing.T) {
+	sh := runtime.NewShell()
+	if _, err := sh.EvalExported(`export shared = 41`, nil); err != nil {
+		t.Fatalf("export assign errored: %v", err)
+	}
+	v, err := sh.EvalExported(`shared + 1`, nil)
+	if err != nil {
+		t.Fatalf("read-back errored: %v", err)
+	}
+	if v.Display() != "42" {
+		t.Errorf("exported value = %q, want 42", v.Display())
+	}
+}
+
+// Only the bare-name `=` form declares: a member path still needs its root, a
+// compound op still needs something to read, and an existing outer binding is
+// assigned rather than shadowed.
+func TestExportAssignDeclaresNarrowly(t *testing.T) {
+	cases := []struct{ name, src, want string }{
+		{"member path errors", `export o.f = 1`, ""},
+		{"compound op errors", `export n += 1`, ""},
+		{"outer binding assigned", `let x = 1; function f() { export x = 9 }; f(); x`, "9"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v, err := runtime.NewShell().EvalExported(c.src, nil)
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("eval(%q) should error, got %v", c.src, v.Display())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("eval(%q) errored: %v", c.src, err)
+			}
+			if got := v.Display(); got != c.want {
+				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
+			}
+		})
+	}
+}
+
 func TestEvalHelp(t *testing.T) {
 	if got := evalDisplay(t, `typeof help()`); got != "string" {
 		t.Errorf("typeof help() = %q, want string", got)

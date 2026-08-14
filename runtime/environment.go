@@ -78,6 +78,26 @@ func (e *Environment) setLocked(name string, value Value) {
 		"cannot silently create a global."))
 }
 
+// DeclareIfUnbound binds name in this scope only when it is not already visible
+// here or in any parent — an outer binding is left alone so a later assignment
+// reaches it instead of being shadowed. Atomic under the GIL, so two parallel
+// branches declaring the same name cannot both see it as unbound.
+func (e *Environment) DeclareIfUnbound(name string, value Value) {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	if e.hasLocked(name) {
+		return
+	}
+	e.bindings[name] = value
+}
+
+func (e *Environment) hasLocked(name string) bool {
+	if _, ok := e.bindings[name]; ok {
+		return true
+	}
+	return e.parent != nil && e.parent.hasLocked(name)
+}
+
 // Mutate performs an atomic read-modify-write at the given path. A single-element
 // path targets a binding; a longer path walks into objects and rewrites the leaf
 // in place (JS reference semantics). Returns the new value.

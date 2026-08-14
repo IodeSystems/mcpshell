@@ -372,11 +372,27 @@ func (v *Visitor) visitExportStatement(ctx *parser.ExportStatementContext) Value
 		v.exportedNames[fnDeclName(fd)] = struct{}{}
 	case ctx.AssignStatement() != nil:
 		as := ctx.AssignStatement().(*parser.AssignStatementContext)
-		result = v.visitAssignStatement(as)
 		at := as.AssignTarget().(*parser.AssignTargetContext)
+		v.declareExportTarget(at, as.AssignOp().GetText())
+		result = v.visitAssignStatement(as)
 		v.exportedNames[identOrFunctionText(at.IDENTIFIER(), at.FUNCTION())] = struct{}{}
 	}
 	return result
+}
+
+// declareExportTarget makes `export x = 1` a declaration when x is unbound. The
+// grammar admits EXPORT assignStatement, but plain assignment cannot create a
+// binding, so the form only ever worked on an already-declared name — every
+// other export form declares, and this one errored.
+//
+// Narrow on purpose: a bare name only (assignTarget has one child; `export
+// obj.f = 1` still needs obj to exist) and `=` only (a compound op has nothing
+// to read from). An outer binding is assigned, not shadowed.
+func (v *Visitor) declareExportTarget(target *parser.AssignTargetContext, op string) {
+	if op != "=" || target.GetChildCount() != 1 {
+		return
+	}
+	v.env.DeclareIfUnbound(identOrFunctionText(target.IDENTIFIER(), target.FUNCTION()), Null)
 }
 
 func (v *Visitor) collectDestructureNames(ctx parser.IDestructureContext, names map[string]struct{}) {
