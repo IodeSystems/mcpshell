@@ -34,7 +34,7 @@ This drops a `mcpshell` binary in your `$GOBIN`. Or run it without installing:
 go run github.com/iodesystems/mcpshell/cmd/mcpshell@latest '[1,2,3] |> map(x => x * 10)'
 ```
 
-Pin a release with `@v0.1.0` in place of `@latest`. Requires Go 1.26+ — the
+Pin a release with `@v0.3.0` in place of `@latest`. Requires Go 1.26+ — the
 `go` directive auto-fetches the toolchain for anyone on Go 1.21 or newer. No
 Java is needed; the generated parser is committed.
 
