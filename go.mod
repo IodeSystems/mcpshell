@@ -3,7 +3,7 @@ module github.com/iodesystems/mcpshell
 go 1.26
 
 require (
-	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/chromedp/chromedp v0.15.1
 	github.com/dlclark/regexp2 v1.12.0
@@ -12,7 +12,7 @@ require (
 )
 
 require (
-	github.com/andybalholm/cascadia v1.3.3 // indirect
+	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
