@@ -57,6 +57,18 @@ also compose upstream MCP servers as namespaced commands
 (`--connect`/`--mcp`); an upstream that is itself mcpshell is skipped to avoid
 a recursive `eval` loop.
 
+Upstreams are stdio commands or remote streamable-HTTP servers
+(`--connect 'ns=https://…'`, or `url` in the `--mcp` JSON). For hosted servers
+with short-lived OAuth tokens, `auth_cmd` is a shell command that prints a
+bearer token; it is cached, re-run on a 401, and re-run 60s before a JWT's
+`exp`:
+
+```json
+{"mcpServers": {"el": {"url": "https://api.us.elevenlabs.io/v1/mcp",
+                       "auth_cmd": "my-token-script elevenlabs",
+                       "headers": {"X-Extra": "1"}}}}
+```
+
 ## Numbers & cost
 
 Numbers are **exact and arbitrary-precision** — no silent float64 rounding.

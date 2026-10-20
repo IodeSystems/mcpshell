@@ -12,9 +12,13 @@ import (
 )
 
 // ServerConfig describes an upstream MCP server to connect to.
+// Exactly one of Command (stdio) or URL (streamable HTTP) is set.
 type ServerConfig struct {
 	Command     []string
 	Env         map[string]string
+	URL         string
+	Headers     map[string]string // static HTTP headers
+	AuthCmd     string            // shell command printing a bearer token (HTTP only)
 	Label       string
 	Description string
 }
@@ -50,7 +54,7 @@ func reservedCollision(tools []ToolInfo) string {
 func InstallClients(sh *runtime.Shell, servers []NamedServer) []io.Closer {
 	var closers []io.Closer
 	for _, ns := range servers {
-		client, info, err := Dial(ns.Config.Command, ns.Config.Env)
+		client, info, err := dial(ns.Config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "mcpshell mcp: failed to connect upstream %q: %v\n", ns.Namespace, err)
 			continue
@@ -83,7 +87,15 @@ func InstallClients(sh *runtime.Shell, servers []NamedServer) []io.Closer {
 	return closers
 }
 
-func registerServerTools(sh *runtime.Shell, ns NamedServer, client *Client, tools []ToolInfo) int {
+// dial connects over HTTP when cfg.URL is set, otherwise spawns cfg.Command.
+func dial(cfg ServerConfig) (Upstream, ServerInfo, error) {
+	if cfg.URL != "" {
+		return DialHTTP(cfg.URL, cfg.Headers, cfg.AuthCmd)
+	}
+	return Dial(cfg.Command, cfg.Env)
+}
+
+func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, tools []ToolInfo) int {
 	var summaries []string
 	for _, tool := range tools {
 		toolName := tool.Name
@@ -116,7 +128,11 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client *Client, tool
 		label = ns.Namespace
 	}
 	var g strings.Builder
-	g.WriteString(label + " — MCP server (" + strings.Join(ns.Config.Command, " ") + ")\n")
+	source := ns.Config.URL
+	if source == "" {
+		source = strings.Join(ns.Config.Command, " ")
+	}
+	g.WriteString(label + " — MCP server (" + source + ")\n")
 	if ns.Config.Description != "" {
 		g.WriteString("\n" + ns.Config.Description + "\n")
 	}

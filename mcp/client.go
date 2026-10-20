@@ -25,6 +25,13 @@ type ToolInfo struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
+// Upstream is a connected upstream MCP server, over either transport.
+type Upstream interface {
+	ListTools() ([]ToolInfo, error)
+	CallTool(name string, args map[string]any) (text string, isError bool, err error)
+	Close() error
+}
+
 // Client is a minimal synchronous MCP client speaking JSON-RPC over a child
 // process's stdio.
 type Client struct {
@@ -91,6 +98,19 @@ func (c *Client) ListTools() ([]ToolInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseToolsList(res)
+}
+
+// CallTool invokes a tool and returns its joined text content plus the error flag.
+func (c *Client) CallTool(name string, args map[string]any) (text string, isError bool, err error) {
+	res, err := c.call("tools/call", map[string]any{"name": name, "arguments": args})
+	if err != nil {
+		return "", true, err
+	}
+	return parseToolResult(res)
+}
+
+func parseToolsList(res json.RawMessage) ([]ToolInfo, error) {
 	var r struct {
 		Tools []ToolInfo `json:"tools"`
 	}
@@ -100,12 +120,7 @@ func (c *Client) ListTools() ([]ToolInfo, error) {
 	return r.Tools, nil
 }
 
-// CallTool invokes a tool and returns its joined text content plus the error flag.
-func (c *Client) CallTool(name string, args map[string]any) (text string, isError bool, err error) {
-	res, err := c.call("tools/call", map[string]any{"name": name, "arguments": args})
-	if err != nil {
-		return "", true, err
-	}
+func parseToolResult(res json.RawMessage) (text string, isError bool, err error) {
 	var r struct {
 		Content []struct {
 			Type string `json:"type"`

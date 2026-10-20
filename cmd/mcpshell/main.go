@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -41,8 +43,11 @@ mcp flags:
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
   --max-output <n>     cap eval output bytes (default 16000)
-  --connect <spec>     compose an upstream MCP server: 'ns=cmd args' or 'cmd args'
+  --connect <spec>     compose an upstream MCP server: 'ns=cmd args', 'cmd args',
+                       'ns=https://…', or 'https://…' (streamable HTTP)
   --mcp <spec>         upstream MCP config: JSON file, inline JSON, or 'name:cmd args'
+                       (JSON entries take 'command'/'args'/'env', or 'url'/'headers'/
+                       'auth_cmd' — a shell command printing a bearer token)
 
   --connect/--mcp are repeatable. An upstream server that identifies as mcpshell
   is skipped — composing mcpshell with itself would let eval recurse infinitely.`
@@ -220,11 +225,11 @@ func runMCP(args []string) {
 // command's base name).
 func parseConnectSpec(spec string) mcp.NamedServer {
 	spec = strings.TrimSpace(spec)
+	if isURL(spec) {
+		return mcp.NamedServer{Namespace: urlNamespace(spec), Config: mcp.ServerConfig{URL: spec}}
+	}
 	if before, after, found := strings.Cut(spec, "="); found && !strings.ContainsAny(before, " \t") {
-		return mcp.NamedServer{
-			Namespace: before,
-			Config:    mcp.ServerConfig{Command: strings.Fields(after)},
-		}
+		return mcp.NamedServer{Namespace: before, Config: serverFromSpec(after)}
 	}
 	parts := strings.Fields(spec)
 	name := "server"
@@ -250,10 +255,9 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 		name := strings.TrimSpace(before)
 		command := strings.Fields(strings.TrimSpace(after))
 		if name != "" && len(command) > 0 {
-			return []mcp.NamedServer{{
-				Namespace: name,
-				Config:    mcp.ServerConfig{Command: command, Label: name},
-			}}
+			cfg := serverFromSpec(after)
+			cfg.Label = name
+			return []mcp.NamedServer{{Namespace: name, Config: cfg}}
 		}
 	}
 
@@ -271,6 +275,9 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 			Command string            `json:"command"`
 			Args    []string          `json:"args"`
 			Env     map[string]string `json:"env"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+			AuthCmd string            `json:"auth_cmd"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal([]byte(jsonText), &root); err != nil {
@@ -287,8 +294,17 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 	var out []mcp.NamedServer
 	for _, name := range names {
 		srv := root.McpServers[name]
-		if srv.Command == "" {
-			fail("MCP server %q is missing a 'command' field", name)
+		switch {
+		case srv.Command != "" && srv.URL != "":
+			fail("MCP server %q has both 'command' and 'url' — pick one", name)
+		case srv.URL != "":
+			out = append(out, mcp.NamedServer{
+				Namespace: name,
+				Config:    mcp.ServerConfig{URL: srv.URL, Headers: srv.Headers, AuthCmd: srv.AuthCmd, Label: name},
+			})
+			continue
+		case srv.Command == "":
+			fail("MCP server %q needs a 'command' or a 'url' field", name)
 		}
 		out = append(out, mcp.NamedServer{
 			Namespace: name,
@@ -300,6 +316,34 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 		})
 	}
 	return out
+}
+
+// serverFromSpec turns the command part of a --connect/--mcp shorthand into a
+// config: a URL connects over HTTP, anything else is a command line.
+func serverFromSpec(spec string) mcp.ServerConfig {
+	spec = strings.TrimSpace(spec)
+	if isURL(spec) {
+		return mcp.ServerConfig{URL: spec}
+	}
+	return mcp.ServerConfig{Command: strings.Fields(spec)}
+}
+
+func isURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// urlNamespace derives a namespace from a URL's host: the label before the
+// TLD ("api.us.elevenlabs.io" → "elevenlabs"); "server" for an IP address.
+func urlNamespace(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || net.ParseIP(u.Hostname()) != nil {
+		return "server"
+	}
+	labels := strings.Split(u.Hostname(), ".")
+	if len(labels) >= 2 {
+		return sanitizeIdent(labels[len(labels)-2])
+	}
+	return sanitizeIdent(labels[0])
 }
 
 func sanitizeIdent(s string) string {
