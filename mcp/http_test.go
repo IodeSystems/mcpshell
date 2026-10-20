@@ -39,6 +39,7 @@ type fakeOpts struct {
 	gen     *atomic.Int32 // session generation; bump it to expire the session
 	token   *atomic.Value // if set, the only bearer accepted
 	stall   time.Duration // delay before answering tools/call
+	tools   []string      // tool names to advertise (default: just "echo")
 }
 
 // fakeHTTPServer answers MCP over streamable HTTP. Every request after
@@ -94,11 +95,19 @@ func fakeHTTPServer(t *testing.T, o fakeOpts) *httptest.Server {
 				"serverInfo":      map[string]any{"name": "remote", "version": "1"},
 			}
 		case "tools/list":
-			res = map[string]any{"tools": []map[string]any{{
-				"name":        "echo",
-				"description": "echoes the message",
-				"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
-			}}}
+			names := o.tools
+			if names == nil {
+				names = []string{"echo"}
+			}
+			var tools []map[string]any
+			for _, n := range names {
+				tools = append(tools, map[string]any{
+					"name":        n,
+					"description": "echoes the message. Second sentence.\nMore detail.",
+					"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
+				})
+			}
+			res = map[string]any{"tools": tools}
 		case "tools/call":
 			time.Sleep(o.stall)
 			var p struct {
@@ -226,5 +235,89 @@ func TestHTTPTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
 		t.Errorf("call took %v, want about 200ms", elapsed)
+	}
+}
+
+// manyTools is 20 agents_*, 5 creative_*, one unprefixed tool, and a tool
+// named "agents" that collides with the agents category.
+func manyTools() []string {
+	var names []string
+	for i := 0; i < 20; i++ {
+		names = append(names, fmt.Sprintf("agents_%02d", i))
+	}
+	for i := 0; i < 5; i++ {
+		names = append(names, fmt.Sprintf("creative_%d", i))
+	}
+	return append(names, "lonely", "agents")
+}
+
+func evalString(t *testing.T, sh *runtime.Shell, src string) string {
+	t.Helper()
+	v, err := sh.Eval(src)
+	if err != nil {
+		t.Fatalf("%s errored: %v", src, err)
+	}
+	return v.Display()
+}
+
+func TestLargeUpstreamIsCategorized(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: manyTools()})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+
+	guide := evalString(t, sh, `help("remote")`)
+	for _, want := range []string{
+		"27 tools in 3 categories",
+		`agents_group (21): agents, agents_00, agents_01, … — help("remote.agents_group")`,
+		`creative (5)`, `other (1): lonely`,
+	} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("help(\"remote\") missing %q:\n%s", want, guide)
+		}
+	}
+	if strings.Contains(guide, "remote.agents_05(") {
+		t.Errorf("help(\"remote\") must not list every tool:\n%s", guide)
+	}
+
+	cat := evalString(t, sh, `help("remote.creative")`)
+	if !strings.Contains(cat, "remote.creative_3 — echoes the message") || strings.Contains(cat, "agents") {
+		t.Errorf("help(\"remote.creative\") = %s", cat)
+	}
+	// The tool named like its prefix keeps its own detailed help.
+	if got := evalString(t, sh, `help("remote.agents")`); !strings.Contains(got, "message") || strings.Contains(got, "commands):") {
+		t.Errorf("help(\"remote.agents\") should be the tool's own help, got:\n%s", got)
+	}
+
+	all := evalString(t, sh, `help()`)
+	if !strings.Contains(all, `remote: 27 commands — help("remote")`) || strings.Contains(all, "remote.agents_00") {
+		t.Errorf("help() must collapse the large namespace:\n%s", all)
+	}
+	for _, compact := range []bool{true, false} {
+		if p := sh.ToPrompt(compact); !strings.Contains(p, `remote: 27 commands`) || strings.Contains(p, "remote.agents_00") {
+			t.Errorf("ToPrompt(%v) must collapse the large namespace", compact)
+		}
+	}
+	if got := evalString(t, sh, `remote.agents_07("hi")`); got != "echo: hi" {
+		t.Errorf("categorized tool call = %q", got)
+	}
+}
+
+func TestExplicitCategories(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"tts_speak", "tts_voices", "billing"}})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL, Categories: map[string][]string{"voice": {"tts_*"}}})
+
+	guide := evalString(t, sh, `help("remote")`)
+	if !strings.Contains(guide, "voice (2): tts_speak, tts_voices") || !strings.Contains(guide, "other (1): billing") {
+		t.Errorf("explicit categories not applied:\n%s", guide)
+	}
+}
+
+func TestSmallUpstreamIsNotCategorized(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"a_one", "a_two", "b_one", "b_two"}})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if guide := evalString(t, sh, `help("remote")`); strings.Contains(guide, "categories") || !strings.Contains(guide, "remote.b_two(") {
+		t.Errorf("a small upstream should list its tools flat:\n%s", guide)
 	}
 }

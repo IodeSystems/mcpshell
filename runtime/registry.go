@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,7 +15,32 @@ type CommandDef struct {
 	Description string
 	Examples    []string
 	Hidden      bool
+	Category    string // optional group within the namespace, listed by help("Ns.category")
 	Fn          NativeFn
+}
+
+// CollapseNamespaceAt is the command count above which help() and the prompt
+// list a namespace as one line instead of every command.
+const CollapseNamespaceAt = 20
+
+// Brief shortens a description to its first line and sentence, capped at 80 runes.
+func Brief(desc string) string {
+	s := desc
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.Index(s, ". "); i >= 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); len(r) > 80 {
+		return string(r[:80]) + "…"
+	}
+	return s
+}
+
+// collapsedLine is the one-line stand-in for a namespace too large to list.
+func collapsedLine(ns string, n int) string {
+	return fmt.Sprintf("%s: %d commands — help(\"%s\")", ns, n, ns)
 }
 
 // DisplayName is "Ns.name" when namespaced, else "name".
@@ -123,6 +149,9 @@ func (r *CommandRegistry) Help(search string) string {
 	if exact := r.commands[search]; exact != nil {
 		return detailedHelp(exact)
 	}
+	if out, ok := r.categoryHelp(search); ok {
+		return out
+	}
 	if nsCmds, ok := r.namespaces[search]; ok {
 		sorted := sortByName(nsCmds)
 		var b strings.Builder
@@ -201,6 +230,31 @@ func (r *CommandRegistry) Help(search string) string {
 	return b.String()
 }
 
+// categoryHelp lists the commands of "Ns.category", one brief line each.
+func (r *CommandRegistry) categoryHelp(search string) (string, bool) {
+	i := strings.LastIndexByte(search, '.')
+	if i < 0 {
+		return "", false
+	}
+	ns, cat := search[:i], search[i+1:]
+	var cmds []*CommandDef
+	for _, c := range r.namespaces[ns] {
+		if c.Category == cat && !c.Hidden {
+			cmds = append(cmds, c)
+		}
+	}
+	if len(cmds) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s (%d commands):\n\n", search, len(cmds)))
+	for _, c := range sortByName(cmds) {
+		b.WriteString("  " + c.DisplayName() + " — " + Brief(c.Description) + "\n")
+	}
+	b.WriteString("\n  Use help(\"" + ns + ".commandName\") for signature and details.")
+	return b.String(), true
+}
+
 func (r *CommandRegistry) helpAll() string {
 	visible := r.visible()
 	if len(visible) == 0 {
@@ -218,8 +272,13 @@ func (r *CommandRegistry) helpAll() string {
 		if len(globals) > 0 || i > 0 {
 			b.WriteByte('\n')
 		}
+		cmds := filterNamespace(visible, ns)
+		if len(cmds) > CollapseNamespaceAt {
+			b.WriteString("  " + collapsedLine(ns, len(cmds)) + "\n")
+			continue
+		}
 		b.WriteString("  " + ns + ":\n")
-		for _, c := range sortByName(filterNamespace(visible, ns)) {
+		for _, c := range sortByName(cmds) {
 			b.WriteString("    " + ns + "." + c.Name + "(" + c.Signature + ") — " + c.Description + "\n")
 		}
 	}
@@ -242,7 +301,22 @@ func (r *CommandRegistry) Prompt() string {
 	if len(visible) == 0 {
 		return "No commands available."
 	}
-	sorted := append([]*CommandDef(nil), visible...)
+	nsCount := make(map[string]int)
+	for _, c := range visible {
+		nsCount[c.Namespace]++
+	}
+	var sorted []*CommandDef
+	for _, c := range visible {
+		if c.Namespace == "" || nsCount[c.Namespace] <= CollapseNamespaceAt {
+			sorted = append(sorted, c)
+		}
+	}
+	var collapsed []string
+	for _, ns := range namespacesOf(visible) {
+		if nsCount[ns] > CollapseNamespaceAt {
+			collapsed = append(collapsed, "  "+collapsedLine(ns, nsCount[ns]))
+		}
+	}
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].DisplayName() < sorted[j].DisplayName()
 	})
@@ -252,6 +326,7 @@ func (r *CommandRegistry) Prompt() string {
 		sig = promptInputPrefix2.ReplaceAllString(sig, "")
 		lines = append(lines, "  "+c.DisplayName()+"("+sig+") — "+c.Description)
 	}
+	lines = append(lines, collapsed...)
 	return strings.Join(lines, "\n")
 }
 
@@ -274,6 +349,10 @@ func (r *CommandRegistry) CompactPrompt() string {
 
 	for _, ns := range namespacesOf(visible) {
 		cmds := sortByName(filterNamespace(visible, ns))
+		if len(cmds) > CollapseNamespaceAt {
+			b.WriteString(collapsedLine(ns, len(cmds)) + "\n")
+			continue
+		}
 		names := make([]string, len(cmds))
 		for i, c := range cmds {
 			names[i] = c.Name

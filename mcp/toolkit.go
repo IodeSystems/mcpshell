@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"sort"
 	"strings"
 
 	"github.com/iodesystems/mcpshell/runtime"
@@ -17,8 +19,9 @@ type ServerConfig struct {
 	Command     []string
 	Env         map[string]string
 	URL         string
-	Headers     map[string]string // static HTTP headers
-	AuthCmd     string            // shell command printing a bearer token (HTTP only)
+	Headers     map[string]string   // static HTTP headers
+	AuthCmd     string              // shell command printing a bearer token (HTTP only)
+	Categories  map[string][]string // category → tool-name globs; nil groups by name prefix
 	Label       string
 	Description string
 }
@@ -96,6 +99,7 @@ func dial(cfg ServerConfig) (Upstream, ServerInfo, error) {
 }
 
 func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, tools []ToolInfo) int {
+	cats := categorize(tools, ns.Config.Categories)
 	var summaries []string
 	for _, tool := range tools {
 		toolName := tool.Name
@@ -104,12 +108,13 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		if desc == "" {
 			desc = toolName
 		}
-		summaries = append(summaries, "  "+ns.Namespace+"."+toolName+"("+signature+") — "+brief(desc))
+		summaries = append(summaries, "  "+ns.Namespace+"."+toolName+"("+signature+") — "+runtime.Brief(desc))
 		sh.Register(&runtime.CommandDef{
 			Namespace:   ns.Namespace,
 			Name:        toolName,
 			Signature:   signature,
 			Description: desc,
+			Category:    cats[toolName],
 			Fn: func(args []runtime.Value) runtime.Value {
 				text, isError, err := client.CallTool(toolName, argsToJSONMap(args, params))
 				if err != nil {
@@ -136,25 +141,108 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 	if ns.Config.Description != "" {
 		g.WriteString("\n" + ns.Config.Description + "\n")
 	}
-	g.WriteString("\nTools:\n")
-	for _, s := range summaries {
-		g.WriteString(s + "\n")
+	if len(cats) > 0 {
+		writeCategories(&g, ns.Namespace, tools, cats)
+	} else {
+		g.WriteString("\nTools:\n")
+		for _, s := range summaries {
+			g.WriteString(s + "\n")
+		}
 	}
 	g.WriteString("\nUse help(\"" + ns.Namespace + ".toolName\") for full details on any tool.")
 	sh.RegisterGuide(ns.Namespace, g.String())
 	return len(tools)
 }
 
-// brief shortens a description to its first sentence, capped at 80 runes.
-func brief(desc string) string {
-	s := desc
-	if i := strings.Index(s, ". "); i >= 0 {
-		s = s[:i]
+// otherCategory holds tools no glob matched, or whose name prefix is unique.
+const otherCategory = "other"
+
+// categorize maps tool name → category. With explicit globs, a tool takes the
+// first matching category (by sorted name), else "other". Without, a server
+// over runtime.CollapseNamespaceAt tools is grouped by name prefix (the part
+// before the first '_', '.' or '-'), singletons going to "other". It returns
+// nil when grouping does not apply or yields fewer than two categories.
+func categorize(tools []ToolInfo, globs map[string][]string) map[string]string {
+	out := make(map[string]string, len(tools))
+	if len(globs) > 0 {
+		names := make([]string, 0, len(globs))
+		for name := range globs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, t := range tools {
+			out[t.Name] = otherCategory
+		find:
+			for _, cat := range names {
+				for _, g := range globs[cat] {
+					if ok, _ := path.Match(g, t.Name); ok {
+						out[t.Name] = cat
+						break find
+					}
+				}
+			}
+		}
+	} else {
+		if len(tools) <= runtime.CollapseNamespaceAt {
+			return nil
+		}
+		size := make(map[string]int)
+		for _, t := range tools {
+			p := t.Name
+			if i := strings.IndexAny(p, "_.-"); i > 0 {
+				p = p[:i]
+			}
+			out[t.Name] = p
+			size[p]++
+		}
+		for name, p := range out {
+			if size[p] == 1 {
+				out[name] = otherCategory
+			}
+		}
 	}
-	if r := []rune(s); len(r) > 80 {
-		return string(r[:80]) + "…"
+
+	distinct := make(map[string]bool)
+	for _, c := range out {
+		distinct[c] = true
 	}
-	return s
+	if len(distinct) < 2 {
+		return nil
+	}
+	// A category named like a tool would hide that tool's own help("ns.name").
+	for _, t := range tools {
+		if distinct[t.Name] {
+			for name, c := range out {
+				if c == t.Name {
+					out[name] = c + "_group"
+				}
+			}
+		}
+	}
+	return out
+}
+
+// writeCategories lists each category with its size and a few tool names.
+func writeCategories(g *strings.Builder, namespace string, tools []ToolInfo, cats map[string]string) {
+	members := make(map[string][]string)
+	for _, t := range tools {
+		members[cats[t.Name]] = append(members[cats[t.Name]], t.Name)
+	}
+	names := make([]string, 0, len(members))
+	for name := range members {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(g, "\n%d tools in %d categories:\n", len(tools), len(names))
+	for _, cat := range names {
+		m := members[cat]
+		sort.Strings(m)
+		sample := m
+		if len(sample) > 3 {
+			sample = append(append([]string(nil), m[:3]...), "…")
+		}
+		fmt.Fprintf(g, "  %s (%d): %s — help(\"%s.%s\")\n", cat, len(m), strings.Join(sample, ", "), namespace, cat)
+	}
 }
 
 // textToValue parses tool output as JSON when possible, else returns it as a string.

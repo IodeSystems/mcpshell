@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -47,7 +48,8 @@ mcp flags:
                        'ns=https://…', or 'https://…' (streamable HTTP)
   --mcp <spec>         upstream MCP config: JSON file, inline JSON, or 'name:cmd args'
                        (JSON entries take 'command'/'args'/'env', or 'url'/'headers'/
-                       'auth_cmd' — a shell command printing a bearer token)
+                       'auth_cmd' — a shell command printing a bearer token; any entry
+                       takes 'categories': {"name": ["glob_*", …]} to group its tools)
 
   --connect/--mcp are repeatable. An upstream server that identifies as mcpshell
   is skipped — composing mcpshell with itself would let eval recurse infinitely.`
@@ -278,6 +280,8 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 			URL     string            `json:"url"`
 			Headers map[string]string `json:"headers"`
 			AuthCmd string            `json:"auth_cmd"`
+			// category → tool-name globs, for both transports
+			Categories map[string][]string `json:"categories"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal([]byte(jsonText), &root); err != nil {
@@ -294,13 +298,21 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 	var out []mcp.NamedServer
 	for _, name := range names {
 		srv := root.McpServers[name]
+		for cat, globs := range srv.Categories {
+			for _, g := range globs {
+				if _, err := path.Match(g, ""); err != nil {
+					fail("MCP server %q category %q: bad glob %q", name, cat, g)
+				}
+			}
+		}
 		switch {
 		case srv.Command != "" && srv.URL != "":
 			fail("MCP server %q has both 'command' and 'url' — pick one", name)
 		case srv.URL != "":
 			out = append(out, mcp.NamedServer{
 				Namespace: name,
-				Config:    mcp.ServerConfig{URL: srv.URL, Headers: srv.Headers, AuthCmd: srv.AuthCmd, Label: name},
+				Config: mcp.ServerConfig{URL: srv.URL, Headers: srv.Headers, AuthCmd: srv.AuthCmd,
+					Categories: srv.Categories, Label: name},
 			})
 			continue
 		case srv.Command == "":
@@ -309,9 +321,10 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 		out = append(out, mcp.NamedServer{
 			Namespace: name,
 			Config: mcp.ServerConfig{
-				Command: append([]string{srv.Command}, srv.Args...),
-				Env:     srv.Env,
-				Label:   name,
+				Command:    append([]string{srv.Command}, srv.Args...),
+				Env:        srv.Env,
+				Categories: srv.Categories,
+				Label:      name,
 			},
 		})
 	}

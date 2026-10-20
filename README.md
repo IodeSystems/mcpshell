@@ -69,6 +69,13 @@ bearer token; it is cached, re-run on a 401, and re-run 60s before a JWT's
                        "headers": {"X-Extra": "1"}}}}
 ```
 
+A namespace with more than 20 commands is one line in `help()` and the prompt
+(`el: 160 commands — help("el")`). An upstream that large is grouped by tool
+name prefix — `help("el")` lists `agents (117)`, `creative (42)`, … and
+`help("el.agents")` lists that group. To set the groups yourself, add
+`"categories": {"voice": ["tts_*", "voices_*"]}` to a server entry; tools that
+match no glob go to `other`.
+
 ## Numbers & cost
 
 Numbers are **exact and arbitrary-precision** — no silent float64 rounding.
