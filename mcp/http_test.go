@@ -7,19 +7,49 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/iodesystems/mcpshell/mcp"
+	"github.com/iodesystems/mcpshell/runtime"
 )
 
-// fakeHTTPServer answers MCP over streamable HTTP. sse selects event-stream
-// replies; session makes it issue (and then require) an Mcp-Session-Id;
-// token, if set, is the only bearer accepted.
-func fakeHTTPServer(t *testing.T, sse, session bool, token *atomic.Value) *httptest.Server {
+// connectHTTP installs one HTTP upstream as namespace "remote".
+func connectHTTP(t *testing.T, cfg mcp.ServerConfig) *runtime.Shell {
 	t.Helper()
+	sh := coreShell()
+	closers := mcp.InstallClients(sh, []mcp.NamedServer{{Namespace: "remote", Config: cfg}})
+	t.Cleanup(func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	})
+	if len(closers) != 1 {
+		t.Fatalf("expected the HTTP upstream to connect, got %d connection(s)", len(closers))
+	}
+	return sh
+}
+
+// fakeOpts configures fakeHTTPServer.
+type fakeOpts struct {
+	sse     bool          // reply with text/event-stream instead of JSON
+	session bool          // issue, then require, an Mcp-Session-Id
+	gen     *atomic.Int32 // session generation; bump it to expire the session
+	token   *atomic.Value // if set, the only bearer accepted
+	stall   time.Duration // delay before answering tools/call
+}
+
+// fakeHTTPServer answers MCP over streamable HTTP. Every request after
+// initialize must carry the MCP-Protocol-Version header.
+func fakeHTTPServer(t *testing.T, o fakeOpts) *httptest.Server {
+	t.Helper()
+	if o.gen == nil {
+		o.gen = new(atomic.Int32)
+	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if token != nil && r.Header.Get("Authorization") != "Bearer "+token.Load().(string) {
+		if o.token != nil && r.Header.Get("Authorization") != "Bearer "+o.token.Load().(string) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -32,9 +62,22 @@ func fakeHTTPServer(t *testing.T, sse, session bool, token *atomic.Value) *httpt
 			Params json.RawMessage `json:"params"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if session && req.Method != "initialize" && r.Header.Get("Mcp-Session-Id") != "sess-1" {
-			http.Error(w, "missing session", http.StatusBadRequest)
-			return
+		sid := fmt.Sprintf("sess-%d", o.gen.Load())
+		if req.Method != "initialize" {
+			if got := r.Header.Get("MCP-Protocol-Version"); got != "2025-06-18" {
+				http.Error(w, "bad MCP-Protocol-Version "+got, http.StatusBadRequest)
+				return
+			}
+			if o.session {
+				switch got := r.Header.Get("Mcp-Session-Id"); {
+				case got == "":
+					http.Error(w, "missing session", http.StatusBadRequest)
+					return
+				case got != sid:
+					http.Error(w, "unknown session", http.StatusNotFound)
+					return
+				}
+			}
 		}
 		if len(req.ID) == 0 { // notification
 			w.WriteHeader(http.StatusAccepted)
@@ -43,10 +86,13 @@ func fakeHTTPServer(t *testing.T, sse, session bool, token *atomic.Value) *httpt
 		var res any
 		switch req.Method {
 		case "initialize":
-			if session {
-				w.Header().Set("Mcp-Session-Id", "sess-1")
+			if o.session {
+				w.Header().Set("Mcp-Session-Id", sid)
 			}
-			res = map[string]any{"serverInfo": map[string]any{"name": "remote", "version": "1"}}
+			res = map[string]any{
+				"protocolVersion": "2025-06-18",
+				"serverInfo":      map[string]any{"name": "remote", "version": "1"},
+			}
 		case "tools/list":
 			res = map[string]any{"tools": []map[string]any{{
 				"name":        "echo",
@@ -54,6 +100,7 @@ func fakeHTTPServer(t *testing.T, sse, session bool, token *atomic.Value) *httpt
 				"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
 			}}}
 		case "tools/call":
+			time.Sleep(o.stall)
 			var p struct {
 				Arguments map[string]any `json:"arguments"`
 			}
@@ -61,7 +108,7 @@ func fakeHTTPServer(t *testing.T, sse, session bool, token *atomic.Value) *httpt
 			res = map[string]any{"content": []map[string]any{{"type": "text", "text": fmt.Sprint("echo: ", p.Arguments["message"])}}}
 		}
 		msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
-		if sse {
+		if o.sse {
 			w.Header().Set("Content-Type", "text/event-stream")
 			// A notification first: the client must skip it and find the response.
 			fmt.Fprintf(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n")
@@ -84,7 +131,7 @@ func TestHTTPUpstream(t *testing.T) {
 		{"sse-session", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := fakeHTTPServer(t, tc.sse, tc.session, nil)
+			srv := fakeHTTPServer(t, fakeOpts{sse: tc.sse, session: tc.session})
 			defer srv.Close()
 			sh := coreShell()
 			closers := mcp.InstallClients(sh, []mcp.NamedServer{
@@ -112,7 +159,7 @@ func TestHTTPUpstream(t *testing.T) {
 func TestHTTPAuthCmdRefresh(t *testing.T) {
 	var token atomic.Value
 	token.Store("tok-1")
-	srv := fakeHTTPServer(t, false, false, &token)
+	srv := fakeHTTPServer(t, fakeOpts{token: &token})
 	defer srv.Close()
 
 	tokenFile := filepath.Join(t.TempDir(), "token")
@@ -140,5 +187,44 @@ func TestHTTPAuthCmdRefresh(t *testing.T) {
 	}
 	if v.Display() != "echo: after rotation" {
 		t.Errorf("got %q", v.Display())
+	}
+}
+
+// TestHTTPSessionExpiry covers a server that drops the session mid-run: the
+// 404 makes the client re-initialize and retry instead of failing for good.
+func TestHTTPSessionExpiry(t *testing.T) {
+	gen := new(atomic.Int32)
+	srv := fakeHTTPServer(t, fakeOpts{session: true, gen: gen})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+
+	gen.Add(1) // server forgets sess-0
+	v, err := sh.Eval(`remote.echo("again")`)
+	if err != nil {
+		t.Fatalf("remote.echo after session expiry errored: %v", err)
+	}
+	if v.Display() != "echo: again" {
+		t.Errorf("got %q", v.Display())
+	}
+}
+
+// TestHTTPTimeout covers a server that never answers: the call must fail
+// rather than hang eval.
+func TestHTTPTimeout(t *testing.T) {
+	defer mcp.SetHTTPTimeout(200 * time.Millisecond)()
+	srv := fakeHTTPServer(t, fakeOpts{stall: 700 * time.Millisecond})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+
+	start := time.Now()
+	_, err := sh.Eval(`remote.echo("slow")`)
+	if err == nil {
+		t.Fatal("expected a timeout error from a stalled server")
+	}
+	if !strings.Contains(err.Error(), "Timeout") && !strings.Contains(err.Error(), "deadline") {
+		t.Errorf("error does not look like a timeout: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Errorf("call took %v, want about 200ms", elapsed)
 	}
 }

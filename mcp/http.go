@@ -3,8 +3,10 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +20,18 @@ import (
 // treated as expired and auth_cmd is run again.
 const authRefreshMargin = 60 * time.Second
 
+// httpTimeout caps one HTTP exchange, body included. eval's wall-clock limit
+// cannot interrupt a blocked native call, so this is what stops a stalled
+// server from hanging eval. A var so tests can shorten it.
+var httpTimeout = 120 * time.Second
+
+// authCmdTimeout caps one run of auth_cmd.
+const authCmdTimeout = 30 * time.Second
+
+// errSessionExpired is a 404 on a request that carried a session id: the
+// spec says the client must start a new session.
+var errSessionExpired = errors.New("MCP session expired")
+
 // HTTPClient is a minimal synchronous MCP client speaking JSON-RPC over the
 // streamable HTTP transport: each message is a POST, answered with either
 // application/json or a text/event-stream of `data:` frames.
@@ -30,6 +44,7 @@ type HTTPClient struct {
 	mu        sync.Mutex
 	nextID    int
 	sessionID string
+	protocol  string // negotiated version, sent as MCP-Protocol-Version after initialize
 	token     string
 	tokenExp  time.Time // zero: no known expiry, refreshed only on 401
 }
@@ -38,23 +53,39 @@ type HTTPClient struct {
 // connected client together with the server's identity. If authCmd is set, it
 // is run via `sh -c` and its trimmed stdout is sent as a bearer token.
 func DialHTTP(url string, headers map[string]string, authCmd string) (*HTTPClient, ServerInfo, error) {
-	c := &HTTPClient{url: url, headers: headers, authCmd: authCmd, http: &http.Client{}}
-	res, err := c.call("initialize", map[string]any{
+	c := &HTTPClient{url: url, headers: headers, authCmd: authCmd, http: &http.Client{Timeout: httpTimeout}}
+	info, err := c.handshake()
+	if err != nil {
+		return nil, ServerInfo{}, err
+	}
+	return c, info, nil
+}
+
+// handshake runs initialize + notifications/initialized, starting a fresh
+// session. Callers hold c.mu (or own c exclusively).
+func (c *HTTPClient) handshake() (ServerInfo, error) {
+	c.sessionID, c.protocol = "", ""
+	res, err := c.request("initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "mcpshell-mcp", "version": "0.1.0"},
 	})
 	if err != nil {
-		return nil, ServerInfo{}, fmt.Errorf("initialize failed: %w", err)
+		return ServerInfo{}, fmt.Errorf("initialize failed: %w", err)
 	}
 	var initResult struct {
-		ServerInfo ServerInfo `json:"serverInfo"`
+		ProtocolVersion string     `json:"protocolVersion"`
+		ServerInfo      ServerInfo `json:"serverInfo"`
 	}
 	_ = json.Unmarshal(res, &initResult)
-	if err := c.notify("notifications/initialized", nil); err != nil {
-		return nil, ServerInfo{}, err
+	c.protocol = initResult.ProtocolVersion
+	if c.protocol == "" {
+		c.protocol = protocolVersion
 	}
-	return c, initResult.ServerInfo, nil
+	if err := c.notify("notifications/initialized", nil); err != nil {
+		return ServerInfo{}, err
+	}
+	return initResult.ServerInfo, nil
 }
 
 // ListTools returns the tools advertised by the server.
@@ -97,11 +128,23 @@ func (c *HTTPClient) Close() error {
 	return nil
 }
 
-// call sends a JSON-RPC request and blocks for the matching response.
+// call sends a JSON-RPC request and blocks for the matching response. If the
+// server reports the session expired, it re-initializes and retries once.
 func (c *HTTPClient) call(method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	res, err := c.request(method, params)
+	if errors.Is(err, errSessionExpired) {
+		if _, err := c.handshake(); err != nil {
+			return nil, err
+		}
+		res, err = c.request(method, params)
+	}
+	return res, err
+}
 
+// request sends one JSON-RPC request. Callers hold c.mu.
+func (c *HTTPClient) request(method string, params any) (json.RawMessage, error) {
 	c.nextID++
 	id := c.nextID
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
@@ -133,10 +176,8 @@ func (c *HTTPClient) call(method string, params any) (json.RawMessage, error) {
 	return nil, fmt.Errorf("no response for request %d", id)
 }
 
-// notify sends a JSON-RPC notification (no response expected).
+// notify sends a JSON-RPC notification (no response expected). Callers hold c.mu.
 func (c *HTTPClient) notify(method string, params any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 	if err != nil {
 		return err
@@ -170,6 +211,10 @@ func (c *HTTPClient) post(body []byte) (*http.Response, error) {
 			resp.Body.Close()
 			continue
 		}
+		if resp.StatusCode == http.StatusNotFound && c.sessionID != "" {
+			resp.Body.Close()
+			return nil, errSessionExpired
+		}
 		if resp.StatusCode/100 != 2 {
 			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
@@ -191,11 +236,16 @@ func (c *HTTPClient) setHeaders(req *http.Request, forceAuth bool) error {
 	if c.sessionID != "" {
 		req.Header.Set("Mcp-Session-Id", c.sessionID)
 	}
+	if c.protocol != "" {
+		req.Header.Set("MCP-Protocol-Version", c.protocol)
+	}
 	if c.authCmd == "" {
 		return nil
 	}
 	if forceAuth || c.token == "" || (!c.tokenExp.IsZero() && time.Now().After(c.tokenExp.Add(-authRefreshMargin))) {
-		out, err := exec.Command("sh", "-c", c.authCmd).Output()
+		ctx, cancel := context.WithTimeout(context.Background(), authCmdTimeout)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "sh", "-c", c.authCmd).Output()
 		if err != nil {
 			return fmt.Errorf("auth_cmd failed: %w", err)
 		}
