@@ -7,6 +7,9 @@
 # env.local.example. Never committed.
 /env.local
 
+# Downloaded build tools (ANTLR jar, fetched by scripts/antlr.sh)
+/.cache/
+
 # Go build & test artifacts
 *.test
 *.out

@@ -184,5 +184,7 @@ make test     # go test ./...
 make generate # regenerate parser/ after editing grammar/ (needs Java + ANTLR 4.13.2)
 ```
 
-Requires Go 1.26+. Parser regeneration requires a JDK and the ANTLR 4.13.2 tool
-jar with its dependencies (resolved from the local Maven repo — see `Makefile`).
+Requires Go 1.26+. Parser regeneration requires Java 11+; `make generate`
+downloads the ANTLR 4.13.2 jar to `.cache/`, checks its SHA-256, and, if Java
+is missing, prints how to install Eclipse Temurin 21 (formerly AdoptOpenJDK)
+for your OS.
