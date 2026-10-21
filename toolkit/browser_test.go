@@ -4,7 +4,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/iodesystems/mcpshell/runtime"
@@ -41,9 +43,13 @@ func TestBrowserToolkit(t *testing.T) {
 	bt := toolkit.InstallBrowser(sh, true)
 	defer bt.Close()
 
-	if _, err := sh.EvalExported(`Browser.open(url)`,
-		map[string]runtime.Value{"url": runtime.Str(srv.URL)}); err != nil {
+	page, err := sh.EvalExported(`Browser.open(url).title`,
+		map[string]runtime.Value{"url": runtime.Str(srv.URL)})
+	if err != nil {
 		t.Fatalf("Browser.open errored: %v", err)
+	}
+	if page.Display() != "Test Page" {
+		t.Errorf("Browser.open(url).title = %q, want %q", page.Display(), "Test Page")
 	}
 
 	check := func(src, want string) {
@@ -64,6 +70,24 @@ func TestBrowserToolkit(t *testing.T) {
 	check(`Browser.eval("1 + 1")`, "2")
 	check(`Browser.eval("document.querySelectorAll('.item').length")`, "2")
 	check(`Browser.url()`, srv.URL+"/")
+	check(`Browser.html("h1")`, "Hello mcpshell")
+	check(`Browser.html().startsWith("<html>")`, "true")
+	check(`Browser.eval("undefined")`, "null")
+	check(`Browser.eval("null")`, "null")
+	check(`Browser.eval("({a: [1, 'x']})").a[1]`, "x")
+	check(`Browser.wait(".item")`, "null")
+	check(`Browser.wait(".missing", {state: "detached"})`, "null")
+	if _, err := sh.Eval(`Browser.wait(".missing", {timeout: 200})`); err == nil {
+		t.Errorf("Browser.wait on a missing element should time out")
+	}
+	shot := filepath.Join(t.TempDir(), "page.png")
+	if _, err := sh.EvalExported(`Browser.screenshot(p, {fullPage: true})`,
+		map[string]runtime.Value{"p": runtime.Str(shot)}); err != nil {
+		t.Fatalf("Browser.screenshot errored: %v", err)
+	}
+	if _, err := os.Stat(shot); err != nil {
+		t.Errorf("screenshot not written: %v", err)
+	}
 
 	// Interaction: set an input value, read it back.
 	if _, err := sh.Eval(`Browser.type("#q", "typed text")`); err != nil {

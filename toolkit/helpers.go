@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dlclark/regexp2"
+	"github.com/dlclark/regexp2/v2"
 
 	. "github.com/iodesystems/mcpshell/runtime"
 )
@@ -463,9 +463,9 @@ func regexSplit(re *regexp2.Regexp, s string) []string {
 	m, err := re.FindStringMatch(s)
 	regexErr(err)
 	for m != nil {
-		if m.Index >= last {
-			out = append(out, string(runes[last:m.Index]))
-			last = m.Index + m.Length
+		if m.RuneIndex >= last {
+			out = append(out, string(runes[last:m.RuneIndex]))
+			last = m.RuneIndex + m.RuneLength
 		}
 		m, err = re.FindNextMatch(m)
 		regexErr(err)

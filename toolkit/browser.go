@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -57,11 +56,11 @@ func (bt *browserToolkit) ensure() context.Context {
 	opts := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
 	opts = append(opts, chromedp.NoSandbox, chromedp.Flag("disable-dev-shm-usage", true))
 	if !bt.headless {
-		opts = append(opts, chromedp.Flag("headless", false))
+		opts = append(opts, chromedp.VisibleWindow)
 	}
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
-	if err := chromedp.Run(browserCtx); err != nil {
+	if err := chromedp.Do(browserCtx); err != nil {
 		cancelBrowser()
 		cancelAlloc()
 		panic(Runtime("Browser: failed to launch Chrome — is it installed? " + err.Error()))
@@ -72,17 +71,29 @@ func (bt *browserToolkit) ensure() context.Context {
 	return browserCtx
 }
 
-// run executes actions under a deadline. Caller must hold bt.mu.
-func (bt *browserToolkit) run(timeout time.Duration, actions ...chromedp.Action) error {
+// do executes value-less actions under a deadline. Caller must hold bt.mu.
+func (bt *browserToolkit) do(timeout time.Duration, steps ...chromedp.Action[chromedp.Void]) error {
 	ctx, cancel := context.WithTimeout(bt.ensure(), timeout)
 	defer cancel()
-	return chromedp.Run(ctx, actions...)
+	return chromedp.Do(ctx, steps...)
 }
 
-func (bt *browserToolkit) mustRun(actions ...chromedp.Action) {
-	if err := bt.run(browserTimeout, actions...); err != nil {
+func (bt *browserToolkit) mustDo(steps ...chromedp.Action[chromedp.Void]) {
+	if err := bt.do(browserTimeout, steps...); err != nil {
 		panic(Runtime("Browser: " + err.Error()))
 	}
+}
+
+// mustGet runs one action that returns a value. Caller must hold bt.mu.
+// A function, not a method: Go methods cannot have type parameters.
+func mustGet[T any](bt *browserToolkit, action chromedp.Action[T]) T {
+	ctx, cancel := context.WithTimeout(bt.ensure(), browserTimeout)
+	defer cancel()
+	v, err := chromedp.Run(ctx, action)
+	if err != nil {
+		panic(Runtime("Browser: " + err.Error()))
+	}
+	return v
 }
 
 func (bt *browserToolkit) register(sh *Shell) {
@@ -102,18 +113,30 @@ func (bt *browserToolkit) register(sh *Shell) {
 		[]string{`Browser.open("https://example.com")`},
 		func(args []Value) Value {
 			url := requireStringArg("Browser.open", args, 0)
-			var pageURL, title string
-			bt.mustRun(chromedp.Navigate(url), chromedp.Location(&pageURL), chromedp.Title(&title))
-			o := NewObject()
-			o.Set("url", Str(pageURL))
-			o.Set("title", Str(title))
-			return o
+			// One action, so navigate + location + title share one deadline.
+			return mustGet(bt, func(ctx context.Context, t *chromedp.Target) (*ObjectVal, error) {
+				if _, err := chromedp.Navigate(url)(ctx, t); err != nil {
+					return nil, err
+				}
+				loc, err := chromedp.Location()(ctx, t)
+				if err != nil {
+					return nil, err
+				}
+				title, err := chromedp.Title()(ctx, t)
+				if err != nil {
+					return nil, err
+				}
+				o := NewObject()
+				o.Set("url", Str(loc))
+				o.Set("title", Str(title))
+				return o, nil
+			})
 		})
 
 	reg("click", "selector: string", "clicks an element matching the CSS selector",
 		[]string{`Browser.click("button.submit")`},
 		func(args []Value) Value {
-			bt.mustRun(chromedp.Click(requireStringArg("Browser.click", args, 0), chromedp.ByQuery))
+			bt.mustDo(chromedp.Click(chromedp.CSS(requireStringArg("Browser.click", args, 0))))
 			return Null
 		})
 
@@ -122,7 +145,7 @@ func (bt *browserToolkit) register(sh *Shell) {
 		func(args []Value) Value {
 			sel := requireStringArg("Browser.type", args, 0)
 			text := requireStringArg("Browser.type", args, 1)
-			bt.mustRun(chromedp.SetValue(sel, text, chromedp.ByQuery))
+			bt.mustDo(chromedp.SetValue(chromedp.CSS(sel), text))
 			return Null
 		})
 
@@ -131,22 +154,17 @@ func (bt *browserToolkit) register(sh *Shell) {
 		[]string{`Browser.text("h1")`, `Browser.text()`},
 		func(args []Value) Value {
 			sel := optString(args, 0, "body")
-			var out string
-			bt.mustRun(chromedp.Text(sel, &out, chromedp.ByQuery))
-			return Str(out)
+			return Str(mustGet(bt, chromedp.Text(chromedp.CSS(sel))))
 		})
 
 	reg("html", "selector?: string",
 		"gets the inner HTML of an element, or the full page HTML",
 		[]string{`Browser.html(".content")`, `Browser.html()`},
 		func(args []Value) Value {
-			var out string
 			if sel := optString(args, 0, ""); sel != "" {
-				bt.mustRun(chromedp.InnerHTML(sel, &out, chromedp.ByQuery))
-			} else {
-				bt.mustRun(chromedp.OuterHTML("html", &out, chromedp.ByQuery))
+				return Str(mustGet(bt, chromedp.InnerHTML(chromedp.CSS(sel))))
 			}
-			return Str(out)
+			return Str(mustGet(bt, chromedp.OuterHTML(chromedp.CSS("html"))))
 		})
 
 	reg("select", "selector: string",
@@ -159,13 +177,12 @@ func (bt *browserToolkit) register(sh *Shell) {
 				"text: el.textContent || '', html: el.innerHTML || '', " +
 				"tag: el.tagName.toLowerCase(), " +
 				"attrs: Object.fromEntries(Array.from(el.attributes).map(a => [a.name, a.value]))}))"
-			var res []struct {
+			res := mustGet(bt, chromedp.Evaluate[[]struct {
 				Text  string            `json:"text"`
 				HTML  string            `json:"html"`
 				Tag   string            `json:"tag"`
 				Attrs map[string]string `json:"attrs"`
-			}
-			bt.mustRun(chromedp.Evaluate(js, &res))
+			}](js))
 			out := make([]Value, len(res))
 			for i, r := range res {
 				attrs := NewObject()
@@ -198,18 +215,18 @@ func (bt *browserToolkit) register(sh *Shell) {
 				timeout = time.Duration(*ms) * time.Millisecond
 			}
 			state, _ := optObjStr(opts, "state")
-			var action chromedp.Action
+			var action chromedp.Action[chromedp.Void]
 			switch state {
 			case "hidden":
-				action = chromedp.WaitNotVisible(sel, chromedp.ByQuery)
+				action = chromedp.WaitNotVisible(chromedp.CSS(sel))
 			case "attached":
-				action = chromedp.WaitReady(sel, chromedp.ByQuery)
+				action = chromedp.WaitReady(chromedp.CSS(sel))
 			case "detached":
-				action = chromedp.WaitNotPresent(sel, chromedp.ByQuery)
+				action = chromedp.WaitNotPresent(chromedp.CSS(sel))
 			default:
-				action = chromedp.WaitVisible(sel, chromedp.ByQuery)
+				action = chromedp.WaitVisible(chromedp.CSS(sel))
 			}
-			if err := bt.run(timeout, action); err != nil {
+			if err := bt.do(timeout, action); err != nil {
 				panic(Runtime("Browser.wait: " + err.Error()))
 			}
 			return Null
@@ -223,9 +240,9 @@ func (bt *browserToolkit) register(sh *Shell) {
 			opts, _ := argOpt(args, 1).(*ObjectVal)
 			var buf []byte
 			if optObjBool(opts, "fullPage") {
-				bt.mustRun(chromedp.FullScreenshot(&buf, 90))
+				buf = mustGet(bt, chromedp.FullScreenshot(90))
 			} else {
-				bt.mustRun(chromedp.CaptureScreenshot(&buf))
+				buf = mustGet(bt, chromedp.CaptureScreenshot())
 			}
 			if err := os.WriteFile(path, buf, 0o644); err != nil {
 				panic(Runtime("Browser.screenshot: " + err.Error()))
@@ -237,32 +254,24 @@ func (bt *browserToolkit) register(sh *Shell) {
 		[]string{`Browser.eval("document.title")`, `Browser.eval("document.querySelectorAll('a').length")`},
 		func(args []Value) Value {
 			js := requireStringArg("Browser.eval", args, 0)
-			var raw json.RawMessage
-			if err := bt.run(browserTimeout, chromedp.Evaluate(js, &raw)); err != nil {
-				if strings.Contains(err.Error(), "undefined") {
-					return Null
-				}
+			ctx, cancel := context.WithTimeout(bt.ensure(), browserTimeout)
+			defer cancel()
+			// T = any can be nil, so null and undefined both decode to nil.
+			v, err := chromedp.Run(ctx, chromedp.Evaluate[any](js))
+			if err != nil {
 				panic(Runtime("Browser.eval: " + err.Error()))
-			}
-			var v any
-			if json.Unmarshal(raw, &v) != nil {
-				return Null
 			}
 			return jsResultToShell(v)
 		})
 
 	reg("url", "", "returns the current page URL", []string{`Browser.url()`},
 		func(_ []Value) Value {
-			var u string
-			bt.mustRun(chromedp.Location(&u))
-			return Str(u)
+			return Str(mustGet(bt, chromedp.Location()))
 		})
 
 	reg("title", "", "returns the current page title", []string{`Browser.title()`},
 		func(_ []Value) Value {
-			var t string
-			bt.mustRun(chromedp.Title(&t))
-			return Str(t)
+			return Str(mustGet(bt, chromedp.Title()))
 		})
 }
 
