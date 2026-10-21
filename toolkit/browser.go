@@ -240,7 +240,8 @@ func (bt *browserToolkit) register(sh *Shell) {
 			opts, _ := argOpt(args, 1).(*ObjectVal)
 			var buf []byte
 			if optObjBool(opts, "fullPage") {
-				buf = mustGet(bt, chromedp.FullScreenshot(90))
+				// Quality 100 selects PNG, matching CaptureScreenshot; anything lower is JPEG.
+				buf = mustGet(bt, chromedp.FullScreenshot(100))
 			} else {
 				buf = mustGet(bt, chromedp.CaptureScreenshot())
 			}

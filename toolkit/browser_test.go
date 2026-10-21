@@ -1,6 +1,7 @@
 package toolkit_test
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,8 +86,8 @@ func TestBrowserToolkit(t *testing.T) {
 		map[string]runtime.Value{"p": runtime.Str(shot)}); err != nil {
 		t.Fatalf("Browser.screenshot errored: %v", err)
 	}
-	if _, err := os.Stat(shot); err != nil {
-		t.Errorf("screenshot not written: %v", err)
+	if png, err := os.ReadFile(shot); err != nil || !bytes.HasPrefix(png, []byte("\x89PNG")) {
+		t.Errorf("screenshot is not a PNG (err %v)", err)
 	}
 
 	// Interaction: set an input value, read it back.
