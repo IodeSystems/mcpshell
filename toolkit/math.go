@@ -90,7 +90,7 @@ func InstallMath(sh *Shell) *Shell {
 		Body: &NativeBody{Fn: func(_ []Value) Value { return Num(rand.Float64()) }},
 	})
 
-	sh.SetState(map[string]Value{ns: obj})
+	sh.SetBuiltin(ns, obj)
 	sh.RegisterGuide(ns, mathGuide)
 	return sh
 }

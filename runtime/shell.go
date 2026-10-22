@@ -132,6 +132,12 @@ func (t *Shell) GetState() *ObjectVal {
 	return obj
 }
 
+// SetBuiltin binds a builtin global, such as a namespace object; a script's
+// `let` of the same name reports that it is a builtin.
+func (t *Shell) SetBuiltin(name string, value Value) {
+	t.globals.DefineBuiltin(name, value)
+}
+
 // SetState injects bindings into the global scope.
 func (t *Shell) SetState(state map[string]Value) {
 	for name, value := range state {

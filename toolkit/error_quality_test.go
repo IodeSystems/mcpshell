@@ -99,6 +99,9 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 			`let ns = {"grafana-search_docs": x => x}; ns.search_docs({})`,
 			[]string{"ns has no member 'search_docs'", `ns["grafana-search_docs"]`}},
 		{"redeclaring a builtin says so, with a line", "let x = 1\nlet all = []", []string{"'all' is a builtin", "at line 2"}},
+		{"camel name suggests its snake form", `let ns = {list_alert_rule_groups: x => x}; ns.listAlertRuleGroups()`,
+			[]string{"Did you mean", "ns.list_alert_rule_groups"}},
+		{"redeclaring Math says it is a builtin", `let Math = 1`, []string{"'Math' is a builtin"}},
 		{"redeclaring a let has a line", `let x = 1; let x = 2`, []string{"already declared", "at line 1"}},
 		{"null member names the member", `let o = {b: null}; o.b()`, []string{"'o.b' is not a function", "null"}},
 	}
