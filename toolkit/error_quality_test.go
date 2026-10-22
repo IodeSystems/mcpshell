@@ -98,6 +98,8 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		{"missing member suggests prefixed name in brackets",
 			`let ns = {"grafana-search_docs": x => x}; ns.search_docs({})`,
 			[]string{"ns has no member 'search_docs'", `ns["grafana-search_docs"]`}},
+		{"redeclaring a builtin says so, with a line", "let x = 1\nlet all = []", []string{"'all' is a builtin", "at line 2"}},
+		{"redeclaring a let has a line", `let x = 1; let x = 2`, []string{"already declared", "at line 1"}},
 		{"null member names the member", `let o = {b: null}; o.b()`, []string{"'o.b' is not a function", "null"}},
 	}
 	for _, c := range cases {

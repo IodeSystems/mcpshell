@@ -432,7 +432,11 @@ func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 		} else {
 			last = Null
 		}
-		v.bindDestructure(bc.Destructure(), last)
+		value := last
+		v.withLocation(bc, func() Value {
+			v.bindDestructure(bc.Destructure(), value)
+			return nil
+		})
 	}
 	return last
 }

@@ -12,6 +12,7 @@ type Environment struct {
 	parent   *Environment
 	gil      *sync.Mutex
 	bindings map[string]Value
+	builtins map[string]bool // names bound by DefineBuiltin
 }
 
 // NewEnvironment creates a scope. A child inherits its parent's GIL; a root
@@ -46,6 +47,9 @@ func (e *Environment) Define(name string, value Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
 	if _, ok := e.bindings[name]; ok {
+		if e.builtins[name] {
+			panic(Runtime("'" + name + "' is a builtin and cannot be redeclared — use another name"))
+		}
 		panic(Runtime("'" + name + "' is already declared in this scope"))
 	}
 	e.bindings[name] = value
@@ -199,6 +203,18 @@ func (e *Environment) Remove(names map[string]struct{}) {
 func (e *Environment) DefineOrSet(name string, value Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
+	e.bindings[name] = value
+}
+
+// DefineBuiltin binds or rebinds a builtin name; a later Define of the same
+// name reports that it is a builtin.
+func (e *Environment) DefineBuiltin(name string, value Value) {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	if e.builtins == nil {
+		e.builtins = make(map[string]bool)
+	}
+	e.builtins[name] = true
 	e.bindings[name] = value
 }
 

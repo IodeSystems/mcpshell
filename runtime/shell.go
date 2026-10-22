@@ -46,7 +46,7 @@ func (t *Shell) Register(def *CommandDef) *Shell {
 	t.commands.Register(def)
 	if def.Namespace != "" {
 		if nsObj := t.commands.BuildNamespaceObject(def.Namespace); nsObj != nil {
-			t.globals.DefineOrSet(def.Namespace, nsObj)
+			t.globals.DefineBuiltin(def.Namespace, nsObj)
 		}
 	}
 	return t

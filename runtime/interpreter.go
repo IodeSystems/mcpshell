@@ -80,12 +80,12 @@ func (itp *Interpreter) commandFn(name string) *FuncVal {
 // registerNamespace installs a namespace object in globals, optionally also
 // exposing each method at global scope.
 func (itp *Interpreter) registerNamespace(name string, methods *ObjectVal, globalFallback bool) {
-	itp.globals.DefineOrSet(name, methods)
+	itp.globals.DefineBuiltin(name, methods)
 	if globalFallback {
 		for _, m := range methods.Keys() {
 			if itp.globals.Get(m) == nil {
 				fn, _ := methods.Get(m)
-				itp.globals.DefineOrSet(m, fn)
+				itp.globals.DefineBuiltin(m, fn)
 			}
 		}
 	}
@@ -97,10 +97,10 @@ func (itp *Interpreter) initBuiltinBindings() {
 	anyFn := nativeFn("any", func(args []Value) Value { return itp.executeAny(args) })
 	chainFn := nativeFn("chain", func(args []Value) Value { return itp.executeChain(args) })
 
-	itp.globals.DefineOrSet("all", allFn)
-	itp.globals.DefineOrSet("race", raceFn)
-	itp.globals.DefineOrSet("any", anyFn)
-	itp.globals.DefineOrSet("chain", chainFn)
+	itp.globals.DefineBuiltin("all", allFn)
+	itp.globals.DefineBuiltin("race", raceFn)
+	itp.globals.DefineBuiltin("any", anyFn)
+	itp.globals.DefineBuiltin("chain", chainFn)
 
 	// JS constructor aliases — String(x) → str(x), etc.
 	for _, a := range jsConstructorAliases {
@@ -108,7 +108,7 @@ func (itp *Interpreter) initBuiltinBindings() {
 			continue
 		}
 		if fn := itp.commandFn(a.v); fn != nil {
-			itp.globals.DefineOrSet(a.k, fn)
+			itp.globals.DefineBuiltin(a.k, fn)
 		}
 	}
 
@@ -157,7 +157,7 @@ func (itp *Interpreter) initBuiltinBindings() {
 			}
 			return &ArrayVal{Elements: elems}
 		}))
-		itp.globals.DefineOrSet("Array", methods)
+		itp.globals.DefineBuiltin("Array", methods)
 	}
 
 	// Promise namespace.
