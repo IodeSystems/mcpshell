@@ -51,6 +51,15 @@ func (c *CommandDef) DisplayName() string {
 	return c.Name
 }
 
+// CallName is how a script calls the command: Ns.name, or Ns["a-b"] when the
+// name is not an identifier.
+func (c *CommandDef) CallName() string {
+	if c.Namespace != "" {
+		return MemberRef(c.Namespace, c.Name)
+	}
+	return c.Name
+}
+
 // CommandRegistry holds every command, guide, and namespace available to a shell.
 type CommandRegistry struct {
 	commands   map[string]*CommandDef
@@ -160,7 +169,7 @@ func (r *CommandRegistry) Help(search string) string {
 			if i > 0 {
 				b.WriteByte('\n')
 			}
-			b.WriteString("  " + search + "." + c.Name + "(" + c.Signature + ") — " + c.Description)
+			b.WriteString("  " + c.CallName() + "(" + c.Signature + ") — " + c.Description)
 		}
 		b.WriteString("\n\n  Use help(\"" + search + ".commandName\") for detailed help.")
 		return b.String()
@@ -224,7 +233,7 @@ func (r *CommandRegistry) Help(search string) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString("  " + c.DisplayName() + "(" + c.Signature + ") — " + c.Description)
+		b.WriteString("  " + c.CallName() + "(" + c.Signature + ") — " + c.Description)
 	}
 	b.WriteString("\n\n  Use help(\"commandName\") for detailed help on a specific command.")
 	return b.String()
@@ -249,7 +258,7 @@ func (r *CommandRegistry) categoryHelp(search string) (string, bool) {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s (%d commands):\n\n", search, len(cmds)))
 	for _, c := range sortByName(cmds) {
-		b.WriteString("  " + c.DisplayName() + " — " + Brief(c.Description) + "\n")
+		b.WriteString("  " + c.CallName() + " — " + Brief(c.Description) + "\n")
 	}
 	b.WriteString("\n  Use help(\"" + ns + ".commandName\") for signature and details.")
 	return b.String(), true
@@ -324,7 +333,7 @@ func (r *CommandRegistry) Prompt() string {
 	for _, c := range sorted {
 		sig := promptInputPrefix1.ReplaceAllString(c.Signature, "")
 		sig = promptInputPrefix2.ReplaceAllString(sig, "")
-		lines = append(lines, "  "+c.DisplayName()+"("+sig+") — "+c.Description)
+		lines = append(lines, "  "+c.CallName()+"("+sig+") — "+c.Description)
 	}
 	lines = append(lines, collapsed...)
 	return strings.Join(lines, "\n")
@@ -380,7 +389,7 @@ var (
 
 func detailedHelp(c *CommandDef) string {
 	var b strings.Builder
-	b.WriteString(c.DisplayName() + "(" + c.Signature + ")\n\n")
+	b.WriteString(c.CallName() + "(" + c.Signature + ")\n\n")
 	b.WriteString("  " + c.Description + "\n")
 	if len(c.Examples) > 0 {
 		b.WriteString("\n  Examples:\n")

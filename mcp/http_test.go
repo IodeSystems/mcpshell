@@ -321,3 +321,18 @@ func TestSmallUpstreamIsNotCategorized(t *testing.T) {
 		t.Errorf("a small upstream should list its tools flat:\n%s", guide)
 	}
 }
+
+func TestNonIdentifierToolNamesShowBracketCall(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"grafana-search_docs", "grafana-list_alerts"}})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if guide := evalString(t, sh, `help("remote")`); !strings.Contains(guide, `remote["grafana-search_docs"](`) {
+		t.Errorf("guide should show the bracket call form:\n%s", guide)
+	}
+	if got := evalString(t, sh, `help("remote.grafana-search_docs")`); !strings.HasPrefix(got, `remote["grafana-search_docs"](`) {
+		t.Errorf("detailed help should show the bracket call form:\n%s", got)
+	}
+	if got := evalString(t, sh, `remote["grafana-search_docs"]("hi")`); got != "echo: hi" {
+		t.Errorf("bracket call = %q", got)
+	}
+}

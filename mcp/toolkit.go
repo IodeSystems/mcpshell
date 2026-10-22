@@ -108,7 +108,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		if desc == "" {
 			desc = toolName
 		}
-		summaries = append(summaries, "  "+ns.Namespace+"."+toolName+"("+signature+") — "+runtime.Brief(desc))
+		summaries = append(summaries, "  "+runtime.MemberRef(ns.Namespace, toolName)+"("+signature+") — "+runtime.Brief(desc))
 		sh.Register(&runtime.CommandDef{
 			Namespace:   ns.Namespace,
 			Name:        toolName,
