@@ -268,6 +268,8 @@ func TestLargeUpstreamIsCategorized(t *testing.T) {
 	guide := evalString(t, sh, `help("remote")`)
 	for _, want := range []string{
 		"27 tools in 3 categories",
+		`help("remote.<category>") lists every tool in a category.`,
+		`help("<word>") searches tool names and descriptions`,
 		`agents_group (21): agents, agents_00, agents_01, … — help("remote.agents_group")`,
 		`creative (5)`, `other (1): lonely`,
 	} {

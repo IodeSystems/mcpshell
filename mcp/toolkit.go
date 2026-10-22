@@ -149,6 +149,10 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			g.WriteString(s + "\n")
 		}
 	}
+	if len(cats) > 0 {
+		g.WriteString("\nhelp(\"" + ns.Namespace + ".<category>\") lists every tool in a category.")
+	}
+	g.WriteString("\nhelp(\"<word>\") searches tool names and descriptions, e.g. help(\"alert\").")
 	g.WriteString("\nUse help(\"" + ns.Namespace + ".toolName\") for full details on any tool.")
 	sh.RegisterGuide(ns.Namespace, g.String())
 	return len(tools)
