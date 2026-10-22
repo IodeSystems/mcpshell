@@ -568,6 +568,8 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		default:
 			panic(TypeMismatch("member access ."+field, "object, array, or string", obj, ""))
 		}
+	case *RegexVal:
+		return v.regexMember(o, field)
 	case *BoolVal:
 		if field == "toString" {
 			return &FuncVal{Name: "toString", Body: &NativeBody{Fn: func(_ []Value) Value {
@@ -577,6 +579,38 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		panic(TypeMismatch("member access ."+field, "object, array, string, or number", obj, ""))
 	default:
 		panic(TypeMismatch("member access ."+field, "object, array, or string", obj, ""))
+	}
+}
+
+// regexMember implements the JS RegExp members test, exec, source and flags.
+// test and exec delegate to the match command and, unlike JS, keep no
+// lastIndex state: a g flag is ignored, so exec returns the first match.
+func (v *Visitor) regexMember(re *RegexVal, field string) Value {
+	switch field {
+	case "source":
+		return &StringVal{V: re.Pattern}
+	case "flags":
+		return &StringVal{V: re.Flags}
+	case "test", "exec":
+		match := v.itp.commands.Get("match")
+		if match == nil {
+			panic(Runtime("regex ." + field + " needs the match command (core toolkit)"))
+		}
+		first := &RegexVal{Pattern: re.Pattern, Flags: strings.ReplaceAll(re.Flags, "g", "")}
+		return &FuncVal{Name: field, Params: []string{"input"}, Body: &NativeBody{Fn: func(args []Value) Value {
+			var input Value = Null
+			if len(args) > 0 {
+				input = args[0]
+			}
+			m := match.Fn([]Value{input, first})
+			if field == "exec" {
+				return m
+			}
+			_, isNull := m.(*NullVal)
+			return &BoolVal{V: !isNull}
+		}}}
+	default:
+		panic(TypeMismatch("member access ."+field, "test, exec, source, or flags", re, ""))
 	}
 }
 

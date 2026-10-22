@@ -26,6 +26,13 @@ func TestRegexJSCompat(t *testing.T) {
 		// Still-works baseline
 		{"plain match", `"abc123" |> match(/[0-9]+/)`, `["123"]`},
 		{"plain split", `"a1b2c3" |> split(/[0-9]/)`, `["a", "b", "c", ""]`},
+		// RegExp members
+		{"regex .test true", `/x/i.test("X")`, "true"},
+		{"regex .test false", `/z/.test("X")`, "false"},
+		{"regex .test in filter", `["ab", "cd"] |> filter(s => /a/.test(s))`, `["ab"]`},
+		{"regex .exec ignores g", `/(\d+)-(\d+)/g.exec("a 12-34 56-78")`, `["12-34", "12", "34"]`},
+		{"regex .exec no match", `/z/.exec("abc")`, "null"},
+		{"regex .source and .flags", `/a+/gi.source + " " + /a+/gi.flags`, "a+ gi"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
