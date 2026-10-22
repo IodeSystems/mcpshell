@@ -116,6 +116,8 @@ func TestEvalCore(t *testing.T) {
 		{"chain", `chain(() => 10, x => x + 5)`, "15"},
 		{"race single", `race(() => 1)`, "1"},
 		{"any", `any(() => null, () => 7)`, "7"},
+		{"allSettled", `allSettled(() => 1, () => { throw "boom" }, () => 3)`, `[{ok: true, value: 1}, {ok: false, error: "boom"}, {ok: true, value: 3}]`},
+		{"allSettled empty", `allSettled()`, "[]"},
 	}
 
 	for _, c := range cases {

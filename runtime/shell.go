@@ -187,6 +187,7 @@ profile(() => ...) // returns {result, steps, lines} to see which lines cost the
 
 ## Composition
 all(() => a(), () => b()) // parallel   race() // first success
+allSettled(() => a(), () => b()) // parallel, never throws: [{ok: true, value} | {ok: false, error}]
 chain(() => getData(), d => transform(d)) // sequential`
 
 // ToolDescription is the short tool-call schema description for LLM clients.

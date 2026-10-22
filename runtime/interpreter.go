@@ -101,6 +101,8 @@ func (itp *Interpreter) initBuiltinBindings() {
 	itp.globals.DefineBuiltin("race", raceFn)
 	itp.globals.DefineBuiltin("any", anyFn)
 	itp.globals.DefineBuiltin("chain", chainFn)
+	allSettledFn := nativeFn("allSettled", func(args []Value) Value { return itp.executeAllSettled(args) })
+	itp.globals.DefineBuiltin("allSettled", allSettledFn)
 
 	// JS constructor aliases — String(x) → str(x), etc.
 	for _, a := range jsConstructorAliases {
@@ -164,6 +166,7 @@ func (itp *Interpreter) initBuiltinBindings() {
 	promise := NewObject()
 	promise.Set("all", allFn)
 	promise.Set("race", raceFn)
+	promise.Set("allSettled", allSettledFn)
 	itp.registerNamespace("Promise", promise, false)
 }
 
@@ -200,6 +203,46 @@ func (itp *Interpreter) executeAll(args []Value) Value {
 		return b.executeInBranch(fns[idx], nil)
 	})
 	return &ArrayVal{Elements: results}
+}
+
+// executeAllSettled runs producers in parallel like all, but a failing
+// producer yields {ok: false, error} instead of failing the whole call.
+// Results are {ok: true, value} or {ok: false, error}, in argument order.
+func (itp *Interpreter) executeAllSettled(args []Value) Value {
+	fns := requireFnArgs("allSettled", args)
+	branchLimits := make([]*ExecutionLimits, len(fns))
+	for i := range fns {
+		branchLimits[i] = itp.limits.Fork()
+	}
+	results := itp.runParallel(branchLimits, func(idx int) Value {
+		b := &Interpreter{commands: itp.commands, globals: itp.globals, limits: branchLimits[idx]}
+		value, failed := b.settle(fns[idx])
+		out := NewObject()
+		if failed != nil {
+			out.Set("ok", &BoolVal{V: false})
+			out.Set("error", &StringVal{V: failed.Message})
+		} else {
+			out.Set("ok", &BoolVal{V: true})
+			out.Set("value", value)
+		}
+		return out
+	})
+	return &ArrayVal{Elements: results}
+}
+
+// settle runs fn in a branch, recovering a mcpshell error. Other panics (bugs)
+// propagate.
+func (itp *Interpreter) settle(fn *FuncVal) (value Value, failed *ShellError) {
+	defer func() {
+		if r := recover(); r != nil {
+			te, ok := r.(*ShellError)
+			if !ok {
+				panic(r)
+			}
+			failed = te
+		}
+	}()
+	return itp.executeInBranch(fn, nil), nil
 }
 
 func (itp *Interpreter) executeRace(args []Value) Value {
