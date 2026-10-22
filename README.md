@@ -38,6 +38,9 @@ Pin a release with `@v0.4.1` in place of `@latest`. Requires Go 1.26+ — the
 `go` directive auto-fetches the toolchain for anyone on Go 1.21 or newer. No
 Java is needed; the generated parser is committed.
 
+From a checkout, `make install` builds and installs to `~/.local/bin`
+(override with `make install PREFIX=/usr/local`).
+
 ## Run
 
 ```

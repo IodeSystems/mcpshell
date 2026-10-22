@@ -4,7 +4,9 @@
 # Regenerate only after editing grammar/*.g4 — requires Java 11+. The ANTLR
 # tool jar is downloaded and checksum-verified by scripts/antlr.sh.
 
-.PHONY: generate build cli bench test fmt
+.PHONY: generate build cli install bench test fmt
+
+PREFIX ?= $(HOME)/.local
 
 generate:
 	./scripts/antlr.sh \
@@ -19,6 +21,10 @@ build:
 # demand; these targets are for an explicit ahead-of-time build.
 cli:
 	go build -o bin/mcpshell-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/mcpshell
+
+# Install mcpshell to $(PREFIX)/bin (default ~/.local/bin).
+install:
+	GOBIN=$(PREFIX)/bin go install ./cmd/mcpshell
 
 bench:
 	go build -o bin/bench-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/bench
