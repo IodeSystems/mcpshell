@@ -10,3 +10,8 @@ Field feedback from an agent driving a 112-tool upstream (`vay`). Verified claim
 - `allSettled(...)` / `Promise.allSettled`.
 - MCP namespace guide mentions `help("<word>")` search and `help("ns.<category>")`.
 Deferred items → `icebox.md`.
+
+## Tool → file fidelity (2026-10-22)
+- MCP tool output and eval `vars` decode via the parseJson parser (exact numbers, key order); args go upstream as `json.Number` (`b80d81c`).
+- `ns.raw("tool", {args})` returns unparsed text for byte-exact `write(path, …)`.
+- Known: `JSON.stringify` of parsed values keeps every number exact but re-formats them (`1e300` → 301 digits, trailing decimal zeros dropped). Use `ns.raw` when the file must match the tool byte for byte.
