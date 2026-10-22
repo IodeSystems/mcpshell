@@ -483,6 +483,14 @@ func regexReplace(re *regexp2.Regexp, input, replacement string) string {
 
 // --- JSON --------------------------------------------------------------------
 
+// ParseJSON parses JSON text into a value with exact numbers and source key
+// order, as parseJson does. It panics *ShellError on malformed input; callers
+// that need strict JSON check json.Valid first.
+func ParseJSON(s string) Value {
+	pos := 0
+	return parseJSONValue(strings.TrimSpace(s), &pos)
+}
+
 func parseJSONValue(s string, pos *int) Value {
 	skipJSONWS(s, pos)
 	if *pos >= len(s) {

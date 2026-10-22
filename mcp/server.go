@@ -159,8 +159,8 @@ func toolResult(text string, isError bool) map[string]any {
 
 func (s *Server) callTool(params json.RawMessage) map[string]any {
 	var p struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return toolResult("ERROR: invalid tool-call params: "+err.Error(), true)
@@ -173,15 +173,22 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 	}
 }
 
-func (s *Server) evalTool(args map[string]any) map[string]any {
-	code, ok := args["code"].(string)
-	if !ok {
+func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
+	var args struct {
+		Code *string         `json:"code"`
+		Vars json.RawMessage `json:"vars"`
+	}
+	if json.Unmarshal(rawArgs, &args) != nil || args.Code == nil {
 		return toolResult("ERROR: missing 'code' argument", true)
 	}
+	code := *args.Code
+	// vars are parsed like tool output: exact numbers, source key order.
 	vars := map[string]runtime.Value{}
-	if rawVars, ok := args["vars"].(map[string]any); ok {
-		for k, v := range rawVars {
-			vars[k] = goToValue(v)
+	if len(args.Vars) > 0 {
+		if obj, ok := textToValue(string(args.Vars)).(*runtime.ObjectVal); ok {
+			for _, k := range obj.Keys() {
+				vars[k], _ = obj.Get(k)
+			}
 		}
 	}
 	value, err := s.shell.EvalExported(code, vars)
@@ -195,32 +202,4 @@ func (s *Server) evalTool(args map[string]any) map[string]any {
 			"Use limit(), filter(), or read(path, start, lines) to reduce output."
 	}
 	return toolResult(out, false)
-}
-
-// goToValue converts a decoded JSON value (from `vars`) into a mcpshell value.
-func goToValue(v any) runtime.Value {
-	switch x := v.(type) {
-	case nil:
-		return runtime.Null
-	case bool:
-		return runtime.Bln(x)
-	case float64:
-		return runtime.Num(x)
-	case string:
-		return runtime.Str(x)
-	case []any:
-		elems := make([]runtime.Value, len(x))
-		for i, e := range x {
-			elems[i] = goToValue(e)
-		}
-		return &runtime.ArrayVal{Elements: elems}
-	case map[string]any:
-		obj := runtime.NewObject()
-		for k, e := range x {
-			obj.Set(k, goToValue(e))
-		}
-		return obj
-	default:
-		return runtime.Null
-	}
 }

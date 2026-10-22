@@ -27,6 +27,7 @@ func TestServerProtocol(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"eval","arguments":{"code":"2 + 3"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"eval","arguments":{"code":"nope("}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"eval","arguments":{"code":"x * 2","vars":{"x":21}}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"eval","arguments":{"code":"o","vars":{"o":{"z":12345678901234567890123,"a":0.12345678901234567890}}}}}`,
 	}, "\n") + "\n"
 
 	var out bytes.Buffer
@@ -42,9 +43,9 @@ func TestServerProtocol(t *testing.T) {
 		}
 		resps = append(resps, m)
 	}
-	// The notification produces no response: 5 requests → 5 responses.
-	if len(resps) != 5 {
-		t.Fatalf("expected 5 responses, got %d", len(resps))
+	// The notification produces no response: 6 requests → 6 responses.
+	if len(resps) != 6 {
+		t.Fatalf("expected 6 responses, got %d", len(resps))
 	}
 
 	// initialize
@@ -68,6 +69,10 @@ func TestServerProtocol(t *testing.T) {
 	// eval with vars
 	if got := toolText(t, resps[4]); got != "42" {
 		t.Errorf("eval with vars = %q, want 42", got)
+	}
+	// vars keep exact numbers and key order
+	if got := toolText(t, resps[5]); got != "{z: 12345678901234567890123, a: 0.1234567890123456789}" {
+		t.Errorf("eval with exact vars = %q", got)
 	}
 }
 

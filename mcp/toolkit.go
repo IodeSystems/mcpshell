@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"sort"
 	"strings"
 
 	"github.com/iodesystems/mcpshell/runtime"
+	"github.com/iodesystems/mcpshell/toolkit"
 )
 
 // ServerConfig describes an upstream MCP server to connect to.
@@ -128,6 +130,8 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		})
 	}
 
+	hasRaw := registerRaw(sh, ns.Namespace, client, tools)
+
 	label := ns.Config.Label
 	if label == "" {
 		label = ns.Namespace
@@ -153,9 +157,54 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		g.WriteString("\nhelp(\"" + ns.Namespace + ".<category>\") lists every tool in a category.")
 	}
 	g.WriteString("\nhelp(\"<word>\") searches tool names and descriptions, e.g. help(\"alert\").")
+	if hasRaw {
+		g.WriteString("\n" + ns.Namespace + ".raw(\"toolName\", {args}) returns the tool's output as unparsed text — " +
+			"write(path, " + ns.Namespace + ".raw(…)) saves it byte-exact without spending output.")
+	}
 	g.WriteString("\nUse help(\"" + ns.Namespace + ".toolName\") for full details on any tool.")
 	sh.RegisterGuide(ns.Namespace, g.String())
 	return len(tools)
+}
+
+// registerRaw adds ns.raw(tool, args?), which returns a tool's text output
+// unparsed, so it can be written to a file byte-exact. Skipped when the
+// upstream has its own tool named raw.
+func registerRaw(sh *runtime.Shell, namespace string, client Upstream, tools []ToolInfo) bool {
+	known := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		known[t.Name] = true
+	}
+	if known["raw"] {
+		return false
+	}
+	sh.Register(&runtime.CommandDef{
+		Namespace: namespace,
+		Name:      "raw",
+		Signature: "tool: string, args?: object",
+		Description: "calls an upstream tool and returns its text output unparsed (byte-exact), " +
+			"e.g. for write(path, " + namespace + ".raw(\"tool\", {…}))",
+		Fn: func(args []runtime.Value) runtime.Value {
+			var name *runtime.StringVal
+			if len(args) > 0 {
+				name, _ = args[0].(*runtime.StringVal)
+			}
+			if name == nil {
+				panic(runtime.Runtime(namespace + ".raw: first argument must be a tool name string"))
+			}
+			if !known[name.V] {
+				panic(runtime.Runtime(namespace + ".raw: no tool '" + name.V + "' — help(\"" + namespace + "\") lists tools"))
+			}
+			text, isError, err := client.CallTool(name.V, argsToJSONMap(args[1:], nil))
+			if err != nil {
+				panic(runtime.Runtime("MCP tool error: " + err.Error()))
+			}
+			if isError {
+				panic(runtime.Runtime("MCP tool error: " + text))
+			}
+			return runtime.Str(text)
+		},
+	})
+	return true
 }
 
 // otherCategory holds tools no glob matched, or whose name prefix is unique.
@@ -249,11 +298,11 @@ func writeCategories(g *strings.Builder, namespace string, tools []ToolInfo, cat
 	}
 }
 
-// textToValue parses tool output as JSON when possible, else returns it as a string.
+// textToValue parses tool output as JSON when it is valid JSON, else returns it
+// as a string. Numbers stay exact and object keys keep their order.
 func textToValue(text string) runtime.Value {
-	var decoded any
-	if json.Unmarshal([]byte(text), &decoded) == nil {
-		return goToValue(decoded)
+	if json.Valid([]byte(text)) {
+		return toolkit.ParseJSON(text)
 	}
 	return runtime.Str(text)
 }
@@ -289,7 +338,10 @@ func valueToJSON(v runtime.Value) any {
 	case *runtime.BoolVal:
 		return x.V
 	case *runtime.NumberVal:
-		return x.V
+		if math.IsInf(x.V, 0) || math.IsNaN(x.V) {
+			return nil
+		}
+		return json.Number(x.Display()) // exact: big integers and long decimals keep every digit
 	case *runtime.StringVal:
 		return x.V
 	case *runtime.ArrayVal:

@@ -40,6 +40,8 @@ type fakeOpts struct {
 	token   *atomic.Value // if set, the only bearer accepted
 	stall   time.Duration // delay before answering tools/call
 	tools   []string      // tool names to advertise (default: just "echo")
+	reply   string        // if set, tools/call returns this text verbatim
+	rawArgs bool          // tools/call returns its arguments JSON as text
 }
 
 // fakeHTTPServer answers MCP over streamable HTTP. Every request after
@@ -111,10 +113,19 @@ func fakeHTTPServer(t *testing.T, o fakeOpts) *httptest.Server {
 		case "tools/call":
 			time.Sleep(o.stall)
 			var p struct {
-				Arguments map[string]any `json:"arguments"`
+				Arguments json.RawMessage `json:"arguments"`
 			}
 			_ = json.Unmarshal(req.Params, &p)
-			res = map[string]any{"content": []map[string]any{{"type": "text", "text": fmt.Sprint("echo: ", p.Arguments["message"])}}}
+			var args map[string]any
+			_ = json.Unmarshal(p.Arguments, &args)
+			text := fmt.Sprint("echo: ", args["message"])
+			switch {
+			case o.reply != "":
+				text = o.reply
+			case o.rawArgs:
+				text = string(p.Arguments)
+			}
+			res = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
 		}
 		msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
 		if o.sse {
@@ -291,11 +302,11 @@ func TestLargeUpstreamIsCategorized(t *testing.T) {
 	}
 
 	all := evalString(t, sh, `help()`)
-	if !strings.Contains(all, `remote: 27 commands — help("remote")`) || strings.Contains(all, "remote.agents_00") {
+	if !strings.Contains(all, `remote: 28 commands — help("remote")`) || strings.Contains(all, "remote.agents_00") {
 		t.Errorf("help() must collapse the large namespace:\n%s", all)
 	}
 	for _, compact := range []bool{true, false} {
-		if p := sh.ToPrompt(compact); !strings.Contains(p, `remote: 27 commands`) || strings.Contains(p, "remote.agents_00") {
+		if p := sh.ToPrompt(compact); !strings.Contains(p, `remote: 28 commands`) || strings.Contains(p, "remote.agents_00") {
 			t.Errorf("ToPrompt(%v) must collapse the large namespace", compact)
 		}
 	}
@@ -336,5 +347,39 @@ func TestNonIdentifierToolNamesShowBracketCall(t *testing.T) {
 	}
 	if got := evalString(t, sh, `remote["grafana-search_docs"]("hi")`); got != "echo: hi" {
 		t.Errorf("bracket call = %q", got)
+	}
+}
+
+func TestToolOutputKeepsExactNumbersAndKeyOrder(t *testing.T) {
+	const reply = `{"z": 1, "id": 12345678901234567890123, "price": 0.12345678901234567890, "a": [1e-7]}`
+	srv := fakeHTTPServer(t, fakeOpts{reply: reply})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if got := evalString(t, sh, `remote.echo("x")`); got != `{z: 1, id: 12345678901234567890123, price: 0.1234567890123456789, a: [0.0000001]}` {
+		t.Errorf("parsed tool output = %s", got)
+	}
+	if got := evalString(t, sh, `remote.raw("echo", {message: "x"})`); got != reply {
+		t.Errorf("raw tool output = %s, want it byte-exact", got)
+	}
+}
+
+func TestToolArgsKeepExactNumbers(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if got := evalString(t, sh, `remote.raw("echo", {message: 12345678901234567890123, d: 0.12345678901234567890})`); got != `{"d":0.1234567890123456789,"message":12345678901234567890123}` {
+		t.Errorf("args sent upstream = %s", got)
+	}
+}
+
+func TestRawRejectsUnknownTool(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if _, err := sh.Eval(`remote.raw("nope")`); err == nil || !strings.Contains(err.Error(), "no tool 'nope'") {
+		t.Errorf("remote.raw(\"nope\") error = %v", err)
+	}
+	if guide := evalString(t, sh, `help("remote")`); !strings.Contains(guide, `remote.raw("toolName", {args})`) {
+		t.Errorf("guide should mention raw:\n%s", guide)
 	}
 }
