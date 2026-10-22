@@ -208,10 +208,14 @@ func NotCallable(receiver string, obj Value, field string, got Value) *ShellErro
 	return &ShellError{Message: msg}
 }
 
-// nearKeys returns up to 5 keys resembling name: substring matches first, then
-// a small edit distance (≤ 3, and ≤ a third of name's length), comparing case-insensitively with '-' treated as '_'.
+// nearKeys returns up to 5 keys resembling name. Names compare with case and
+// '-'/'_' separators removed, so camelCase, snake_case, kebab-case, UPPER and
+// Title forms of one name are equal. Ranking: equal, then substring, then a
+// small edit distance (≤ 3, and ≤ a third of name's length).
 func nearKeys(name string, keys []string) []string {
-	norm := func(s string) string { return strings.ReplaceAll(strings.ToLower(s), "-", "_") }
+	norm := func(s string) string {
+		return strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(s))
+	}
 	n := norm(name)
 	maxDist := min(3, len(n)/3)
 	type scored struct {
@@ -222,6 +226,8 @@ func nearKeys(name string, keys []string) []string {
 	for _, k := range keys {
 		nk := norm(k)
 		switch {
+		case nk == n:
+			near = append(near, scored{k, -1})
 		case strings.Contains(nk, n) || strings.Contains(n, nk) && len(nk) > 2:
 			near = append(near, scored{k, 0})
 		default:
