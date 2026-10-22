@@ -94,6 +94,11 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		{"throw surfaces the value", `throw "something broke"`, []string{"something broke"}},
 		{"async suggests all()", `async function f() {}`, []string{"all()"}},
 		{"import explains no imports", `import x from 'y'`, []string{"import"}},
+		{"missing namespace member suggests similar", `Math.rond(4)`, []string{"'Math.rond' is not a function", "Did you mean", "Math.round"}},
+		{"missing member suggests prefixed name in brackets",
+			`let ns = {"grafana-search_docs": x => x}; ns.search_docs({})`,
+			[]string{"ns has no member 'search_docs'", `ns["grafana-search_docs"]`}},
+		{"null member names the member", `let o = {b: null}; o.b()`, []string{"'o.b' is not a function", "null"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

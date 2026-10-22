@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ShellError is the runtime error type. It implements `error` and is raised
@@ -171,4 +173,92 @@ func levenshtein(a, b string) int {
 		}
 	}
 	return dp[len(ra)][len(rb)]
+}
+
+// NotCallable builds the error for calling receiver.field when that member is
+// not a function. For a missing member of an object it suggests the nearest
+// keys — by substring as well as edit distance, so a bare tool name finds its
+// prefixed form (search_docs → grafana-search_docs).
+func NotCallable(receiver string, obj Value, field string, got Value) *ShellError {
+	ref := MemberRef(receiver, field)
+	o, ok := obj.(*ObjectVal)
+	if !ok || o.Has(field) {
+		return &ShellError{Message: "'" + ref + "' is not a function\n\n" +
+			"  Got: " + got.TypeName() + " (" + got.Inspect() + ")"}
+	}
+	msg := "'" + ref + "' is not a function — " + receiver + " has no member '" + field + "'"
+	if near := nearKeys(field, o.Keys()); len(near) > 0 {
+		msg += "\n\n  Did you mean?"
+		for _, k := range near {
+			msg += "\n    " + MemberRef(receiver, k)
+		}
+	}
+	if n := o.Len(); n == 0 {
+		msg += "\n\n  " + receiver + " is an empty object"
+	} else if n <= 20 {
+		keys := make([]string, n)
+		for i, k := range o.Keys() {
+			keys[i] = MemberRef(receiver, k)
+		}
+		sort.Strings(keys)
+		msg += "\n\n  Members: " + strings.Join(keys, ", ")
+	} else {
+		msg += "\n\n  " + receiver + " has " + strconv.Itoa(n) + " members — keys(" + receiver + ") lists them"
+	}
+	return &ShellError{Message: msg}
+}
+
+// nearKeys returns up to 5 keys resembling name: substring matches first, then
+// a small edit distance (≤ 3, and ≤ a third of name's length), comparing case-insensitively with '-' treated as '_'.
+func nearKeys(name string, keys []string) []string {
+	norm := func(s string) string { return strings.ReplaceAll(strings.ToLower(s), "-", "_") }
+	n := norm(name)
+	maxDist := min(3, len(n)/3)
+	type scored struct {
+		key  string
+		dist int
+	}
+	var near []scored
+	for _, k := range keys {
+		nk := norm(k)
+		switch {
+		case strings.Contains(nk, n) || strings.Contains(n, nk) && len(nk) > 2:
+			near = append(near, scored{k, 0})
+		default:
+			if d := levenshtein(n, nk); d <= maxDist {
+				near = append(near, scored{k, d})
+			}
+		}
+	}
+	sort.SliceStable(near, func(i, j int) bool { return near[i].dist < near[j].dist })
+	if len(near) > 5 {
+		near = near[:5]
+	}
+	out := make([]string, len(near))
+	for i, s := range near {
+		out[i] = s.key
+	}
+	return out
+}
+
+// MemberRef renders receiver.key, or receiver["key"] when key is not a valid
+// identifier and so cannot follow a dot.
+func MemberRef(receiver, key string) string {
+	if isIdentifier(key) {
+		return receiver + "." + key
+	}
+	return receiver + "[" + strconv.Quote(key) + "]"
+}
+
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || r == '$' || unicode.IsLetter(r) || i > 0 && unicode.IsDigit(r) {
+			continue
+		}
+		return false
+	}
+	return true
 }

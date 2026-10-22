@@ -1237,6 +1237,10 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 	}
 
 	ops := v.postfixOps(ctx)
+	// receiver and member of the latest member access, so a failed call on it
+	// can name what was missing.
+	var memberOf Value
+	var member string
 	for opIdx, op := range ops {
 		opc := op.(*parser.PostfixOpContext)
 		isOptional := opc.OPTIONAL_CHAIN() != nil
@@ -1246,6 +1250,8 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 			}
 		}
 		current := result
+		prevMemberOf, prevMember := memberOf, member
+		memberOf, member = nil, ""
 		result = v.withLocation(opc, func() Value {
 			switch {
 			case opc.FieldName() != nil:
@@ -1259,9 +1265,13 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 					return v.bindMutatingArrayMethod(arr, field, append([]string(nil), lvaluePath...))
 				}
 				lvaluePath = append(lvaluePath, field)
+				memberOf, member = current, field
 				return v.accessMember(current, field)
 			case opc.LBRACKET() != nil:
 				index := v.eval(opc.Expression())
+				if s, ok := index.(*StringVal); ok {
+					memberOf, member = current, s.V
+				}
 				if obj, ok := current.(*ObjectVal); ok {
 					_ = obj
 					if s, ok := index.(*StringVal); ok {
@@ -1280,6 +1290,9 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 				}
 				fn := asCallable(current)
 				if fn == nil {
+					if prevMemberOf != nil {
+						panic(NotCallable(receiverText(ctx, ops[:opIdx-1]), prevMemberOf, prevMember, current))
+					}
 					panic(TypeMismatch("call", "function", current, ""))
 				}
 				args := v.resolveNamedArgs(fn, ca)
@@ -1542,4 +1555,15 @@ func (v *Visitor) visitMultiParamArrowBlock(ctx *parser.MultiParamArrowBlockCont
 		ParamDefaults: defaults,
 		ParamNodes:    nodes,
 	}
+}
+
+// receiverText is the source text of a postfix chain's primary expression
+// followed by ops, for naming a receiver in errors.
+func receiverText(ctx *parser.PostfixExprContext, ops []parser.IPostfixOpContext) string {
+	var b strings.Builder
+	b.WriteString(ctx.PrimaryExpr().GetText())
+	for _, op := range ops {
+		b.WriteString(op.GetText())
+	}
+	return b.String()
 }
