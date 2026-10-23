@@ -24,4 +24,4 @@ Deferred items → `icebox.md`.
 ## Overflow output to file (2026-10-23)
 - `MCPSHELL_TMP_OVERFLOW_DIR`: eval output over `--max-output` is also saved to `eval-*.txt` there; the truncated response names it (`aaff09b`). Arrays → JSON Lines, objects → one key per line.
 - File toolkit read-only commands accept absolute paths inside the overflow dir; without `--files-dir` a read-only toolkit rooted there is installed.
-- Session scoping is the launcher's job (dun passes `…/<session-id>`).
+- Session scoping is the launcher's job: dun `d25099f` passes `<sessions>/<root>/overflow/<session-id>` and removes it in `ForgetSession`.
