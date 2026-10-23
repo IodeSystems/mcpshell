@@ -7,10 +7,15 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/iodesystems/mcpshell/runtime"
+	"github.com/iodesystems/mcpshell/toolkit"
 )
 
 // protocolVersion is the MCP revision this server advertises.
@@ -20,6 +25,7 @@ const protocolVersion = "2025-06-18"
 type Server struct {
 	shell          *runtime.Shell
 	maxOutputBytes int
+	overflowDir    string // where over-limit eval output is saved; "" disables
 }
 
 // NewServer builds an MCP server. maxOutputBytes caps the eval tool's textual
@@ -29,6 +35,13 @@ func NewServer(shell *runtime.Shell, maxOutputBytes int) *Server {
 		maxOutputBytes = 16_000
 	}
 	return &Server{shell: shell, maxOutputBytes: maxOutputBytes}
+}
+
+// WithOverflowDir saves each eval output over the limit to a new file in dir
+// and points the truncated response at it. dir is created if missing.
+func (s *Server) WithOverflowDir(dir string) *Server {
+	s.overflowDir = dir
+	return s
 }
 
 // --- JSON-RPC framing --------------------------------------------------------
@@ -197,9 +210,69 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	}
 	out := value.Display()
 	if len(out) > s.maxOutputBytes {
-		out = out[:s.maxOutputBytes] +
+		head := strings.ToValidUTF8(out[:s.maxOutputBytes], "")
+		content, format := overflowContent(value)
+		if path, err := s.saveOverflow(content); err == nil {
+			return toolResult(head+fmt.Sprintf("\n\n... OUTPUT TRUNCATED at %d of %d bytes. Full output saved to %s (%s)\n"+
+				"Page it with read(%q, start, lines) or search it with grep(%q, {match: …}).",
+				len(head), len(out), path, format, path, path), false)
+		} else if s.overflowDir != "" {
+			fmt.Fprintf(os.Stderr, "mcpshell mcp: saving overflow output failed: %v\n", err)
+		}
+		out = head +
 			"\n\n... OUTPUT TRUNCATED (limit " + strconv.Itoa(s.maxOutputBytes) + " bytes). " +
 			"Use limit(), filter(), or read(path, start, lines) to reduce output."
 	}
 	return toolResult(out, false)
+}
+
+// overflowContent renders an over-limit value for its overflow file so that
+// line-based read()/grep() can page it: an array as JSON Lines (one element
+// per line), an object as JSON with one key per line, a string as itself.
+func overflowContent(v runtime.Value) (content, format string) {
+	switch x := v.(type) {
+	case *runtime.ArrayVal:
+		var b strings.Builder
+		for _, e := range x.Elements {
+			b.WriteString(toolkit.ToJSON(e) + "\n")
+		}
+		return b.String(), "JSON Lines, one element per line"
+	case *runtime.ObjectVal:
+		var b strings.Builder
+		b.WriteString("{\n")
+		for i, k := range x.Keys() {
+			e, _ := x.Get(k)
+			b.WriteString("  " + toolkit.ToJSON(runtime.Str(k)) + ": " + toolkit.ToJSON(e))
+			if i < x.Len()-1 {
+				b.WriteByte(',')
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("}\n")
+		return b.String(), "JSON, one key per line"
+	case *runtime.StringVal:
+		return x.V, "text"
+	default:
+		return v.Display(), "text"
+	}
+}
+
+// saveOverflow writes out to a new uniquely named file in the overflow dir and
+// returns its path.
+func (s *Server) saveOverflow(out string) (string, error) {
+	if s.overflowDir == "" {
+		return "", errors.New("no overflow dir")
+	}
+	if err := os.MkdirAll(s.overflowDir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(s.overflowDir, "eval-*.txt")
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.WriteString(out)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	return f.Name(), werr
 }

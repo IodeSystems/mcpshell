@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -209,5 +210,47 @@ func runFakeMCPServer(name string) {
 			continue
 		}
 		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
+	}
+}
+
+func TestOverflowSavedToFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "session-1")
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"eval","arguments":{"code":"\"x\".repeat(500)"}}}` + "\n"
+	var out bytes.Buffer
+	if err := mcp.NewServer(coreShell(), 100).WithOverflowDir(dir).RunStdio(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("RunStdio: %v", err)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	text := toolText(t, resp)
+	files, _ := filepath.Glob(filepath.Join(dir, "eval-*.txt"))
+	if len(files) != 1 {
+		t.Fatalf("expected 1 overflow file in %s, got %v", dir, files)
+	}
+	if !strings.Contains(text, "OUTPUT TRUNCATED at 100 of 500 bytes. Full output saved to "+files[0]+" (text)") {
+		t.Errorf("response should name the file:\n%s", text)
+	}
+	if b, _ := os.ReadFile(files[0]); string(b) != strings.Repeat("x", 500) {
+		t.Errorf("overflow file holds %d bytes, want the full 500", len(b))
+	}
+}
+
+func TestOverflowArrayIsJSONLines(t *testing.T) {
+	dir := t.TempDir()
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"eval","arguments":{"code":"range(0, 50) |> map(i => ({id: i, s: \"a\\\"b\"}))"}}}` + "\n"
+	var out bytes.Buffer
+	if err := mcp.NewServer(coreShell(), 100).WithOverflowDir(dir).RunStdio(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("RunStdio: %v", err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "eval-*.txt"))
+	if len(files) != 1 {
+		t.Fatalf("expected 1 overflow file, got %v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 50 || lines[1] != `{"id":1,"s":"a\"b"}` {
+		t.Errorf("overflow file should be JSON Lines, got %d lines, line 2 = %q", len(lines), lines[1])
 	}
 }

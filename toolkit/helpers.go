@@ -719,6 +719,9 @@ func skipJSONWS(s string, pos *int) {
 
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
+// ToJSON renders v as compact JSON, as toJson does.
+func ToJSON(v Value) string { return toJSONString(v) }
+
 func toJSONString(v Value) string {
 	switch x := v.(type) {
 	case *NullVal:

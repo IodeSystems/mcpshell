@@ -1,6 +1,8 @@
 package toolkit_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,5 +69,37 @@ func TestFileReadOnly(t *testing.T) {
 	// read commands still work
 	if _, err := sh.Eval(`exists("anything")`); err != nil {
 		t.Fatalf("exists should work in read-only mode: %v", err)
+	}
+}
+
+func TestFileReadRoots(t *testing.T) {
+	extra := t.TempDir()
+	if err := os.WriteFile(filepath.Join(extra, "o.txt"), []byte("saved\noutput"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sh := toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), t.TempDir(), false, extra)
+	sh.SetState(map[string]runtime.Value{"p": runtime.Str(filepath.Join(extra, "o.txt"))})
+	for _, c := range []struct{ src, want string }{
+		{`read(p)`, "1: saved\n2: output"},
+		{`readLines(p)`, `["saved", "output"]`},
+		{`exists(p)`, "true"},
+		{`grep(p, {match: "out"}) |> map(h => h.line)`, `["output"]`},
+	} {
+		v, err := sh.Eval(c.src)
+		if err != nil || v.Display() != c.want {
+			t.Errorf("%s = %v, %v; want %q", c.src, v, err, c.want)
+		}
+	}
+	// Writes stay confined to root: an absolute path maps under root, so the
+	// read root is never modified.
+	if _, err := sh.Eval(`write(p, "x")`); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(extra, "o.txt")); string(b) != "saved\noutput" {
+		t.Errorf("write reached the read root: %q", b)
+	}
+	// Absolute paths outside root and readRoots are not readable.
+	if v, err := sh.Eval(`exists("/etc/hostname")`); err != nil || v.Display() != "false" {
+		t.Errorf(`exists("/etc/hostname") = %v, %v; want false`, v, err)
 	}
 }

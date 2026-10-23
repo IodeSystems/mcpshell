@@ -115,6 +115,18 @@ LLM only sees the capabilities you grant.
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
+### Large output
+
+An eval result over `--max-output` (default 16000 bytes) is truncated. Set
+`MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
+there; the truncated response names it. Arrays are saved as JSON Lines, so
+`read(path, start, lines)` and `grep(path, {match})` page through them —
+both accept the file's absolute path. Scope the directory per session (e.g.
+`…/overflow/<session-id>`); mcpshell only makes file names unique.
+
+To save a tool's output without parsing it, use `ns.raw("tool", {args})`:
+`write("alerts.json", ns.raw("list_alerts", {}))`.
+
 ### SQL
 
 Attach one or more databases; each becomes a namespace. The DSN is a SQLite

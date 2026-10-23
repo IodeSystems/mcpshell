@@ -18,6 +18,7 @@ type fileCfg struct {
 	root         string
 	readOnly     bool
 	maxReadLines int
+	readRoots    []string // extra directories readable by absolute path
 }
 
 // confine resolves path against the root and rejects anything escaping it.
@@ -32,9 +33,26 @@ func (c fileCfg) confine(path string) string {
 	return resolved
 }
 
+// confineRead is confine for read-only commands, which also accept an
+// absolute path inside root or one of readRoots.
+func (c fileCfg) confineRead(path string) string {
+	if filepath.IsAbs(path) {
+		clean := filepath.Clean(path)
+		for _, r := range append([]string{c.root}, c.readRoots...) {
+			if rel, err := filepath.Rel(r, clean); err == nil && rel != ".." &&
+				!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return clean
+			}
+		}
+	}
+	return c.confine(path)
+}
+
 // InstallFile registers the file toolkit, confining all operations to root.
-// When readOnly is true, the mutating commands are not registered.
-func InstallFile(sh *Shell, root string, readOnly bool) *Shell {
+// When readOnly is true, the mutating commands are not registered. readRoots
+// are extra directories the read-only commands (read, readLines, exists, ls,
+// grep) accept by absolute path.
+func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Shell {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		panic("FileToolkit: cannot resolve root: " + err.Error())
@@ -43,6 +61,11 @@ func InstallFile(sh *Shell, root string, readOnly bool) *Shell {
 		panic("FileToolkit root does not exist or is not a directory: " + abs)
 	}
 	cfg := fileCfg{root: abs, readOnly: readOnly, maxReadLines: 200}
+	for _, r := range readRoots {
+		if a, err := filepath.Abs(r); err == nil {
+			cfg.readRoots = append(cfg.readRoots, a)
+		}
+	}
 
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
 		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
@@ -119,7 +142,7 @@ TYPICAL: Write and edit files
 			path := requireStringArg("read", args, 0)
 			start := optInt(args, 1)
 			count := optInt(args, 2)
-			resolved := cfg.confine(path)
+			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
 				panic(Runtime("read: file not found '" + path + "'\n\n  Resolved to: " + resolved))
 			}
@@ -149,7 +172,7 @@ TYPICAL: Write and edit files
 		[]string{`readLines("data.txt")`},
 		func(args []Value) Value {
 			path := requireStringArg("readLines", args, 0)
-			resolved := cfg.confine(path)
+			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
 				panic(Runtime("readLines: file not found '" + path + "'\n\n  Resolved to: " + resolved))
 			}
@@ -159,14 +182,14 @@ TYPICAL: Write and edit files
 	reg("exists", "path: string", "checks if file or directory exists",
 		[]string{`exists("config.json")`},
 		func(args []Value) Value {
-			return Bln(pathExists(cfg.confine(requireStringArg("exists", args, 0))))
+			return Bln(pathExists(cfg.confineRead(requireStringArg("exists", args, 0))))
 		})
 
 	reg("ls", "path?: string", "lists directory contents as array of {name, type, size}",
 		[]string{`ls()`, `ls("src")`},
 		func(args []Value) Value {
 			path := optString(args, 0, "")
-			resolved := cfg.confine(path)
+			resolved := cfg.confineRead(path)
 			info, err := os.Stat(resolved)
 			if err != nil || !info.IsDir() {
 				panic(Runtime("ls: not a directory '" + path + "'\n\n  Resolved to: " + resolved))
@@ -252,7 +275,7 @@ TYPICAL: Write and edit files
 				panic(WrongArguments("grep", "path, {match: string}", args, `grep("file.txt", {match: "pattern"})`))
 			}
 
-			resolved := cfg.confine(path)
+			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
 				panic(Runtime("grep: file not found '" + path + "'\n\n  Resolved to: " + resolved))
 			}

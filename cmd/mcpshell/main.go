@@ -51,6 +51,12 @@ mcp flags:
                        'auth_cmd' — a shell command printing a bearer token; any entry
                        takes 'categories': {"name": ["glob_*", …]} to group its tools)
 
+env:
+  MCPSHELL_TMP_OVERFLOW_DIR  save eval output over --max-output to a new file in
+                       this dir; the truncated response names the file, and
+                       read()/grep() accept its absolute path. Scope it per
+                       session — mcpshell only makes file names unique.
+
   --connect/--mcp are repeatable. An upstream server that identifies as mcpshell
   is skipped — composing mcpshell with itself would let eval recurse infinitely.`
 
@@ -173,13 +179,28 @@ func runMCP(args []string) {
 		toolkit.InstallWeb(sh)
 		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled")
 	}
+	overflowDir := os.Getenv("MCPSHELL_TMP_OVERFLOW_DIR")
+	if overflowDir != "" {
+		if err := os.MkdirAll(overflowDir, 0o700); err != nil {
+			fail("MCPSHELL_TMP_OVERFLOW_DIR: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "mcpshell mcp: over-limit output is saved to %s\n", overflowDir)
+	}
 	if *filesDir != "" {
-		toolkit.InstallFile(sh, *filesDir, *filesReadOnly)
+		var readRoots []string
+		if overflowDir != "" {
+			readRoots = append(readRoots, overflowDir)
+		}
+		toolkit.InstallFile(sh, *filesDir, *filesReadOnly, readRoots...)
 		mode := "read-write"
 		if *filesReadOnly {
 			mode = "read-only"
 		}
 		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s)\n", mode, *filesDir)
+	} else if overflowDir != "" {
+		// Without --files-dir, a read-only file toolkit on the overflow dir is
+		// what lets read()/grep() page through saved output.
+		toolkit.InstallFile(sh, overflowDir, true)
 	}
 
 	var closers []io.Closer
@@ -213,7 +234,7 @@ func runMCP(args []string) {
 	}
 
 	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
-	err := mcp.NewServer(sh, *maxOutput).RunStdio(os.Stdin, os.Stdout)
+	err := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).RunStdio(os.Stdin, os.Stdout)
 	for _, c := range closers {
 		_ = c.Close()
 	}
