@@ -15,3 +15,8 @@ Deferred items → `icebox.md`.
 - MCP tool output and eval `vars` decode via the parseJson parser (exact numbers, key order); args go upstream as `json.Number` (`b80d81c`).
 - `ns.raw("tool", {args})` returns unparsed text for byte-exact `write(path, …)`.
 - Known: `JSON.stringify` of parsed values keeps every number exact but re-formats them (`1e300` → 301 digits, trailing decimal zeros dropped). Use `ns.raw` when the file must match the tool byte for byte.
+
+## MCP argument-name check (2026-10-23)
+- Calls are checked against the tool's input schema before going upstream (`mcp/toolkit.go` `checkArgs`).
+- `additionalProperties: false` → any undeclared name fails. Open schema → only a likely mistake fails (same name in another case style, or one edit away when both ≥ 5 chars); other undeclared names pass as hidden options (e.g. a `confirm` nonce for two-phase tools).
+- `ns.raw` skips the check — the escape for a hidden option that looks like a typo.

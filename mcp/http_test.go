@@ -42,6 +42,7 @@ type fakeOpts struct {
 	tools   []string      // tool names to advertise (default: just "echo")
 	reply   string        // if set, tools/call returns this text verbatim
 	rawArgs bool          // tools/call returns its arguments JSON as text
+	schema  string        // inputSchema override for every tool
 }
 
 // fakeHTTPServer answers MCP over streamable HTTP. Every request after
@@ -101,12 +102,16 @@ func fakeHTTPServer(t *testing.T, o fakeOpts) *httptest.Server {
 			if names == nil {
 				names = []string{"echo"}
 			}
+			schema := o.schema
+			if schema == "" {
+				schema = `{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`
+			}
 			var tools []map[string]any
 			for _, n := range names {
 				tools = append(tools, map[string]any{
 					"name":        n,
 					"description": "echoes the message. Second sentence.\nMore detail.",
-					"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
+					"inputSchema": json.RawMessage(schema),
 				})
 			}
 			res = map[string]any{"tools": tools}
@@ -381,5 +386,43 @@ func TestRawRejectsUnknownTool(t *testing.T) {
 	}
 	if guide := evalString(t, sh, `help("remote")`); !strings.Contains(guide, `remote.raw("toolName", {args})`) {
 		t.Errorf("guide should mention raw:\n%s", guide)
+	}
+}
+
+func TestArgNamesCheckedBeforeCall(t *testing.T) {
+	const schema = `{"type":"object","properties":{"data_source_uid":{"type":"string"},"folderUid":{"type":"string"}}}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+
+	for _, c := range []struct{ src, want string }{
+		{`remote.echo({dataSourceUid: "a"})`, "did you mean 'data_source_uid'?"},
+		{`remote.echo({folderUids: "a"})`, "did you mean 'folderUid'?"},
+	} {
+		_, err := sh.Eval(c.src)
+		if err == nil || !strings.Contains(err.Error(), c.want) ||
+			!strings.Contains(err.Error(), "Valid arguments: data_source_uid, folderUid") ||
+			!strings.Contains(err.Error(), `remote.raw("echo", {…})`) {
+			t.Errorf("%s error = %v, want %q with valid arguments and the raw hint", c.src, err, c.want)
+		}
+	}
+	// An undeclared name that resembles no declared one is a hidden option.
+	if got := evalString(t, sh, `remote.echo({folderUid: "f", confirm: "n1"})`); got != `{confirm: "n1", folderUid: "f"}` {
+		t.Errorf("hidden option call = %s", got)
+	}
+	// raw skips the check.
+	if got := evalString(t, sh, `remote.raw("echo", {folderUids: "a"})`); got != `{"folderUids":"a"}` {
+		t.Errorf("raw call = %s", got)
+	}
+}
+
+func TestClosedSchemaRejectsUndeclaredArgs(t *testing.T) {
+	const schema = `{"type":"object","properties":{"message":{"type":"string"}},"additionalProperties":false}`
+	srv := fakeHTTPServer(t, fakeOpts{schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	_, err := sh.Eval(`remote.echo({message: "x", confirm: "n1"})`)
+	if err == nil || !strings.Contains(err.Error(), "unknown argument 'confirm'") || strings.Contains(err.Error(), "raw") {
+		t.Errorf("closed schema error = %v", err)
 	}
 }

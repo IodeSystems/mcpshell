@@ -106,6 +106,8 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 	for _, tool := range tools {
 		toolName := tool.Name
 		params, signature := schemaInfo(tool.InputSchema)
+		closed := schemaClosed(tool.InputSchema)
+		callName := runtime.MemberRef(ns.Namespace, toolName)
 		desc := tool.Description
 		if desc == "" {
 			desc = toolName
@@ -118,7 +120,9 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Description: desc,
 			Category:    cats[toolName],
 			Fn: func(args []runtime.Value) runtime.Value {
-				text, isError, err := client.CallTool(toolName, argsToJSONMap(args, params))
+				jsonArgs := argsToJSONMap(args, params)
+				checkArgs(callName, ns.Namespace, toolName, jsonArgs, params, closed)
+				text, isError, err := client.CallTool(toolName, jsonArgs)
 				if err != nil {
 					panic(runtime.Runtime("MCP tool error: " + err.Error()))
 				}
@@ -360,6 +364,69 @@ func valueToJSON(v runtime.Value) any {
 	default:
 		return v.Display()
 	}
+}
+
+// schemaClosed reports whether a tool's input schema sets
+// additionalProperties: false, so the server rejects undeclared arguments.
+func schemaClosed(schema json.RawMessage) bool {
+	var s struct {
+		AdditionalProperties *bool `json:"additionalProperties"`
+	}
+	return json.Unmarshal(schema, &s) == nil && s.AdditionalProperties != nil && !*s.AdditionalProperties
+}
+
+// checkArgs fails a call before it goes upstream when an argument name is
+// wrong. A closed schema rejects every undeclared name. An open schema lets
+// undeclared names through — servers accept hidden options such as a confirm
+// nonce — unless the name is a likely mistake for a declared one: the same
+// name in another case style, or one edit away. ns.raw skips this check.
+func checkArgs(callName, namespace, tool string, args map[string]any, params []string, closed bool) {
+	declared := make(map[string]bool, len(params))
+	for _, p := range params {
+		declared[p] = true
+	}
+	names := make([]string, 0, len(args))
+	for name := range args {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if declared[name] {
+			continue
+		}
+		near := likelyMeant(name, params)
+		if near == "" && !closed {
+			continue
+		}
+		msg := callName + ": unknown argument '" + name + "'"
+		if near != "" {
+			msg += " — did you mean '" + near + "'?"
+		}
+		if len(params) > 0 {
+			msg += "\n\n  Valid arguments: " + strings.Join(params, ", ")
+		} else {
+			msg += "\n\n  " + callName + " takes no arguments"
+		}
+		if !closed {
+			msg += "\n\n  If '" + name + "' is a hidden option, call " + namespace +
+				".raw(\"" + tool + "\", {…}), which skips this check."
+		}
+		panic(runtime.Runtime(msg))
+	}
+}
+
+// likelyMeant returns the declared parameter that name is probably a mistake
+// for: equal after case/separator normalization, or one edit away when both
+// are at least 5 characters. Returns "" when there is none.
+func likelyMeant(name string, params []string) string {
+	n := runtime.NormalizeName(name)
+	for _, p := range params {
+		np := runtime.NormalizeName(p)
+		if np == n || len(n) >= 5 && len(np) >= 5 && runtime.EditDistance(n, np) == 1 {
+			return p
+		}
+	}
+	return ""
 }
 
 // schemaInfo extracts ordered parameter names and a display signature from a

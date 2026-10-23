@@ -213,9 +213,7 @@ func NotCallable(receiver string, obj Value, field string, got Value) *ShellErro
 // Title forms of one name are equal. Ranking: equal, then substring, then a
 // small edit distance (≤ 3, and ≤ a third of name's length).
 func nearKeys(name string, keys []string) []string {
-	norm := func(s string) string {
-		return strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(s))
-	}
+	norm := NormalizeName
 	n := norm(name)
 	maxDist := min(3, len(n)/3)
 	type scored struct {
@@ -246,6 +244,15 @@ func nearKeys(name string, keys []string) []string {
 	}
 	return out
 }
+
+// NormalizeName lowercases s and removes '-' and '_', so the camelCase,
+// snake_case, kebab-case, UPPER and Title forms of one name are equal.
+func NormalizeName(s string) string {
+	return strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(s))
+}
+
+// EditDistance is the Levenshtein distance between a and b.
+func EditDistance(a, b string) int { return levenshtein(a, b) }
 
 // MemberRef renders receiver.key, or receiver["key"] when key is not a valid
 // identifier and so cannot follow a dot.
