@@ -10,6 +10,9 @@
 # Downloaded build tools (ANTLR jar, fetched by scripts/antlr.sh)
 /.cache/
 
+# Release tarballs (make release)
+/dist/
+
 # Go build & test artifacts
 *.test
 *.out
