@@ -25,3 +25,14 @@ Deferred items → `icebox.md`.
 - `MCPSHELL_TMP_OVERFLOW_DIR`: eval output over `--max-output` is also saved to `eval-*.txt` there; the truncated response names it (`aaff09b`). Arrays → JSON Lines, objects → one key per line.
 - File toolkit read-only commands accept absolute paths inside the overflow dir; without `--files-dir` a read-only toolkit rooted there is installed.
 - Session scoping is the launcher's job: dun `d25099f` passes `<sessions>/<root>/overflow/<session-id>` and removes it in `ForgetSession`.
+
+## Agent-feedback fixes, round 2 (2026-10-23)
+Field feedback from the same 112-tool upstream session. Verified each claim first.
+- `await x` is the identity (grammar `AWAIT unaryExpr`, `da016f1`); `async` functions still rejected.
+- Caught `e` stays the message string; `e.message` returns it; an unknown member on a string now fails instead of returning null (cause of the agent's "ERR null").
+- Upstream errors name the call, the arguments sent, and the text, or `(no message)`. Missing required args are listed all at once before the call; `ns.raw` skips that check.
+- `ns.help(…)` error points at `help("ns")`.
+- `help(word)` splits the query into words, ranks name hits above description hits, one short line per result, max 25.
+- `commands(search?)` returns `[{name, call, category, signature, description}]`.
+- `--version`; MCP serverInfo/clientInfo carry the build version (was 0.1.0).
+- Not changed: a trailing `help()` being the result (last expression is the output — by design); "no truncation signal inside the language" (values are not cut inside; the eval response, web, file and sql all say when they cut).

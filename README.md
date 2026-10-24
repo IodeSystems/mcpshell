@@ -72,6 +72,11 @@ bearer token; it is cached, re-run on a 401, and re-run 60s before a JWT's
                        "headers": {"X-Extra": "1"}}}}
 ```
 
+`help("<words>")` searches command names and descriptions; `commands(…)` takes
+the same argument and returns `[{name, call, category, signature, description}]`
+for filtering in code. `await` is accepted and does nothing: tool calls return
+their values directly.
+
 A namespace with more than 20 commands is one line in `help()` and the prompt
 (`el: 160 commands — help("el")`). An upstream that large is grouped by tool
 name prefix — `help("el")` lists `agents (117)`, `creative (42)`, … and
