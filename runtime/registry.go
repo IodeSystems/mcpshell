@@ -227,6 +227,33 @@ func (r *CommandRegistry) Help(search string) string {
 	return b.String()
 }
 
+// Find returns the commands help(search) would describe: all visible
+// commands for "", then an exact command, a "ns.category", a namespace, or a
+// ranked word search.
+func (r *CommandRegistry) Find(search string) []*CommandDef {
+	if search == "" {
+		return r.visible()
+	}
+	if exact := r.commands[search]; exact != nil {
+		return []*CommandDef{exact}
+	}
+	if i := strings.LastIndexByte(search, '.'); i >= 0 {
+		var cmds []*CommandDef
+		for _, c := range r.namespaces[search[:i]] {
+			if c.Category == search[i+1:] && !c.Hidden {
+				cmds = append(cmds, c)
+			}
+		}
+		if len(cmds) > 0 {
+			return sortByName(cmds)
+		}
+	}
+	if nsCmds, ok := r.namespaces[search]; ok {
+		return sortByName(nsCmds)
+	}
+	return r.search(search)
+}
+
 // maxSearchResults caps the commands one help(word) search lists.
 const maxSearchResults = 25
 

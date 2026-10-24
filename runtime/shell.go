@@ -32,6 +32,32 @@ func NewShell() *Shell {
 			return &StringVal{V: t.commands.Help(search)}
 		},
 	})
+	t.commands.Register(&CommandDef{
+		Name:        "commands",
+		Signature:   "search?: string",
+		Description: "commands as data: [{name, call, category, signature, description}]; takes what help() takes",
+		Examples:    []string{`commands("file")`, `commands("server") |> filter(c => c.category == "ci")`},
+		Fn: func(args []Value) Value {
+			search := ""
+			if len(args) > 0 {
+				if s, ok := args[0].(*StringVal); ok {
+					search = s.V
+				}
+			}
+			cmds := t.commands.Find(search)
+			out := make([]Value, len(cmds))
+			for i, c := range cmds {
+				o := NewObject()
+				o.Set("name", Str(c.Name))
+				o.Set("call", Str(c.CallName()))
+				o.Set("category", Str(c.Category))
+				o.Set("signature", Str(c.Signature))
+				o.Set("description", Str(c.Description))
+				out[i] = o
+			}
+			return &ArrayVal{Elements: out}
+		},
+	})
 	return t
 }
 

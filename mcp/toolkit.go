@@ -163,6 +163,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		g.WriteString("\nhelp(\"" + ns.Namespace + ".<category>\") lists every tool in a category.")
 	}
 	g.WriteString("\nhelp(\"<word>\") searches tool names and descriptions, e.g. help(\"alert\").")
+	g.WriteString("\ncommands(\"" + ns.Namespace + "\") returns the same list as data: [{name, call, category, signature, description}].")
 	if hasRaw {
 		g.WriteString("\n" + ns.Namespace + ".raw(\"toolName\", {args}) returns the tool's output as unparsed text — " +
 			"write(path, " + ns.Namespace + ".raw(…)) saves it byte-exact without spending output.")

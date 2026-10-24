@@ -453,3 +453,15 @@ func TestToolErrorNamesToolAndArgs(t *testing.T) {
 		t.Errorf("caught tool error = %q", got)
 	}
 }
+
+func TestCommandsReturnsData(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"ci-list_runs", "ci-get_run"}})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if got := evalString(t, sh, `commands("remote") |> map(c => c.call) |> join(" ")`); got != `remote["ci-get_run"] remote["ci-list_runs"] remote.raw` {
+		t.Errorf("commands(\"remote\") calls = %s", got)
+	}
+	if got := evalString(t, sh, `commands("remote")[0].signature`); got != "message: string" {
+		t.Errorf("signature = %s", got)
+	}
+}
