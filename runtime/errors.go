@@ -187,6 +187,9 @@ func NotCallable(receiver string, obj Value, field string, got Value) *ShellErro
 			"  Got: " + got.TypeName() + " (" + got.Inspect() + ")"}
 	}
 	msg := "'" + ref + "' is not a function — " + receiver + " has no member '" + field + "'"
+	if field == "help" {
+		msg += "\n\n  help is a global: help(\"" + receiver + "\")"
+	}
 	if near := nearKeys(field, o.Keys()); len(near) > 0 {
 		msg += "\n\n  Did you mean?"
 		for _, k := range near {

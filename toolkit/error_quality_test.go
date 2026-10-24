@@ -189,3 +189,9 @@ func TestErrorQualityStringUnknownMember(t *testing.T) {
 		t.Errorf("e.stack should fail, not return null; got %q", msg)
 	}
 }
+
+func TestErrorQualityNamespaceHelp(t *testing.T) {
+	if msg := evalErr(t, `Math.help({})`); !strings.Contains(msg, `help is a global: help("Math")`) {
+		t.Errorf("Math.help error = %q", msg)
+	}
+}
