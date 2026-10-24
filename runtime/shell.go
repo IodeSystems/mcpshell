@@ -175,7 +175,7 @@ for/for..of/for..in, switch/case,
 try/catch/finally, throw, break, continue, destructuring, spread, ?., ??, ternary,
 template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwise. All work as expected.
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
-Not supported: class, new, this, import, yield, async/await, generators.
+Not supported: class, new, this, import, yield, async functions, generators. await is allowed and does nothing — calls return values directly.
 Last expression is the output. ` + "`let`" + ` returns null — end with the value you want.
 
 ## Key differences from JS

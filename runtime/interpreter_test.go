@@ -118,6 +118,8 @@ func TestEvalCore(t *testing.T) {
 		{"any", `any(() => null, () => 7)`, "7"},
 		{"allSettled", `allSettled(() => 1, () => { throw "boom" }, () => 3)`, `[{ok: true, value: 1}, {ok: false, error: "boom"}, {ok: true, value: 3}]`},
 		{"allSettled empty", `allSettled()`, "[]"},
+		{"await is the identity", `let x = await 3; [x, await(4), await [5][0]]`, "[3, 4, 5]"},
+		{"await as a key", `{await: 1}.await`, "1"},
 	}
 
 	for _, c := range cases {

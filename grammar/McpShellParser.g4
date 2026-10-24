@@ -114,6 +114,7 @@ unaryExpr
   | TILDE unaryExpr
   | TYPEOF unaryExpr
   | DELETE unaryExpr
+  | AWAIT unaryExpr
   | postfixExpr
   ;
 
@@ -177,7 +178,7 @@ objectField
 
 fieldName
   : IDENTIFIER | STRING | NUMBER | LET | FUNCTION | IF | ELSE | WHILE | DO | FOR | OF | IN | RETURN
-  | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE
+  | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE | AWAIT
   | TRUE | FALSE | NULL
   ;
 

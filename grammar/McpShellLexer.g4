@@ -25,6 +25,7 @@ FINALLY : 'finally';
 THROW   : 'throw';
 TYPEOF  : 'typeof';
 DELETE  : 'delete';
+AWAIT   : 'await';
 TRUE    : 'true';
 FALSE   : 'false';
 NULL    : 'null' | 'undefined';

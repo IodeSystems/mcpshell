@@ -76,8 +76,8 @@ func jsGlobalHint(name string) string {
 		return "mcpshell does not support 'new' — there are no constructors or classes"
 	case "import", "require":
 		return "mcpshell does not support imports — all commands are built-in or registered via toolkits"
-	case "async", "await":
-		return "mcpshell does not support async/await — use all() for parallel execution\n\n  Example: all(() => fetchA(), () => fetchB())"
+	case "async":
+		return "mcpshell does not support async functions — tool calls return values directly (await is optional); use all() for parallel execution\n\n  Example: all(() => fetchA(), () => fetchB())"
 	case "void":
 		return "mcpshell does not support 'void' — use null instead"
 	case "instanceof":

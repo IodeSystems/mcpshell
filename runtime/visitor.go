@@ -1129,6 +1129,9 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 		return &StringVal{V: v.eval(ctx.UnaryExpr()).TypeName()}
 	case ctx.DELETE() != nil:
 		return v.evalDelete(ctx.UnaryExpr())
+	case ctx.AWAIT() != nil:
+		// Tool calls return their values directly, so await is the identity.
+		return v.eval(ctx.UnaryExpr())
 	default:
 		return v.eval(ctx.PostfixExpr())
 	}
