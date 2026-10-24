@@ -41,3 +41,8 @@ Field feedback from the same 112-tool upstream session. Verified each claim firs
 - Declared argument types are checked before the call (`mcp/argtypes.go`). Lossless conversion: number/bool → string, numeric string → number/integer, "true"/"false" → boolean, JSON string → array/object, single value → `[value]`. Anything else fails. Properties without a plain `type` (anyOf/oneOf/$ref) and `null` values are not checked.
 - `"unchecked": [globs]` per `--mcp` server entry turns off the name, required and type checks for matching tools (user ask: tools whose schemas are wrong).
 - Assumption: array items are not converted (`"a"` → `["a"]` even if items are numbers).
+
+## Release v0.5.0 (2026-10-24)
+- Tagged and published: https://github.com/IodeSystems/mcpshell/releases/tag/v0.5.0. Covers everything since v0.4.1. Minor bump: unknown string members now fail; upstream args checked before the call.
+- Checks: tests, `make vet`, `govulncheck` clean (Go 1.27.3); `go install …@v0.5.0` from the proxy prints `mcpshell v0.5.0`; proxy `@latest` = v0.5.0.
+- Follow-up outside this repo: rebuild dun's Docker image (it copies its own mcpshell binary).
