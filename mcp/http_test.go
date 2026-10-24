@@ -43,6 +43,7 @@ type fakeOpts struct {
 	reply   string        // if set, tools/call returns this text verbatim
 	rawArgs bool          // tools/call returns its arguments JSON as text
 	schema  string        // inputSchema override for every tool
+	isError bool          // tools/call reports isError with its text
 }
 
 // fakeHTTPServer answers MCP over streamable HTTP. Every request after
@@ -130,7 +131,7 @@ func fakeHTTPServer(t *testing.T, o fakeOpts) *httptest.Server {
 			case o.rawArgs:
 				text = string(p.Arguments)
 			}
-			res = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+			res = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": o.isError}
 		}
 		msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
 		if o.sse {
@@ -424,5 +425,31 @@ func TestClosedSchemaRejectsUndeclaredArgs(t *testing.T) {
 	_, err := sh.Eval(`remote.echo({message: "x", confirm: "n1"})`)
 	if err == nil || !strings.Contains(err.Error(), "unknown argument 'confirm'") || strings.Contains(err.Error(), "raw") {
 		t.Errorf("closed schema error = %v", err)
+	}
+}
+
+func TestRequiredArgsCheckedBeforeCall(t *testing.T) {
+	const schema = `{"type":"object","properties":{"query":{"type":"string"},"endTime":{"type":"string"},"stepSeconds":{"type":"number"}},"required":["query","endTime","stepSeconds"]}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	_, err := sh.Eval(`remote.echo({query: "up"})`)
+	if err == nil || !strings.Contains(err.Error(), "missing required arguments: endTime, stepSeconds") ||
+		!strings.Contains(err.Error(), `help("remote.echo")`) {
+		t.Errorf("missing required error = %v", err)
+	}
+	// raw skips the check.
+	if got := evalString(t, sh, `remote.raw("echo", {query: "up"})`); got != `{"query":"up"}` {
+		t.Errorf("raw call = %s", got)
+	}
+}
+
+func TestToolErrorNamesToolAndArgs(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{isError: true, reply: " "})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	got := evalString(t, sh, `try { remote.echo({message: "hi"}) } catch (e) { e.message }`)
+	if !strings.Contains(got, "remote.echo failed: (no message)") || !strings.Contains(got, `arguments sent: {"message":"hi"}`) {
+		t.Errorf("caught tool error = %q", got)
 	}
 }

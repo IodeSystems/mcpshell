@@ -107,6 +107,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		toolName := tool.Name
 		params, signature := schemaInfo(tool.InputSchema)
 		closed := schemaClosed(tool.InputSchema)
+		required := schemaRequired(tool.InputSchema)
 		callName := runtime.MemberRef(ns.Namespace, toolName)
 		desc := tool.Description
 		if desc == "" {
@@ -122,12 +123,13 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Fn: func(args []runtime.Value) runtime.Value {
 				jsonArgs := argsToJSONMap(args, params)
 				checkArgs(callName, ns.Namespace, toolName, jsonArgs, params, closed)
+				checkRequired(callName, ns.Namespace, toolName, jsonArgs, required)
 				text, isError, err := client.CallTool(toolName, jsonArgs)
 				if err != nil {
-					panic(runtime.Runtime("MCP tool error: " + err.Error()))
+					panic(toolError(callName, jsonArgs, err.Error()))
 				}
 				if isError {
-					panic(runtime.Runtime("MCP tool error: " + text))
+					panic(toolError(callName, jsonArgs, text))
 				}
 				return textToValue(text)
 			},
@@ -198,12 +200,14 @@ func registerRaw(sh *runtime.Shell, namespace string, client Upstream, tools []T
 			if !known[name.V] {
 				panic(runtime.Runtime(namespace + ".raw: no tool '" + name.V + "' — help(\"" + namespace + "\") lists tools"))
 			}
-			text, isError, err := client.CallTool(name.V, argsToJSONMap(args[1:], nil))
+			jsonArgs := argsToJSONMap(args[1:], nil)
+			callName := namespace + ".raw(\"" + name.V + "\")"
+			text, isError, err := client.CallTool(name.V, jsonArgs)
 			if err != nil {
-				panic(runtime.Runtime("MCP tool error: " + err.Error()))
+				panic(toolError(callName, jsonArgs, err.Error()))
 			}
 			if isError {
-				panic(runtime.Runtime("MCP tool error: " + text))
+				panic(toolError(callName, jsonArgs, text))
 			}
 			return runtime.Str(text)
 		},
@@ -415,6 +419,39 @@ func checkArgs(callName, namespace, tool string, args map[string]any, params []s
 	}
 }
 
+// checkRequired fails a call before it goes upstream when required arguments
+// are missing, and names all of them at once. ns.raw skips this check.
+func checkRequired(callName, namespace, tool string, args map[string]any, required []string) {
+	var missing []string
+	for _, r := range required {
+		if _, ok := args[r]; !ok {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	noun := "argument"
+	if len(missing) > 1 {
+		noun = "arguments"
+	}
+	panic(runtime.Runtime(callName + ": missing required " + noun + ": " + strings.Join(missing, ", ") +
+		"\n\n  help(\"" + namespace + "." + tool + "\") shows every argument"))
+}
+
+// toolError builds the error for a failed upstream call: the tool, the
+// arguments sent, and the upstream message.
+func toolError(callName string, args map[string]any, text string) *runtime.ShellError {
+	if strings.TrimSpace(text) == "" {
+		text = "(no message)"
+	}
+	sent, _ := json.Marshal(args)
+	if len(sent) > 500 {
+		sent = append(sent[:500], "…"...)
+	}
+	return runtime.Runtime(callName + " failed: " + text + "\n\n  arguments sent: " + string(sent))
+}
+
 // likelyMeant returns the declared parameter that name is probably a mistake
 // for: equal after case/separator normalization, or one edit away when both
 // are at least 5 characters. Returns "" when there is none.
@@ -427,6 +464,15 @@ func likelyMeant(name string, params []string) string {
 		}
 	}
 	return ""
+}
+
+// schemaRequired returns the required argument names of a tool's input schema.
+func schemaRequired(schema json.RawMessage) []string {
+	var s struct {
+		Required []string `json:"required"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	return s.Required
 }
 
 // schemaInfo extracts ordered parameter names and a display signature from a
