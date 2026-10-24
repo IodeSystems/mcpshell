@@ -465,3 +465,39 @@ func TestCommandsReturnsData(t *testing.T) {
 		t.Errorf("signature = %s", got)
 	}
 }
+
+func TestArgTypesConverted(t *testing.T) {
+	const schema = `{"type":"object","properties":{"limit":{"type":"integer"},"ratio":{"type":"number"},"name":{"type":"string"},"dry":{"type":"boolean"},"ids":{"type":"array"},"filter":{"type":"object"},"any":{}}}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	got := evalString(t, sh, `remote.echo({limit: "10", ratio: "0.12345678901234567890", name: 42, dry: "TRUE", ids: "a", filter: '{"x": 1}', any: "5"})`)
+	if want := `{any: "5", dry: true, filter: {x: 1}, ids: ["a"], limit: 10, name: "42", ratio: 0.1234567890123456789}`; got != want {
+		t.Errorf("converted args = %s\nwant          %s", got, want)
+	}
+	if got := evalString(t, sh, `remote.echo({ids: "[1, 2]", limit: null})`); got != `{ids: [1, 2], limit: null}` {
+		t.Errorf("JSON-string array / null = %s", got)
+	}
+	for _, c := range []struct{ src, want string }{
+		{`remote.echo({limit: "ten"})`, `argument 'limit' must be integer, got string "ten"`},
+		{`remote.echo({limit: 5.5})`, `argument 'limit' must be integer, got number 5.5`},
+		{`remote.echo({filter: [1]})`, `argument 'filter' must be object, got array [1]`},
+	} {
+		if _, err := sh.Eval(c.src); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s error = %v, want %q", c.src, err, c.want)
+		}
+	}
+}
+
+func TestUncheckedToolsSkipChecks(t *testing.T) {
+	const schema = `{"type":"object","properties":{"limit":{"type":"integer"},"folderUid":{"type":"string"}},"required":["limit"],"additionalProperties":false}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema, tools: []string{"bad_tool", "good_tool"}})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL, Unchecked: []string{"bad_*"}})
+	if got := evalString(t, sh, `remote.bad_tool({limit: "ten", folderUids: 1})`); got != `{folderUids: 1, limit: "ten"}` {
+		t.Errorf("unchecked tool args = %s", got)
+	}
+	if _, err := sh.Eval(`remote.good_tool({limit: "ten"})`); err == nil {
+		t.Errorf("good_tool should still be checked")
+	}
+}

@@ -84,6 +84,18 @@ name prefix — `help("el")` lists `agents (117)`, `creative (42)`, … and
 `"categories": {"voice": ["tts_*", "voices_*"]}` to a server entry; tools that
 match no glob go to `other`.
 
+Tool calls are checked against each tool's input schema before they go
+upstream. Missing required arguments are listed in one error. A
+misspelled argument name gets a did-you-mean. An unknown name that
+resembles no declared one passes as a hidden option, unless the schema
+sets `additionalProperties: false`. Arguments are converted to the
+declared type when nothing is lost (`"10"` → `10`, `42` → `"42"`,
+`"true"` → `true`, `"a"` → `["a"]`, a JSON string → array or object);
+anything else fails. For tools whose schema is wrong, add
+`"unchecked": ["glob", …]` to the server entry (`["*"]` for every tool)
+to send their arguments as given. `ns.raw("tool", {args})` also skips
+every check for a single call.
+
 ## Numbers & cost
 
 Numbers are **exact and arbitrary-precision** — no silent float64 rounding.

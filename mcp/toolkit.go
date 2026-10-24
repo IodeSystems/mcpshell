@@ -24,6 +24,7 @@ type ServerConfig struct {
 	Headers     map[string]string   // static HTTP headers
 	AuthCmd     string              // shell command printing a bearer token (HTTP only)
 	Categories  map[string][]string // category → tool-name globs; nil groups by name prefix
+	Unchecked   []string            // tool-name globs whose arguments are sent as given, unchecked
 	Label       string
 	Description string
 }
@@ -108,6 +109,8 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		params, signature := schemaInfo(tool.InputSchema)
 		closed := schemaClosed(tool.InputSchema)
 		required := schemaRequired(tool.InputSchema)
+		types := schemaTypes(tool.InputSchema)
+		unchecked := matchesAny(toolName, ns.Config.Unchecked)
 		callName := runtime.MemberRef(ns.Namespace, toolName)
 		desc := tool.Description
 		if desc == "" {
@@ -122,8 +125,11 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Category:    cats[toolName],
 			Fn: func(args []runtime.Value) runtime.Value {
 				jsonArgs := argsToJSONMap(args, params)
-				checkArgs(callName, ns.Namespace, toolName, jsonArgs, params, closed)
-				checkRequired(callName, ns.Namespace, toolName, jsonArgs, required)
+				if !unchecked {
+					checkArgs(callName, ns.Namespace, toolName, jsonArgs, params, closed)
+					checkRequired(callName, ns.Namespace, toolName, jsonArgs, required)
+					coerceArgs(callName, jsonArgs, types)
+				}
 				text, isError, err := client.CallTool(toolName, jsonArgs)
 				if err != nil {
 					panic(toolError(callName, jsonArgs, err.Error()))
@@ -418,6 +424,16 @@ func checkArgs(callName, namespace, tool string, args map[string]any, params []s
 		}
 		panic(runtime.Runtime(msg))
 	}
+}
+
+// matchesAny reports whether name matches one of the globs.
+func matchesAny(name string, globs []string) bool {
+	for _, g := range globs {
+		if ok, _ := path.Match(g, name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // checkRequired fails a call before it goes upstream when required arguments

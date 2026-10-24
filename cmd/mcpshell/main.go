@@ -327,6 +327,8 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 			AuthCmd string            `json:"auth_cmd"`
 			// category → tool-name globs, for both transports
 			Categories map[string][]string `json:"categories"`
+			// tool-name globs whose arguments are sent unchecked and unconverted
+			Unchecked []string `json:"unchecked"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal([]byte(jsonText), &root); err != nil {
@@ -350,6 +352,11 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 				}
 			}
 		}
+		for _, g := range srv.Unchecked {
+			if _, err := path.Match(g, ""); err != nil {
+				fail("MCP server %q unchecked: bad glob %q", name, g)
+			}
+		}
 		switch {
 		case srv.Command != "" && srv.URL != "":
 			fail("MCP server %q has both 'command' and 'url' — pick one", name)
@@ -357,7 +364,7 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 			out = append(out, mcp.NamedServer{
 				Namespace: name,
 				Config: mcp.ServerConfig{URL: srv.URL, Headers: srv.Headers, AuthCmd: srv.AuthCmd,
-					Categories: srv.Categories, Label: name},
+					Categories: srv.Categories, Unchecked: srv.Unchecked, Label: name},
 			})
 			continue
 		case srv.Command == "":
@@ -369,6 +376,7 @@ func parseMCPConfig(arg string) []mcp.NamedServer {
 				Command:    append([]string{srv.Command}, srv.Args...),
 				Env:        srv.Env,
 				Categories: srv.Categories,
+				Unchecked:  srv.Unchecked,
 				Label:      name,
 			},
 		})

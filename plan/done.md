@@ -36,3 +36,8 @@ Field feedback from the same 112-tool upstream session. Verified each claim firs
 - `commands(search?)` returns `[{name, call, category, signature, description}]`.
 - `--version`; MCP serverInfo/clientInfo carry the build version (was 0.1.0).
 - Not changed: a trailing `help()` being the result (last expression is the output — by design); "no truncation signal inside the language" (values are not cut inside; the eval response, web, file and sql all say when they cut).
+
+## MCP argument types (2026-10-24)
+- Declared argument types are checked before the call (`mcp/argtypes.go`). Lossless conversion: number/bool → string, numeric string → number/integer, "true"/"false" → boolean, JSON string → array/object, single value → `[value]`. Anything else fails. Properties without a plain `type` (anyOf/oneOf/$ref) and `null` values are not checked.
+- `"unchecked": [globs]` per `--mcp` server entry turns off the name, required and type checks for matching tools (user ask: tools whose schemas are wrong).
+- Assumption: array items are not converted (`"a"` → `["a"]` even if items are numbers).
