@@ -213,6 +213,7 @@ bin/       Auto-building launchers — bin/mcpshell, bin/bench
 ```
 make build    # go build ./...
 make test     # go test ./...
+make vet      # go vet, without the generated parser/ (ANTLR's dead `goto` trips it)
 make generate # regenerate parser/ after editing grammar/ (needs Java + ANTLR 4.13.2)
 ```
 

@@ -4,7 +4,7 @@
 # Regenerate only after editing grammar/*.g4 — requires Java 11+. The ANTLR
 # tool jar is downloaded and checksum-verified by scripts/antlr.sh.
 
-.PHONY: generate build cli install bench test fmt
+.PHONY: generate build cli install bench test vet fmt
 
 PREFIX ?= $(HOME)/.local
 
@@ -31,6 +31,12 @@ bench:
 
 test:
 	go test ./...
+
+# vet skips parser/: ANTLR ends every rule with a dead `goto errorExit` so the
+# label is always used, and vet reports each one as unreachable code. The
+# file is generated (DO NOT EDIT), so those reports are not actionable.
+vet:
+	go vet $$(go list ./... | grep -v /parser$$)
 
 fmt:
 	gofmt -w .
