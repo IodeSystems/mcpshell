@@ -148,6 +148,7 @@ func TestErrorQualityJsCompat(t *testing.T) {
 		{"try-finally runs finally", "let x = 0\ntry { x = 1 } finally { x = x }\nx", "1"},
 		// Promise.all
 		{"Promise.all resolves to all", `Promise.all(() => 1, () => 2)`, "[1, 2]"},
+		{"caught error e.message is the message", `try { throw "boom" } catch (e) { e.message == e }`, "true"},
 		// typeof
 		{"typeof number", `typeof 42`, "number"},
 		{"typeof string", `typeof "hello"`, "string"},
@@ -175,5 +176,16 @@ func TestErrorQualityJsCompat(t *testing.T) {
 				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
 			}
 		})
+	}
+}
+
+func TestErrorQualityStringUnknownMember(t *testing.T) {
+	msg := evalErr(t, `let s = "abc"; s.foo`)
+	if !strings.Contains(msg, "a string has no member 'foo'") {
+		t.Errorf("want a no-member error, got %q", msg)
+	}
+	msg = evalErr(t, `try { throw "boom" } catch (e) { e.stack }`)
+	if !strings.Contains(msg, "no member 'stack'") {
+		t.Errorf("e.stack should fail, not return null; got %q", msg)
 	}
 }

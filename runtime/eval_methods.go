@@ -551,10 +551,16 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 			return v.bindMethodOrHint(o, "array", field)
 		}
 	case *StringVal:
-		if field == "length" {
+		switch field {
+		case "length":
 			return &NumberVal{V: float64(len([]rune(o.V)))}
+		case "message":
+			return o // a caught error is its message string; e.message is the JS habit
 		}
-		return v.bindMethodOrHint(o, "string", field)
+		if m := v.bindMethodOrHint(o, "string", field); m != Null {
+			return m
+		}
+		panic(Runtime("a string has no member '" + field + "' — it has .length, and any command works as a method: s.upper(), s.split(\",\")"))
 	case *NumberVal:
 		switch field {
 		case "toString":
