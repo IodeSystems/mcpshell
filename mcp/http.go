@@ -68,7 +68,7 @@ func (c *HTTPClient) handshake() (ServerInfo, error) {
 	res, err := c.request("initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "mcpshell-mcp", "version": "0.1.0"},
+		"clientInfo":      map[string]any{"name": "mcpshell-mcp", "version": Version},
 	})
 	if err != nil {
 		return ServerInfo{}, fmt.Errorf("initialize failed: %w", err)

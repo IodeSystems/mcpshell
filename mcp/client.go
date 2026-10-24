@@ -75,7 +75,7 @@ func Dial(command []string, env map[string]string) (*Client, ServerInfo, error) 
 	res, err := c.call("initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "mcpshell-mcp", "version": "0.1.0"},
+		"clientInfo":      map[string]any{"name": "mcpshell-mcp", "version": Version},
 	})
 	if err != nil {
 		_ = c.Close()

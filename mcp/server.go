@@ -18,6 +18,9 @@ import (
 	"github.com/iodesystems/mcpshell/toolkit"
 )
 
+// Version is reported as serverInfo.version; the CLI sets it from build info.
+var Version = "dev"
+
 // protocolVersion is the MCP revision this server advertises.
 const protocolVersion = "2025-06-18"
 
@@ -137,7 +140,7 @@ func (s *Server) initializeResult(params json.RawMessage) map[string]any {
 	return map[string]any{
 		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": "mcpshell", "version": "0.1.0"},
+		"serverInfo":      map[string]any{"name": "mcpshell", "version": Version},
 	}
 }
 

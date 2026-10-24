@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -30,6 +31,7 @@ Usage:
   mcpshell --prompt      print the LLM system prompt
   mcpshell mcp [flags]   run as an MCP server over stdio
   mcpshell -h            show this help
+  mcpshell --version     print the version
 
 For direct evaluation and the REPL, the core, math, web, file, and graph
 toolkits are all installed; file operations are confined to the current
@@ -73,12 +75,34 @@ func newShell() *runtime.Shell {
 	return sh
 }
 
+// version is the module version for a go install @version build, else the
+// VCS revision, else "dev".
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 12 {
+			return "dev-" + s.Value[:12]
+		}
+	}
+	return "dev"
+}
+
 func main() {
+	mcp.Version = version()
 	args := os.Args[1:]
 
 	switch {
 	case len(args) > 0 && (args[0] == "-h" || args[0] == "--help"):
 		fmt.Println(usage)
+		return
+	case len(args) > 0 && (args[0] == "--version" || args[0] == "-v"):
+		fmt.Println("mcpshell " + version())
 		return
 	case len(args) > 0 && args[0] == "mcp":
 		runMCP(args[1:])
