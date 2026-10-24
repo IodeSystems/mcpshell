@@ -175,17 +175,7 @@ func (r *CommandRegistry) Help(search string) string {
 		return b.String()
 	}
 
-	q := strings.ToLower(search)
-	var matches []*CommandDef
-	for _, k := range r.order {
-		c := r.commands[k]
-		if strings.Contains(strings.ToLower(c.Name), q) ||
-			strings.Contains(strings.ToLower(c.DisplayName()), q) ||
-			strings.Contains(strings.ToLower(c.Description), q) ||
-			strings.Contains(strings.ToLower(c.Signature), q) {
-			matches = append(matches, c)
-		}
-	}
+	matches := r.search(search)
 
 	if len(matches) == 0 {
 		var all []string
@@ -224,19 +214,84 @@ func (r *CommandRegistry) Help(search string) string {
 	if len(matches) == 1 {
 		return detailedHelp(matches[0])
 	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		return matches[i].DisplayName() < matches[j].DisplayName()
-	})
 	var b strings.Builder
-	b.WriteString("Commands matching '" + search + "':\n\n")
+	b.WriteString("Commands matching '" + search + "', best first:\n\n")
 	for i, c := range matches {
-		if i > 0 {
-			b.WriteByte('\n')
+		if i == maxSearchResults {
+			b.WriteString(fmt.Sprintf("  … %d more — use more words to narrow the search\n", len(matches)-i))
+			break
 		}
-		b.WriteString("  " + c.CallName() + "(" + c.Signature + ") — " + c.Description)
+		b.WriteString("  " + c.CallName() + "(" + c.Signature + ") — " + Brief(c.Description) + "\n")
 	}
-	b.WriteString("\n\n  Use help(\"commandName\") for detailed help on a specific command.")
+	b.WriteString("\n  Use help(\"commandName\") for detailed help on a specific command.")
 	return b.String()
+}
+
+// maxSearchResults caps the commands one help(word) search lists.
+const maxSearchResults = 25
+
+// search returns the commands matching query, best first. The query is split
+// into words on spaces, '-', '_' and '.'. A word found in a command's name
+// counts more than a word found only in its description or signature, so
+// "query" ranks a tool named for querying above one that mentions queries.
+// When no command matches every word, commands matching the most words are
+// returned.
+func (r *CommandRegistry) search(query string) []*CommandDef {
+	words := strings.FieldsFunc(strings.ToLower(query), func(c rune) bool {
+		return c == ' ' || c == '-' || c == '_' || c == '.'
+	})
+	whole := NormalizeName(query)
+	type scored struct {
+		c          *CommandDef
+		hits, name int
+		exact      bool
+	}
+	var found []scored
+	best := 0
+	for _, k := range r.order {
+		c := r.commands[k]
+		if c.Hidden {
+			continue
+		}
+		name := NormalizeName(c.DisplayName())
+		text := strings.ToLower(c.Description + " " + c.Signature)
+		sc := scored{c: c, exact: whole != "" && strings.Contains(name, whole)}
+		for _, w := range words {
+			switch {
+			case strings.Contains(name, w):
+				sc.hits++
+				sc.name++
+			case strings.Contains(text, w):
+				sc.hits++
+			}
+		}
+		if sc.hits == 0 && !sc.exact {
+			continue
+		}
+		best = max(best, sc.hits)
+		found = append(found, sc)
+	}
+	var out []scored
+	for _, sc := range found {
+		if sc.exact || sc.hits == best {
+			out = append(out, sc)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.exact != b.exact {
+			return a.exact
+		}
+		if a.name != b.name {
+			return a.name > b.name
+		}
+		return a.c.DisplayName() < b.c.DisplayName()
+	})
+	cmds := make([]*CommandDef, len(out))
+	for i, sc := range out {
+		cmds[i] = sc.c
+	}
+	return cmds
 }
 
 // categoryHelp lists the commands of "Ns.category", one brief line each.
