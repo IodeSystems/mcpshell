@@ -46,3 +46,4 @@ Field feedback from the same 112-tool upstream session. Verified each claim firs
 - Tagged and published: https://github.com/IodeSystems/mcpshell/releases/tag/v0.5.0. Covers everything since v0.4.1. Minor bump: unknown string members now fail; upstream args checked before the call.
 - Checks: tests, `make vet`, `govulncheck` clean (Go 1.27.3); `go install …@v0.5.0` from the proxy prints `mcpshell v0.5.0`; proxy `@latest` = v0.5.0.
 - Follow-up outside this repo: rebuild dun's Docker image (it copies its own mcpshell binary).
+- Release tarballs added to v0.5.0 (dun's deps.json shape): `make release DIST=<outside>` run from a v0.5.0 worktree; 4 × `mcpshell_<os>_<arch>.tar.gz` + SHA256SUMS. linux_amd64 run (`--version` = v0.5.0); others checked by `file` only. Tag sent to dun session dun-a8.
