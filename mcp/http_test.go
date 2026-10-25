@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -499,5 +500,58 @@ func TestUncheckedToolsSkipChecks(t *testing.T) {
 	}
 	if _, err := sh.Eval(`remote.good_tool({limit: "ten"})`); err == nil {
 		t.Errorf("good_tool should still be checked")
+	}
+}
+
+func TestHostedReportAfterInitialize(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"ci-list_runs", "ci-get_run"}})
+	defer srv.Close()
+	sh := coreShell()
+	closers, hosted := mcp.ConnectClients(sh, []mcp.NamedServer{{Namespace: "remote", Config: mcp.ServerConfig{URL: srv.URL}}})
+	for _, c := range closers {
+		defer c.Close()
+	}
+	if len(hosted) != 1 || hosted[0].NS != "remote" || hosted[0].Tools != 2 {
+		t.Fatalf("hosted = %+v", hosted)
+	}
+	help := evalString(t, sh, `help("remote")`)
+	if hosted[0].HelpBytes != len(help) {
+		t.Errorf("helpBytes = %d, help(\"remote\") is %d bytes", hosted[0].HelpBytes, len(help))
+	}
+	// Two entries {"name":…,"description":…,"inputSchema":…} with the fake's schema.
+	entry := func(name string) int {
+		b, _ := json.Marshal(map[string]any{"name": name, "description": "echoes the message. Second sentence.\nMore detail.",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`)})
+		return len(b)
+	}
+	if want := entry("ci-list_runs") + entry("ci-get_run"); hosted[0].SchemaBytes != want {
+		t.Errorf("schemaBytes = %d, want %d", hosted[0].SchemaBytes, want)
+	}
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
+	var out bytes.Buffer
+	if err := mcp.NewServer(sh, 16000).WithHosted(hosted).RunStdio(strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want the initialize response and one notification, got:\n%s", out.String())
+	}
+	var note struct {
+		Method string `json:"method"`
+		Params struct {
+			Logger string `json:"logger"`
+			Data   struct {
+				Servers []mcp.HostedServer `json:"servers"`
+			} `json:"data"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.Method != "notifications/message" || note.Params.Logger != "mcpshell/hosted" ||
+		len(note.Params.Data.Servers) != 1 || note.Params.Data.Servers[0] != hosted[0] {
+		t.Errorf("notice = %s", lines[1])
 	}
 }

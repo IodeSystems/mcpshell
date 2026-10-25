@@ -58,7 +58,25 @@ func reservedCollision(tools []ToolInfo) string {
 // tool named eval/help/prompt (mcpshell's own tool names). This makes it safe to
 // point mcpshell at a server set that happens to include a mcpshell instance.
 func InstallClients(sh *runtime.Shell, servers []NamedServer) []io.Closer {
+	closers, _ := ConnectClients(sh, servers)
+	return closers
+}
+
+// HostedServer reports what hosting one upstream saves: SchemaBytes is the
+// JSON of its tools/list entries (name, description, inputSchema per tool)
+// that a direct MCP client would put in front of the model, HelpBytes what
+// help("<ns>") returns when the model asks.
+type HostedServer struct {
+	NS          string `json:"ns"`
+	Tools       int    `json:"tools"`
+	SchemaBytes int    `json:"schemaBytes"`
+	HelpBytes   int    `json:"helpBytes"`
+}
+
+// ConnectClients is InstallClients that also reports each connected upstream.
+func ConnectClients(sh *runtime.Shell, servers []NamedServer) ([]io.Closer, []HostedServer) {
 	var closers []io.Closer
+	var hosted []HostedServer
 	for _, ns := range servers {
 		client, info, err := dial(ns.Config)
 		if err != nil {
@@ -86,11 +104,24 @@ func InstallClients(sh *runtime.Shell, servers []NamedServer) []io.Closer {
 			continue
 		}
 		n := registerServerTools(sh, ns, client, tools)
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: upstream %q connected (%s) — %d tool(s)\n",
-			ns.Namespace, info.Name, n)
+		h := HostedServer{NS: ns.Namespace, Tools: n, SchemaBytes: schemaBytes(tools),
+			HelpBytes: len(sh.Commands().Help(ns.Namespace))}
+		fmt.Fprintf(os.Stderr, "mcpshell mcp: upstream %q connected (%s) — %d tool(s), schema %d bytes, help %d bytes\n",
+			ns.Namespace, info.Name, n, h.SchemaBytes, h.HelpBytes)
 		closers = append(closers, client)
+		hosted = append(hosted, h)
 	}
-	return closers
+	return closers, hosted
+}
+
+// schemaBytes is the summed JSON size of each tool's tools/list entry.
+func schemaBytes(tools []ToolInfo) int {
+	total := 0
+	for _, t := range tools {
+		b, _ := json.Marshal(t)
+		total += len(b)
+	}
+	return total
 }
 
 // dial connects over HTTP when cfg.URL is set, otherwise spawns cfg.Command.

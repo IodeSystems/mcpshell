@@ -253,12 +253,15 @@ func runMCP(args []string) {
 	for _, spec := range mcpConfigs {
 		servers = append(servers, parseMCPConfig(spec)...)
 	}
+	var hosted []mcp.HostedServer
 	if len(servers) > 0 {
-		closers = append(closers, mcp.InstallClients(sh, servers)...)
+		var c []io.Closer
+		c, hosted = mcp.ConnectClients(sh, servers)
+		closers = append(closers, c...)
 	}
 
 	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
-	err := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).RunStdio(os.Stdin, os.Stdout)
+	err := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted).RunStdio(os.Stdin, os.Stdout)
 	for _, c := range closers {
 		_ = c.Close()
 	}

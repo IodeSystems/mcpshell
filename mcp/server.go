@@ -29,6 +29,7 @@ type Server struct {
 	shell          *runtime.Shell
 	maxOutputBytes int
 	overflowDir    string // where over-limit eval output is saved; "" disables
+	hosted         []HostedServer
 }
 
 // NewServer builds an MCP server. maxOutputBytes caps the eval tool's textual
@@ -45,6 +46,27 @@ func NewServer(shell *runtime.Shell, maxOutputBytes int) *Server {
 func (s *Server) WithOverflowDir(dir string) *Server {
 	s.overflowDir = dir
 	return s
+}
+
+// WithHosted reports the hosted upstreams to the client once it is
+// initialized, as a notifications/message with logger "mcpshell/hosted" and
+// data {"servers": [HostedServer…]}.
+func (s *Server) WithHosted(hosted []HostedServer) *Server {
+	s.hosted = hosted
+	return s
+}
+
+// hostedNotice is the notifications/message that reports s.hosted.
+func (s *Server) hostedNotice() map[string]any {
+	return map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/message",
+		"params": map[string]any{
+			"level":  "info",
+			"logger": "mcpshell/hosted",
+			"data":   map[string]any{"servers": s.hosted},
+		},
+	}
 }
 
 // --- JSON-RPC framing --------------------------------------------------------
@@ -102,6 +124,11 @@ func (s *Server) RunStdio(in io.Reader, out io.Writer) error {
 				return err
 			}
 		}
+		if req.Method == "notifications/initialized" && len(s.hosted) > 0 {
+			if err := enc.Encode(s.hostedNotice()); err != nil {
+				return err
+			}
+		}
 	}
 	return scanner.Err()
 }
@@ -139,7 +166,7 @@ func (s *Server) initializeResult(params json.RawMessage) map[string]any {
 	}
 	return map[string]any{
 		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"capabilities":    map[string]any{"tools": map[string]any{}, "logging": map[string]any{}},
 		"serverInfo":      map[string]any{"name": "mcpshell", "version": Version},
 	}
 }

@@ -77,6 +77,14 @@ the same argument and returns `[{name, call, category, signature, description}]`
 for filtering in code. `await` is accepted and does nothing: tool calls return
 their values directly.
 
+Once the client sends `notifications/initialized`, mcpshell reports each
+connected upstream in a `notifications/message` with logger
+`mcpshell/hosted` and data `{"servers": [{"ns", "tools", "schemaBytes",
+"helpBytes"}]}`. `schemaBytes` is the JSON size of the upstream's tools/list
+entries (what a direct client would send the model on every request), and
+`helpBytes` is the size of `help("<ns>")`. The stderr `connected` line
+ends with the same two numbers.
+
 A namespace with more than 20 commands is one line in `help()` and the prompt
 (`el: 160 commands — help("el")`). An upstream that large is grouped by tool
 name prefix — `help("el")` lists `agents (117)`, `creative (42)`, … and
