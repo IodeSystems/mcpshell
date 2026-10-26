@@ -278,7 +278,27 @@ func evalString(t *testing.T, sh *runtime.Shell, src string) string {
 	return v.Display()
 }
 
+// TestLargeUpstreamListsAllBelowLimit: a categorized upstream whose full
+// listing fits the size limit lists every tool, grouped, in help("ns"), so
+// the model needs no help("ns.<category>") turn.
+func TestLargeUpstreamListsAllBelowLimit(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{tools: manyTools()})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	guide := evalString(t, sh, `help("remote")`)
+	for _, want := range []string{"27 tools in 3 categories", "\ncreative (5):\n  remote.creative_0(message: string) — echoes the message",
+		"  remote.agents_05(message: string)", "other (1):\n  remote.lonely("} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("help(\"remote\") missing %q:\n%s", want, guide)
+		}
+	}
+	if strings.Contains(guide, `lists every tool in a category`) {
+		t.Errorf("a full listing must not point at category help:\n%s", guide)
+	}
+}
+
 func TestLargeUpstreamIsCategorized(t *testing.T) {
+	defer mcp.SetHelpListAllMax(100)()
 	srv := fakeHTTPServer(t, fakeOpts{tools: manyTools()})
 	defer srv.Close()
 	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
@@ -323,6 +343,7 @@ func TestLargeUpstreamIsCategorized(t *testing.T) {
 }
 
 func TestExplicitCategories(t *testing.T) {
+	defer mcp.SetHelpListAllMax(100)()
 	srv := fakeHTTPServer(t, fakeOpts{tools: []string{"tts_speak", "tts_voices", "billing"}})
 	defer srv.Close()
 	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL, Categories: map[string][]string{"voice": {"tts_*"}}})

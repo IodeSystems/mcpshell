@@ -134,7 +134,7 @@ func dial(cfg ServerConfig) (Upstream, ServerInfo, error) {
 
 func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, tools []ToolInfo) int {
 	cats := categorize(tools, ns.Config.Categories)
-	var summaries []string
+	summaryOf := map[string]string{}
 	for _, tool := range tools {
 		toolName := tool.Name
 		params, signature := schemaInfo(tool.InputSchema)
@@ -148,7 +148,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		if desc == "" {
 			desc = toolName
 		}
-		summaries = append(summaries, "  "+runtime.MemberRef(ns.Namespace, toolName)+"("+signature+") — "+runtime.Brief(desc))
+		summaryOf[toolName] = "  " + runtime.MemberRef(ns.Namespace, toolName) + "(" + signature + ") — " + runtime.Brief(desc)
 		sh.Register(&runtime.CommandDef{
 			Namespace:   ns.Namespace,
 			Name:        toolName,
@@ -191,15 +191,13 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 	if ns.Config.Description != "" {
 		g.WriteString("\n" + ns.Config.Description + "\n")
 	}
-	if len(cats) > 0 {
+	full := fullListing(tools, cats, summaryOf)
+	if len(cats) > 0 && len(full) > helpListAllMax {
 		writeCategories(&g, ns.Namespace, tools, cats)
 	} else {
-		g.WriteString("\nTools:\n")
-		for _, s := range summaries {
-			g.WriteString(s + "\n")
-		}
+		g.WriteString(full)
 	}
-	if len(cats) > 0 {
+	if len(cats) > 0 && len(full) > helpListAllMax {
 		g.WriteString("\nhelp(\"" + ns.Namespace + ".<category>\") lists every tool in a category.")
 	}
 	g.WriteString("\nhelp(\"<word>\") searches tool names and descriptions, e.g. help(\"alert\").")
@@ -322,6 +320,45 @@ func categorize(tools []ToolInfo, globs map[string][]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// helpListAllMax is the largest help("ns") that lists every tool with its
+// signature. Above it the guide shows categories with a few names each, and
+// help("ns.<category>") lists one. Each step down costs the model a turn, so
+// the full list is worth a few KB: Acme's 102 tools list in 10.5 KB,
+// against 34 KB of full schemas.
+var helpListAllMax = 16 << 10
+
+// fullListing lists every tool's one-line summary, grouped by category when
+// there are categories.
+func fullListing(tools []ToolInfo, cats map[string]string, summaryOf map[string]string) string {
+	var b strings.Builder
+	if len(cats) == 0 {
+		b.WriteString("\nTools:\n")
+		for _, t := range tools {
+			b.WriteString(summaryOf[t.Name] + "\n")
+		}
+		return b.String()
+	}
+	members := make(map[string][]string)
+	for _, t := range tools {
+		members[cats[t.Name]] = append(members[cats[t.Name]], t.Name)
+	}
+	names := make([]string, 0, len(members))
+	for name := range members {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(&b, "\n%d tools in %d categories:\n", len(tools), len(names))
+	for _, cat := range names {
+		m := members[cat]
+		sort.Strings(m)
+		fmt.Fprintf(&b, "\n%s (%d):\n", cat, len(m))
+		for _, name := range m {
+			b.WriteString(summaryOf[name] + "\n")
+		}
+	}
+	return b.String()
 }
 
 // writeCategories lists each category with its size and a few tool names.
