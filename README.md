@@ -150,8 +150,18 @@ LLM only sees the capabilities you grant.
 
 ### Large output
 
-An eval result over `--max-output` (default 16000 bytes) is truncated. Set
-`MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
+An eval result over `--max-output` (default 16000 bytes) is truncated, and the
+full value is kept as `$r1`, `$r2`, … (the last 5) for the next evals. The
+note after the shown part gives the value's inferred TypeScript type, so the
+next eval can query it without running the tools again:
+
+```
+... OUTPUT TRUNCATED at 16000 of 114330 bytes. The full value is $r1, kept for the next evals (the last 5 are kept):
+  $r1: Array<{amount: number, customer_id: number, due: string, id: number, status: "open" | "overdue" | "paid"}>, length 1500
+  Query it instead of re-running: $r1 |> limit(5)   $r1 |> filter(x => …) |> len()
+```
+
+Set `MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
 there; the truncated response names it. Arrays are saved as JSON Lines, so
 `read(path, start, lines)` and `grep(path, {match})` page through them —
 both accept the file's absolute path. Scope the directory per session (e.g.

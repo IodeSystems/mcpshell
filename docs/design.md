@@ -24,6 +24,9 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 
 ## Large output
 
+- **A truncated value is kept, not lost.** Without a file, the rest of an over-limit result was gone, and getting it meant running the eval again — every upstream call again. dun's `recap({ref, grep})` reads back a spilled text file; mcpshell holds the structured value, so it keeps it as `$rN` (the last `KeptResults` = 5) and the note gives its inferred TypeScript type (`runtime.InferType`). Querying `$r1 |> filter(…)` is more precise than grepping a text copy. A dropped ref errors with the refs still kept.
+- **The type is inferred from the whole value**, not the shown part: array elements merge, keys missing from some objects are optional, a string with ≤ 5 distinct values each seen twice on average is a union of the values seen (values seen, not a schema), and objects whose keys are data (groupBy, countBy) are `Record<…>`. The type is capped at 600 bytes; past it objects list their first keys and "…N more".
+
 - `MCPSHELL_TMP_OVERFLOW_DIR` receives the full over-limit eval output. mcpshell makes file names unique only. Scoping per session is the launcher's job: dun uses `<sessions>/<root>/overflow/<session-id>` and removes it on `ForgetSession`.
 - Arrays are saved as JSON Lines and objects one key per line, so line-based `read`/`grep` can page them.
 

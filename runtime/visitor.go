@@ -1515,8 +1515,22 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 		return fn
 	}
 	var available []string
+	var kept []string
 	for k := range v.env.AllBindings() {
 		available = append(available, k)
+		if strings.HasPrefix(k, "$r") {
+			kept = append(kept, k)
+		}
+	}
+	if strings.HasPrefix(name, "$r") {
+		slices.Sort(kept)
+		msg := "'" + name + "' is not kept: a truncated result is kept as $rN for the last " + strconv.Itoa(KeptResults) + " truncations"
+		if len(kept) > 0 {
+			msg += ". Kept now: " + strings.Join(kept, ", ")
+		} else {
+			msg += ", and none is kept now"
+		}
+		panic(Runtime(msg))
 	}
 	available = append(available, v.itp.commands.Names()...)
 	panic(UnknownCommand(name, available))

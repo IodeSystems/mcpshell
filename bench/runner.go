@@ -134,7 +134,7 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 				}
 				out := v.Display()
 				if len(out) > toolMaxOutput {
-					out = out[:toolMaxOutput] + "\n\n... OUTPUT TRUNCATED"
+					out = strings.ToValidUTF8(out[:toolMaxOutput], "") + sh.TruncationNote(v, toolMaxOutput, len(out))
 				}
 				return out + warnings
 			}

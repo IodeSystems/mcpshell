@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/iodesystems/mcpshell/runtime"
@@ -242,17 +241,15 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	out := value.Display()
 	if len(out) > s.maxOutputBytes {
 		head := strings.ToValidUTF8(out[:s.maxOutputBytes], "")
+		note := s.shell.TruncationNote(value, len(head), len(out))
 		content, format := overflowContent(value)
 		if path, err := s.saveOverflow(content); err == nil {
-			return toolResult(head+fmt.Sprintf("\n\n... OUTPUT TRUNCATED at %d of %d bytes. Full output saved to %s (%s)\n"+
-				"Page it with read(%q, start, lines) or search it with grep(%q, {match: …}).",
-				len(head), len(out), path, format, path, path)+warnings, false)
+			note += fmt.Sprintf("\nAlso saved to %s (%s): read(%q, start, lines) or grep(%q, {match: …}) page it.",
+				path, format, path, path)
 		} else if s.overflowDir != "" {
 			fmt.Fprintf(os.Stderr, "mcpshell mcp: saving overflow output failed: %v\n", err)
 		}
-		out = head +
-			"\n\n... OUTPUT TRUNCATED (limit " + strconv.Itoa(s.maxOutputBytes) + " bytes). " +
-			"Use limit(), filter(), or read(path, start, lines) to reduce output."
+		out = head + note
 	}
 	return toolResult(out+warnings, false)
 }

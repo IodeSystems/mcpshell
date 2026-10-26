@@ -242,11 +242,36 @@ func TestOverflowSavedToFile(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("expected 1 overflow file in %s, got %v", dir, files)
 	}
-	if !strings.Contains(text, "OUTPUT TRUNCATED at 100 of 500 bytes. Full output saved to "+files[0]+" (text)") {
+	if !strings.Contains(text, "OUTPUT TRUNCATED at 100 of 500 bytes. The full value is $r1") ||
+		!strings.Contains(text, "Also saved to "+files[0]+" (text)") {
 		t.Errorf("response should name the file:\n%s", text)
 	}
 	if b, _ := os.ReadFile(files[0]); string(b) != strings.Repeat("x", 500) {
 		t.Errorf("overflow file holds %d bytes, want the full 500", len(b))
+	}
+}
+
+// TestTruncatedValueIsKept: without an overflow dir, a truncated result is
+// still reachable — kept as $r1 with its type, and the next eval queries it.
+func TestTruncatedValueIsKept(t *testing.T) {
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"eval","arguments":{"code":"range(0, 200) |> map(i => ({i: i, even: i % 2 == 0}))"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"eval","arguments":{"code":"$r1 |> filter(x => x.even) |> len()"}}}` + "\n"
+	var out bytes.Buffer
+	if err := mcp.NewServer(coreShell(), 100).RunStdio(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("RunStdio: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var first, second map[string]any
+	_ = json.Unmarshal([]byte(lines[0]), &first)
+	_ = json.Unmarshal([]byte(lines[1]), &second)
+	note := toolText(t, first)
+	for _, want := range []string{"The full value is $r1", "$r1: Array<{i: number, even: boolean}>, length 200", "$r1 |> limit(5)"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("truncated result missing %q:\n%s", want, note)
+		}
+	}
+	if got := toolText(t, second); got != "100" {
+		t.Errorf("$r1 query = %q, want 100", got)
 	}
 }
 

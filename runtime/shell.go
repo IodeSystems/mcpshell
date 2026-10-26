@@ -1,6 +1,11 @@
 package runtime
 
-import "strings"
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+)
 
 // Shell is the top-level facade: it owns a command registry, global scope,
 // and execution limits, and evaluates source against them.
@@ -9,7 +14,55 @@ type Shell struct {
 	limits   *ExecutionLimits
 	globals  *Environment
 	warnings []string // from the last eval
+
+	resultSeq int      // last $rN handed out
+	kept      []string // $rN names still bound, oldest first
 }
+
+// KeptResults is how many truncated results the shell keeps as $r1, $r2, …
+const KeptResults = 5
+
+// TruncationNote keeps a value whose display was cut at shown of total bytes
+// under the next $rN name, and returns the note to append after the shown
+// part: the name, the value's inferred type, and how to query it. The next
+// eval reads the whole value from $rN instead of running the eval again —
+// which, with upstream tools, would repeat every call.
+func (t *Shell) TruncationNote(v Value, shown, total int) string {
+	t.resultSeq++
+	name := "$r" + strconv.Itoa(t.resultSeq)
+	t.globals.DefineOrSet(name, v)
+	t.kept = append(t.kept, name)
+	if len(t.kept) > KeptResults {
+		t.globals.Remove(map[string]struct{}{t.kept[0]: {}})
+		t.kept = t.kept[1:]
+	}
+	size := ""
+	var query string
+	switch x := v.(type) {
+	case *ArrayVal:
+		size = ", length " + strconv.Itoa(len(x.Elements))
+		query = name + " |> limit(5)   " + name + " |> filter(x => …) |> len()"
+	case *ObjectVal:
+		size = ", " + strconv.Itoa(x.Len()) + " keys"
+		query = "keys(" + name + ")"
+		if keys := x.Keys(); len(keys) > 0 {
+			query += "   " + MemberRef(name, keys[0])
+		}
+	case *StringVal:
+		size = ", " + strconv.Itoa(len([]rune(x.V))) + " characters"
+		query = name + " |> substring(" + strconv.Itoa(shown) + ", " + strconv.Itoa(2*shown) + ")   " +
+			name + ` |> lines() |> filter(l => l.includes("…"))`
+	default:
+		query = name
+	}
+	return fmt.Sprintf("\n\n... OUTPUT TRUNCATED at %d of %d bytes. The full value is %s, kept for the next evals (the last %d are kept):\n"+
+		"  %s: %s%s\n"+
+		"  Query it instead of re-running: %s",
+		shown, total, name, KeptResults, name, InferType(v), size, query)
+}
+
+// KeptResultNames returns the $rN names still kept, oldest first.
+func (t *Shell) KeptResultNames() []string { return slices.Clone(t.kept) }
 
 // Warnings returns the last eval's warnings, after success or error. Each
 // starts with "line N:".
