@@ -113,12 +113,15 @@ func (itp *Interpreter) initBuiltinBindings() {
 	anyFn := nativeFn("any", func(args []Value) Value { return itp.executeAny(args) })
 	chainFn := nativeFn("chain", func(args []Value) Value { return itp.executeChain(args) })
 
-	itp.globals.DefineBuiltin("all", allFn)
-	itp.globals.DefineBuiltin("race", raceFn)
-	itp.globals.DefineBuiltin("any", anyFn)
-	itp.globals.DefineBuiltin("chain", chainFn)
 	allSettledFn := nativeFn("allSettled", func(args []Value) Value { return itp.executeAllSettled(args) })
-	itp.globals.DefineBuiltin("allSettled", allSettledFn)
+	for _, b := range []*FuncVal{allFn, raceFn, anyFn, chainFn, allSettledFn} {
+		// A user value under the name (export let all = …) wins, as it does
+		// for the JS aliases below; defining the builtin over it each eval
+		// made the exported value unreachable from the next eval on.
+		if itp.globals.Get(b.Name) == nil || itp.globals.IsBuiltin(b.Name) {
+			itp.globals.DefineBuiltin(b.Name, b)
+		}
+	}
 
 	// JS constructor aliases — String(x) → str(x), etc.
 	for _, a := range jsConstructorAliases {

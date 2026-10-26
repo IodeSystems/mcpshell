@@ -147,8 +147,19 @@ func TestBuiltinShadowWarns(t *testing.T) {
 			}
 		})
 	}
-	// A var named like a builtin holds the caller's value.
+	// An exported value named like a builtin is still there in the next eval.
 	sh := toolkit.InstallCore(runtime.NewShell())
+	if _, err := sh.EvalExported("export let all = 5", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := sh.EvalExported("all", nil); err != nil || v.Display() != "5" {
+		t.Errorf("exported all in the next eval = %v, %v; want 5", v, err)
+	}
+	if v, err := sh.EvalExported("race", nil); err != nil || !strings.Contains(v.Display(), "race") {
+		t.Errorf("race = %v, %v; want the builtin", v, err)
+	}
+	// A var named like a builtin holds the caller's value.
+	sh = toolkit.InstallCore(runtime.NewShell())
 	v, err := sh.EvalExported("all", map[string]runtime.Value{"all": &runtime.StringVal{V: "mine"}})
 	if err != nil || v.Display() != "mine" {
 		t.Errorf("var all = %v, %v; want mine", v, err)
