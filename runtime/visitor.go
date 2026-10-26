@@ -1085,7 +1085,13 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 			}
 			continue
 		}
-		cmp := compareValues(result, right)
+		var cmp int
+		if bothNumbers(result, right) || bothStrings(result, right) {
+			cmp = compareValues(result, right)
+		} else { // a mismatch panics; give it the location, off the hot path
+			left := result
+			v.withLocation(ctx, func() Value { compareValues(left, right); return nil })
+		}
 		switch op {
 		case "<":
 			result = &BoolVal{V: cmp < 0}
@@ -1100,6 +1106,18 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 		}
 	}
 	return result
+}
+
+func bothNumbers(a, b Value) bool {
+	_, x := a.(*NumberVal)
+	_, y := b.(*NumberVal)
+	return x && y
+}
+
+func bothStrings(a, b Value) bool {
+	_, x := a.(*StringVal)
+	_, y := b.(*StringVal)
+	return x && y
 }
 
 func (v *Visitor) visitShiftExpr(ctx *parser.ShiftExprContext) Value {
@@ -1130,9 +1148,9 @@ func (v *Visitor) visitAdditiveExpr(ctx *parser.AdditiveExprContext) Value {
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "+":
-			result = add(result, right)
+			result = v.arith(ctx, add, result, right)
 		case "-":
-			result = sub(result, right)
+			result = v.arith(ctx, sub, result, right)
 		}
 	}
 	return result
@@ -1146,11 +1164,11 @@ func (v *Visitor) visitMultiplicativeExpr(ctx *parser.MultiplicativeExprContext)
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "*":
-			result = mul(result, right)
+			result = v.arith(ctx, mul, result, right)
 		case "/":
-			result = divide(result, right)
+			result = v.arith(ctx, divide, result, right)
 		case "%":
-			result = modulo(result, right)
+			result = v.arith(ctx, modulo, result, right)
 		}
 	}
 	return result
@@ -1162,7 +1180,16 @@ func (v *Visitor) visitExponentiationExpr(ctx *parser.ExponentiationExprContext)
 	if expCtx == nil {
 		return base
 	}
-	return power(base, v.eval(expCtx))
+	return v.arith(ctx, power, base, v.eval(expCtx))
+}
+
+// arith applies a binary operator. Two numbers take the fast path; anything
+// else runs under withLocation, so a type mismatch names its line.
+func (v *Visitor) arith(ctx antlr.ParserRuleContext, op func(a, b Value) Value, a, b Value) Value {
+	if bothNumbers(a, b) {
+		return op(a, b)
+	}
+	return v.withLocation(ctx, func() Value { return op(a, b) })
 }
 
 func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
@@ -1171,11 +1198,10 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 		return &BoolVal{V: !v.eval(ctx.UnaryExpr()).IsTruthy()}
 	case ctx.MINUS() != nil:
 		val := v.eval(ctx.UnaryExpr())
-		n, ok := val.(*NumberVal)
-		if !ok {
-			panic(TypeMismatch("unary -", "number", val, ""))
+		if _, ok := val.(*NumberVal); !ok {
+			return v.withLocation(ctx, func() Value { panic(TypeMismatch("unary -", "number", val, "")) })
 		}
-		return &NumberVal{V: -n.V}
+		return sub(numInt(0), val) // exact: -(2 ** 70) keeps every digit
 	case ctx.TILDE() != nil:
 		val := v.eval(ctx.UnaryExpr())
 		n, ok := val.(*NumberVal)

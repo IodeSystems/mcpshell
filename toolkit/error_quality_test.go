@@ -101,6 +101,9 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		{"camel name suggests its snake form", `let ns = {list_alert_rule_groups: x => x}; ns.listAlertRuleGroups()`,
 			[]string{"Did you mean", "ns.list_alert_rule_groups"}},
 		{"redeclaring a let has a line", `let x = 1; let x = 2`, []string{"already declared", "at line 1"}},
+		{"comparison mismatch has a line", "let n = null\nif (n < 25) 1", []string{"Type mismatch in comparison", "at line 2"}},
+		{"arithmetic mismatch has a line", "let n = null\nn * 2", []string{"Type mismatch in '*'", "at line 2"}},
+		{"unary minus mismatch has a line", "let s = \"a\";\n-s", []string{"unary -", "at line 2"}},
 		{"null member names the member", `let o = {b: null}; o.b()`, []string{"'o.b' is not a function", "null"}},
 	}
 	for _, c := range cases {
@@ -164,6 +167,7 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 		{"round(1250, -2)", "1300", ""},
 		{"2.345 |> round(1)", "2.3", ""},
 		{"Math.round(429.58333, 2)", "429.58", ""},
+		{"-(2 ** 70)", "-1180591620717411303424", ""},
 		{"floor(2.7, 9)", "2", "line 1: floor(n: number) takes 1 argument(s); ignored the extra 9"},
 		{"let s = \"a\"\ns |> upper(1, 2)", "A", "line 2: upper(input: string) takes 1 argument(s); ignored the extra 1, 2"},
 		{"[3, 1] |> sort((a, b) => a - b)", "[1, 3]", ""},
