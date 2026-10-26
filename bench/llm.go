@@ -160,14 +160,14 @@ func (u *TokenUsage) add(o TokenUsage) {
 	u.Completion += o.Completion
 }
 
-func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, useTool bool) (chatMessage, TokenUsage, error) {
+func (l *LLM) chat(ctx context.Context, model string, messages []chatMessage, tools []json.RawMessage) (chatMessage, TokenUsage, error) {
 	body := map[string]any{
 		"model":       model,
 		"messages":    messages,
 		"temperature": 0,
 	}
-	if useTool {
-		body["tools"] = []json.RawMessage{mcpshellToolDef}
+	if len(tools) > 0 {
+		body["tools"] = tools
 		body["tool_choice"] = "auto"
 	}
 	data, err := l.do(ctx, http.MethodPost, "/v1/chat/completions", body)
@@ -256,13 +256,29 @@ func (l *LLM) RunAgent(
 	runTool func(code string) string,
 	maxIters int,
 ) (answer string, attempts []Attempt, stats AgentStats, err error) {
-	useTool := runTool != nil
+	if runTool == nil {
+		return l.RunAgentTools(ctx, model, systemPrompt, userPrompt, nil, nil, maxIters)
+	}
+	return l.RunAgentTools(ctx, model, systemPrompt, userPrompt, []json.RawMessage{mcpshellToolDef},
+		func(_, args string) string { return runTool(extractCodeArg(args)) }, maxIters)
+}
+
+// RunAgentTools is RunAgent with any tool set: callTool runs one call by tool
+// name and JSON arguments. An mcpshell call is recorded as its code, any
+// other call as name(arguments).
+func (l *LLM) RunAgentTools(
+	ctx context.Context,
+	model, systemPrompt, userPrompt string,
+	tools []json.RawMessage,
+	callTool func(name, args string) string,
+	maxIters int,
+) (answer string, attempts []Attempt, stats AgentStats, err error) {
 	messages := []chatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 	for range maxIters {
-		msg, usage, err := l.chat(ctx, model, messages, useTool)
+		msg, usage, err := l.chat(ctx, model, messages, tools)
 		stats.Turns++
 		stats.Tokens.add(usage)
 		if err != nil {
@@ -273,11 +289,14 @@ func (l *LLM) RunAgent(
 			return strings.TrimSpace(msg.Content), attempts, stats, nil
 		}
 		for _, tc := range msg.ToolCalls {
-			code := extractCodeArg(tc.Function.Arguments)
+			record := tc.Function.Name + "(" + tc.Function.Arguments + ")"
+			if tc.Function.Name == "mcpshell" {
+				record = extractCodeArg(tc.Function.Arguments)
+			}
 			toolStart := time.Now()
-			res := runTool(code)
+			res := callTool(tc.Function.Name, tc.Function.Arguments)
 			attempts = append(attempts, Attempt{
-				Code:       code,
+				Code:       record,
 				Result:     res,
 				IsError:    strings.Contains(res, "ERROR:"),
 				DurationMs: time.Since(toolStart).Milliseconds(),

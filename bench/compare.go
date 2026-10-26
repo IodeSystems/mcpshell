@@ -75,7 +75,7 @@ func LoadRecords(dir string) ([]RunRecord, error) {
 // Teasers present in both runs form the head-to-head table; teasers only in the
 // "with" run (e.g. tool-only ones skipped by the no-tool baseline) are listed
 // separately since they have no fair baseline.
-func Compare(withDir, withoutDir, outPath, title, label string) error {
+func Compare(withDir, withoutDir, outPath, title, label, withoutDesc string) error {
 	with, err := LoadRecords(withDir)
 	if err != nil {
 		return fmt.Errorf("with run: %w", err)
@@ -108,7 +108,7 @@ func Compare(withDir, withoutDir, outPath, title, label string) error {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", title)
-	fmt.Fprintf(&b, "**Model:** %s &nbsp;·&nbsp; **With** = mcpshell eval tool available &nbsp;·&nbsp; **Without** = reasoning only, no tool.\n\n", label)
+	fmt.Fprintf(&b, "**Model:** %s &nbsp;·&nbsp; **With** = mcpshell eval tool available &nbsp;·&nbsp; **Without** = %s.\n\n", label, withoutDesc)
 
 	b.WriteString("## Head-to-head (self-contained problems)\n\n")
 	b.WriteString("Proc(cached) = processed (non-cached prompt + generated) with cached prompt tokens in parens; the re-sent system prompt is cached, so it barely counts as cost.\n\n")

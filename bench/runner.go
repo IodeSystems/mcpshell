@@ -2,6 +2,7 @@ package bench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,13 @@ type Options struct {
 	Only         string // if set, run only teasers whose name contains this
 	NoTool       bool   // if set, run without the mcpshell tool (reasoning-only baseline)
 	Label        string // if set, the name used in output paths/reports instead of the resolved model id
+
+	// Suite replaces the default Suite when set (e.g. HostedSuite).
+	Suite []Teaser
+	// Tools and CallTool, when set, replace the mcpshell tool: the model gets
+	// these tools and each call runs through CallTool (the discrete-tools arm).
+	Tools    []json.RawMessage
+	CallTool func(name, args string) string
 }
 
 // Result is the outcome of one teaser.
@@ -57,9 +65,12 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 	}
 
 	suite := Suite
+	if opts.Suite != nil {
+		suite = opts.Suite
+	}
 	if opts.Only != "" {
 		var filtered []Teaser
-		for _, teaser := range Suite {
+		for _, teaser := range suite {
 			if strings.Contains(teaser.Name, opts.Only) {
 				filtered = append(filtered, teaser)
 			}
@@ -113,25 +124,35 @@ func Run(llm *LLM, model string, shellFactory func() *runtime.Shell, opts Option
 		// runTool stays nil in no-tool mode; RunAgent then offers no tool and
 		// the model must answer from its own reasoning.
 		var runTool func(code string) string
-		if !opts.NoTool {
+		if !opts.NoTool && opts.CallTool == nil {
 			sh := shellFactory()
 			runTool = func(code string) string {
 				v, err := sh.EvalExported(code, nil)
+				warnings := runtime.FormatWarnings(sh.Warnings())
 				if err != nil {
-					return "ERROR: " + err.Error()
+					return "ERROR: " + err.Error() + warnings
 				}
 				out := v.Display()
 				if len(out) > toolMaxOutput {
 					out = out[:toolMaxOutput] + "\n\n... OUTPUT TRUNCATED"
 				}
-				return out
+				return out + warnings
 			}
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		start := time.Now()
-		answer, attempts, stats, err := llm.RunAgent(ctx, model, opts.SystemPrompt,
-			teaser.Prompt+"\n"+teaser.FormatHint, runTool, opts.MaxIters)
+		var answer string
+		var attempts []Attempt
+		var stats AgentStats
+		var err error
+		if opts.CallTool != nil {
+			answer, attempts, stats, err = llm.RunAgentTools(ctx, model, opts.SystemPrompt,
+				teaser.Prompt+"\n"+teaser.FormatHint, opts.Tools, opts.CallTool, opts.MaxIters)
+		} else {
+			answer, attempts, stats, err = llm.RunAgent(ctx, model, opts.SystemPrompt,
+				teaser.Prompt+"\n"+teaser.FormatHint, runTool, opts.MaxIters)
+		}
 		cancel()
 
 		var toolMs int64

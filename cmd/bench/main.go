@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/iodesystems/mcpshell/bench"
+	"github.com/iodesystems/mcpshell/mcp"
 	"github.com/iodesystems/mcpshell/runtime"
 	"github.com/iodesystems/mcpshell/toolkit"
 )
@@ -45,6 +46,8 @@ func main() {
 	model := fs.String("model", os.Getenv("MCPSHELL_LLM_MODEL"), "model id or substring (or MCPSHELL_LLM_MODEL)")
 	compact := fs.Bool("compact", false, "use the compact system prompt")
 	noTool := fs.Bool("no-tool", false, "reasoning-only baseline: run without the mcpshell tool")
+	hosted := fs.Bool("hosted", false, "run the hosted suite: Acme's 102 tools hosted in mcpshell as the acme namespace")
+	discrete := fs.Bool("discrete", false, "with --hosted: give the model Acme's 102 tools directly, no mcpshell")
 	failFast := fs.Bool("fail-fast", false, "stop on the first failure")
 	timeout := fs.Int("timeout", 30, "per-teaser timeout in seconds")
 	maxIters := fs.Int("max-iters", 50, "max agent iterations per teaser")
@@ -59,9 +62,21 @@ func main() {
 	if *model == "" {
 		fail("no model — set MCPSHELL_LLM_MODEL in env.local or pass --model")
 	}
+	if *discrete && !*hosted {
+		fail("--discrete needs --hosted")
+	}
+	if *hosted && *noTool {
+		fail("--hosted runs with mcpshell or, with --discrete, with Acme's tools; not with --no-tool")
+	}
 	outDir := *out
 	if outDir == "" {
 		outDir = "benchmarks/results"
+		switch {
+		case *hosted && *discrete:
+			outDir = "benchmarks/hosted/without"
+		case *hosted:
+			outDir = "benchmarks/hosted/with"
+		}
 		if *compact {
 			outDir += "-compact"
 		}
@@ -78,9 +93,31 @@ func main() {
 	}
 	shellFactory := newBenchShell(dbPath)
 
+	opts := bench.Options{}
+	if *hosted {
+		acme := bench.NewAcme()
+		srv := bench.ServeAcme(acme)
+		defer srv.Close()
+		opts.Suite = bench.HostedSuite(acme)
+		shellFactory = newHostedShell(srv.URL)
+		if *discrete {
+			opts.Tools = acme.OpenAITools()
+			opts.CallTool = func(name, args string) string {
+				text, isError := acme.Call(name, []byte(args))
+				if isError {
+					return "ERROR: " + text
+				}
+				return text
+			}
+		}
+	}
+
 	systemPrompt := benchSystemPrompt(*compact, shellFactory)
-	if *noTool {
+	switch {
+	case *noTool:
 		systemPrompt = noToolSystemPrompt()
+	case *discrete:
+		systemPrompt = discreteSystemPrompt()
 	}
 
 	llm := bench.NewLLM(*url, os.Getenv("MCPSHELL_LLM_API_KEY"))
@@ -92,16 +129,15 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "bench: model %q at %s\n", resolved, *url)
 
-	if err := bench.Run(llm, resolved, shellFactory, bench.Options{
-		SystemPrompt: systemPrompt,
-		OutputDir:    outDir,
-		TimeoutSec:   *timeout,
-		MaxIters:     *maxIters,
-		FailFast:     *failFast,
-		Only:         *only,
-		NoTool:       *noTool,
-		Label:        *label,
-	}); err != nil {
+	opts.SystemPrompt = systemPrompt
+	opts.OutputDir = outDir
+	opts.TimeoutSec = *timeout
+	opts.MaxIters = *maxIters
+	opts.FailFast = *failFast
+	opts.Only = *only
+	opts.NoTool = *noTool
+	opts.Label = *label
+	if err := bench.Run(llm, resolved, shellFactory, opts); err != nil {
 		fail("benchmark: %v", err)
 	}
 }
@@ -118,6 +154,28 @@ func newBenchShell(dbPath string) func() *runtime.Shell {
 		}
 		return sh
 	}
+}
+
+// newHostedShell is newBenchShell's hosted-suite counterpart: core + math, and
+// the Acme MCP server at url hosted as the `acme` namespace.
+func newHostedShell(url string) func() *runtime.Shell {
+	return func() *runtime.Shell {
+		sh := runtime.NewShell()
+		toolkit.InstallCore(sh)
+		toolkit.InstallMath(sh)
+		if len(mcp.InstallClients(sh, []mcp.NamedServer{{Namespace: "acme", Config: mcp.ServerConfig{URL: url}}})) == 0 {
+			fail("acme upstream did not connect")
+		}
+		return sh
+	}
+}
+
+// discreteSystemPrompt is the hosted suite's other arm: Acme's tools are the
+// model's tools, with no mcpshell.
+func discreteSystemPrompt() string {
+	return "You are a helpful assistant with access to Acme's company tools. " +
+		"Use the tools to look up the data you need; never guess. " +
+		"Return ONLY the raw final value — no explanation, no markdown, no wrapping. Just the value."
 }
 
 // benchSystemPrompt builds the benchmark system prompt: the mcpshell reference
@@ -178,6 +236,7 @@ func runCompare(args []string) {
 	out := fs.String("out", "", "output path (default <with_dir>/../comparison.md)")
 	title := fs.String("title", "With vs. without mcpshell", "comparison title")
 	label := fs.String("label", "model", "model name shown in the comparison")
+	without := fs.String("without", "reasoning only, no tool", "what the without arm had, shown in the comparison")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "bench compare <with_dir> <without_dir> [flags]\n\n"+
 			"Both dirs must contain a results.json (written by a benchmark run).")
@@ -193,7 +252,7 @@ func runCompare(args []string) {
 	if outPath == "" {
 		outPath = filepath.Join(filepath.Dir(withDir), "comparison.md")
 	}
-	if err := bench.Compare(withDir, withoutDir, outPath, *title, *label); err != nil {
+	if err := bench.Compare(withDir, withoutDir, outPath, *title, *label, *without); err != nil {
 		fail("compare: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", outPath)
