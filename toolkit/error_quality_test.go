@@ -86,7 +86,8 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		name, src string
 		wantSubs  []string
 	}{
-		{"unknown command suggests similar", `mpa([1], x => x)`, []string{"Did you mean", "map"}},
+		{"unknown command suggests similar", `mpa([1], x => x)`, []string{"Did you mean", "map", `help("<words>") searches commands`}},
+		{"unknown name suggests a case form", `let myList = 1; mylist`, []string{"Did you mean?\n    myList"}},
 		{"wrong arg type names the type", `[1,2] |> map(42)`, []string{"function"}},
 		{"pipe type mismatch explains", `42 |> map(x => x)`, []string{"array", "number"}},
 		{"new suggests no constructors", `new Date()`, []string{"no constructors"}},
@@ -192,6 +193,15 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 	}
 }
 
+// TestUnknownCommandIsShort: the error names near matches, not every
+// command — with an upstream hosted, the full list was 100+ lines.
+func TestUnknownCommandIsShort(t *testing.T) {
+	msg := evalErr(t, `nopecommand(1)`)
+	if strings.Contains(msg, "Available commands") || len(msg) > 300 {
+		t.Errorf("unknown-command error is %d bytes:\n%s", len(msg), msg)
+	}
+}
+
 // TestMissingMemberWarns: reading an absent key gives null as before, and
 // warns only when the read is likely a mistake — .length on an object, or a
 // key resembling an existing one. Optional-field checks stay silent.
@@ -240,6 +250,8 @@ func TestErrorQualityJsCompat(t *testing.T) {
 		{"string method split", `"a,b".split(",")`, `["a", "b"]`},
 		{"array method filter", `[1,2,3].filter(x => x > 1)`, "[2, 3]"},
 		{"array method includes", `[1,2,3].includes(2)`, "true"},
+		{"includes as a pipe stage", `[1,2,3] |> includes(2)`, "true"},
+		{"toUpperCase as a command", `"ab" |> toUpperCase()`, "AB"},
 		{"string method includes", `"hello world".includes("world")`, "true"},
 		{"string method toLowerCase", `"HELLO".toLowerCase()`, "hello"},
 		{"method as partial application", `let allowed = [2, 3, 5]; [1, 2, 3, 4] |> filter(allowed.contains)`, "[2, 3]"},

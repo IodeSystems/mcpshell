@@ -19,51 +19,45 @@ func Runtime(message string) *ShellError { return &ShellError{Message: message} 
 // Throw panics with a runtime error — shorthand for `panic(Runtime(msg))`.
 func Throw(message string) { panic(Runtime(message)) }
 
-// UnknownCommand builds the "Unknown command" error, with a JS-global hint or
-// a fuzzy "did you mean?" list plus the full available-command listing.
+// UnknownCommand builds the "Unknown command" error: a JS-global hint, or up
+// to five near names (case and separator forms, then small edits) and how to
+// search. It does not list every command: with an upstream hosted that is
+// hundreds of lines, paid in context on every typo.
 func UnknownCommand(name string, available []string) *ShellError {
 	if hint := jsGlobalHint(name); hint != "" {
 		return &ShellError{Message: hint}
 	}
-
-	type scored struct {
-		name string
-		dist int
-	}
-	var near []scored
+	seen := make(map[string]bool, len(available))
+	uniq := make([]string, 0, len(available))
 	for _, c := range available {
-		if d := levenshtein(name, c); d <= 3 {
-			near = append(near, scored{c, d})
+		if !seen[c] {
+			seen[c] = true
+			uniq = append(uniq, c)
 		}
 	}
-	sort.SliceStable(near, func(i, j int) bool { return near[i].dist < near[j].dist })
-	if len(near) > 3 {
-		near = near[:3]
+	near := nearKeys(name, uniq)
+	if len(near) == 0 {
+		type scored struct {
+			name string
+			dist int
+		}
+		var close []scored
+		for _, c := range uniq {
+			if d := levenshtein(name, c); d <= 2 && d < len(name) {
+				close = append(close, scored{c, d})
+			}
+		}
+		sort.SliceStable(close, func(i, j int) bool { return close[i].dist < close[j].dist })
+		for i := 0; i < len(close) && i < 5; i++ {
+			near = append(near, close[i].name)
+		}
 	}
-
-	suggestion := ""
+	msg := "Unknown command '" + name + "' — not a variable in scope or a command"
 	if len(near) > 0 {
-		var b strings.Builder
-		b.WriteString("\n\n  Did you mean?\n")
-		for _, s := range near {
-			b.WriteString("    " + s.name + "\n")
-		}
-		suggestion = strings.TrimRight(b.String(), "\n")
+		msg += "\n\n  Did you mean?\n    " + strings.Join(near, "\n    ")
 	}
-
-	availableList := ""
-	if len(available) > 0 {
-		sorted := append([]string(nil), available...)
-		sort.Strings(sorted)
-		var b strings.Builder
-		b.WriteString("\n\n  Available commands:\n")
-		for _, c := range sorted {
-			b.WriteString("    " + c + "\n")
-		}
-		availableList = strings.TrimRight(b.String(), "\n")
-	}
-
-	return &ShellError{Message: "Unknown command '" + name + "'" + suggestion + availableList}
+	msg += "\n\n  help(\"<words>\") searches commands; declare variables with let."
+	return &ShellError{Message: msg}
 }
 
 // jsGlobalHint returns targeted guidance for JS keywords/globals that mcpshell
