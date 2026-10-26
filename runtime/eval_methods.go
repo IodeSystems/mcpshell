@@ -335,6 +335,15 @@ func (v *Visitor) resolveNamedArgs(fn *FuncVal, ca callArgs) []Value {
 		return ca.positional
 	}
 	if len(fn.Params) == 0 {
+		// A native function without parameter names takes named arguments
+		// as one object after the positional ones: f(a: 1, b: 2) is f({a: 1, b: 2}).
+		if _, native := fn.Body.(*NativeBody); native {
+			obj := NewObject()
+			for _, na := range ca.named {
+				obj.Set(na.name, na.value)
+			}
+			return append(append([]Value(nil), ca.positional...), obj)
+		}
 		panic(Runtime("Named arguments used but function '" + nameOr(fn.Name, "<anonymous>") + "' has no parameter names"))
 	}
 	result := make([]Value, len(fn.Params))
@@ -885,7 +894,13 @@ func (v *Visitor) extractPipeCall(ctx parser.IAdditiveExprContext) *pipeCall {
 	if al := lastOp.ArgumentList(); al != nil {
 		ca = v.evalCallArgs(al)
 	}
-	return &pipeCall{fn: fn, args: v.resolveNamedArgs(fn, ca)}
+	if !ca.hasNamed() {
+		return &pipeCall{fn: fn, args: ca.positional}
+	}
+	// The piped value becomes the first argument, so named arguments resolve
+	// with a placeholder in that position: xs |> limit(n: 2) sets n, not input.
+	ca.positional = append([]Value{Null}, ca.positional...)
+	return &pipeCall{fn: fn, args: v.resolveNamedArgs(fn, ca)[1:]}
 }
 
 // tryGetArrayDestructureNames reports the identifier names of a bare

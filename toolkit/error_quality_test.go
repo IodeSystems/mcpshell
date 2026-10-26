@@ -215,6 +215,24 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 	}
 }
 
+// TestNamedArguments: commands take named arguments by their signature's
+// names, in calls and pipes; a piped value fills the first parameter.
+func TestNamedArguments(t *testing.T) {
+	for src, want := range map[string]string{
+		`limit(input: [1, 2, 3], n: 2)`:            "[1, 2]",
+		`[1, 2, 3] |> limit(n: 2)`:                 "[1, 2]",
+		`[1, 2] |> join(sep: "-")`:                 "1-2",
+		`let f = (a, b) => a - b; 10 |> f(b: 3)`:   "7",
+		`substring("benchmark", start: 4, end: 7)`: "hma",
+	} {
+		sh := toolkit.InstallCore(runtime.NewShell())
+		v, err := sh.Eval(src)
+		if err != nil || v.Display() != want {
+			t.Errorf("%s = %v, %v; want %s", src, v, err, want)
+		}
+	}
+}
+
 // TestUnknownCommandIsShort: the error names near matches, not every
 // command — with an upstream hosted, the full list was 100+ lines.
 func TestUnknownCommandIsShort(t *testing.T) {

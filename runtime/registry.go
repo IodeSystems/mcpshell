@@ -16,7 +16,8 @@ type CommandDef struct {
 	Examples    []string
 	Hidden      bool
 	Category    string // optional group within the namespace, listed by help("Ns.category")
-	Params      string // per-parameter detail, one line each; shown by help("name") only
+	Params      string   // per-parameter detail, one line each; shown by help("name") only
+	ParamNames  []string // parameter names in order, for named arguments: f(region: "West")
 	Fn          NativeFn
 }
 
@@ -27,7 +28,39 @@ func (c *CommandDef) MaxArgs() int {
 	if sig == "" || strings.Contains(sig, "...") {
 		return -1
 	}
-	n, depth := 1, 0
+	return len(signatureParts(sig))
+}
+
+// paramNames returns ParamNames, or the names the signature lists, for named
+// arguments: limit(input: xs, n: 2). nil for a rest parameter or an
+// alternative form (range(end | start, end)), whose positions are not fixed.
+func (c *CommandDef) paramNames() []string {
+	if c.ParamNames != nil {
+		return c.ParamNames
+	}
+	sig := strings.TrimSpace(c.Signature)
+	if sig == "" || strings.Contains(sig, "...") {
+		return nil
+	}
+	var names []string
+	for _, p := range signatureParts(sig) {
+		name := strings.TrimSpace(p)
+		if i := strings.IndexAny(name, ":?="); i >= 0 {
+			name = strings.TrimSpace(name[:i])
+		}
+		if !isIdentifier(name) {
+			return nil
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+// signatureParts splits a signature at its top-level commas; commas inside
+// (), [], {}, <> and function types do not split.
+func signatureParts(sig string) []string {
+	var parts []string
+	depth, start := 0, 0
 	for i, r := range sig {
 		switch r {
 		case '(', '[', '{', '<':
@@ -41,11 +74,12 @@ func (c *CommandDef) MaxArgs() int {
 			depth--
 		case ',':
 			if depth == 0 {
-				n++
+				parts = append(parts, sig[start:i])
+				start = i + 1
 			}
 		}
 	}
-	return n
+	return append(parts, sig[start:])
 }
 
 // CollapseNamespaceAt is the command count above which help() and the prompt
@@ -158,8 +192,9 @@ func (r *CommandRegistry) BuildNamespaceObject(namespace string) *ObjectVal {
 	obj := NewObject()
 	for _, c := range cmds {
 		obj.Set(c.Name, &FuncVal{
-			Name: c.DisplayName(),
-			Body: &NativeBody{Fn: c.Fn, Cmd: c},
+			Name:   c.DisplayName(),
+			Params: c.paramNames(),
+			Body:   &NativeBody{Fn: c.Fn, Cmd: c},
 		})
 	}
 	return obj

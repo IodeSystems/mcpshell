@@ -90,7 +90,7 @@ func (itp *Interpreter) commandFn(name string) *FuncVal {
 // commandFuncVal wraps a command as a callable, keeping the command so a call
 // can be checked against its signature.
 func commandFuncVal(name string, cmd *CommandDef) *FuncVal {
-	return &FuncVal{Name: name, Body: &NativeBody{Fn: cmd.Fn, Cmd: cmd}}
+	return &FuncVal{Name: name, Params: cmd.paramNames(), Body: &NativeBody{Fn: cmd.Fn, Cmd: cmd}}
 }
 
 // registerNamespace installs a namespace object in globals, optionally also

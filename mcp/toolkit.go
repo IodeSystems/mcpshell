@@ -156,6 +156,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Description: desc,
 			Category:    cats[toolName],
 			Params:      detail,
+			ParamNames:  params,
 			Fn: func(args []runtime.Value) runtime.Value {
 				defer withParams(callName, detail)
 				jsonArgs := argsToJSONMap(args, params)
@@ -407,10 +408,14 @@ func argsToJSONMap(args []runtime.Value, paramNames []string) map[string]any {
 			return out
 		}
 	}
+	// A null in a position is a skipped argument (list(null, 2) or a named
+	// call that set a later parameter), so it is left out, not sent as null.
 	out := make(map[string]any)
 	for i, name := range paramNames {
 		if i < len(args) {
-			out[name] = valueToJSON(args[i])
+			if _, isNull := args[i].(*runtime.NullVal); !isNull {
+				out[name] = valueToJSON(args[i])
+			}
 		}
 	}
 	return out

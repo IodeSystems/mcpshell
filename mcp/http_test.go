@@ -533,6 +533,25 @@ func TestParamDetail(t *testing.T) {
 	}
 }
 
+// TestUpstreamNamedArguments: an upstream tool takes named arguments by its
+// schema's property names, alone or after positional ones, and a null in a
+// position is a skipped argument, not sent.
+func TestUpstreamNamedArguments(t *testing.T) {
+	const schema = `{"type":"object","properties":{"region":{"type":"string"},"page":{"type":"integer"},"page_size":{"type":"integer"}}}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	for src, want := range map[string]string{
+		`remote.echo(region: "West", page_size: 5)`: `{page_size: 5, region: "West"}`,
+		`remote.echo("West", page_size: 5)`:         `{page_size: 5, region: "West"}`,
+		`remote.echo(null, 2, 3)`:                   `{page: 2, page_size: 3}`,
+	} {
+		if got := evalString(t, sh, src); got != want {
+			t.Errorf("%s sent %s, want %s", src, got, want)
+		}
+	}
+}
+
 func TestUncheckedToolsSkipChecks(t *testing.T) {
 	const schema = `{"type":"object","properties":{"limit":{"type":"integer"},"folderUid":{"type":"string"}},"required":["limit"],"additionalProperties":false}`
 	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema, tools: []string{"bad_tool", "good_tool"}})
