@@ -86,8 +86,15 @@ func main() {
 	}
 	// Seed the SQLite fixture used by the SQL composition teasers, then build a
 	// shell factory that attaches it read-only under the `shop` namespace.
-	dbPath := filepath.Join(os.TempDir(), "mcpshell-bench-fixture.sqlite")
-	_ = os.Remove(dbPath)
+	// A directory per run: two runs at once (the with and no-tool arms) shared
+	// one path, and the second's reseed broke the first.
+	fixtureDir, err := os.MkdirTemp("", "mcpshell-bench-")
+	if err != nil {
+		fail("fixture dir: %v", err)
+	}
+	atExit = append(atExit, func() { _ = os.RemoveAll(fixtureDir) })
+	defer runAtExit()
+	dbPath := filepath.Join(fixtureDir, "fixture.sqlite")
 	if err := bench.SeedSQLite(dbPath); err != nil {
 		fail("seed fixture: %v", err)
 	}
@@ -266,7 +273,18 @@ func noToolSystemPrompt() string {
 		"Return ONLY the raw final value — no explanation, no markdown, no wrapping. Just the value."
 }
 
+// atExit runs on a normal return and before fail exits, which skips defers.
+var atExit []func()
+
+func runAtExit() {
+	for _, f := range atExit {
+		f()
+	}
+	atExit = nil
+}
+
 func fail(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "bench: "+format+"\n", a...)
+	runAtExit()
 	os.Exit(1)
 }
