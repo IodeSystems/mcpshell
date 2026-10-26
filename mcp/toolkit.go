@@ -143,6 +143,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 		types := schemaTypes(tool.InputSchema)
 		unchecked := matchesAny(toolName, ns.Config.Unchecked)
 		callName := runtime.MemberRef(ns.Namespace, toolName)
+		detail := schemaDetail(tool.InputSchema)
 		desc := tool.Description
 		if desc == "" {
 			desc = toolName
@@ -154,7 +155,9 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Signature:   signature,
 			Description: desc,
 			Category:    cats[toolName],
+			Params:      detail,
 			Fn: func(args []runtime.Value) runtime.Value {
+				defer withParams(callName, detail)
 				jsonArgs := argsToJSONMap(args, params)
 				if !unchecked {
 					checkArgs(callName, ns.Namespace, toolName, jsonArgs, params, closed)
@@ -485,6 +488,93 @@ func checkRequired(callName, namespace, tool string, args map[string]any, requir
 	}
 	panic(runtime.Runtime(callName + ": missing required " + noun + ": " + strings.Join(missing, ", ") +
 		"\n\n  help(\"" + namespace + "." + tool + "\") shows every argument"))
+}
+
+// withParams adds the tool's parameter detail to an error raised by a call to
+// it — a failed check or an upstream failure — so the next call can be fixed
+// without a help() turn. Deferred in each tool's Fn.
+func withParams(callName, detail string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if se, ok := r.(*runtime.ShellError); ok && detail != "" && !strings.Contains(se.Message, "  parameters:") {
+		panic(runtime.Runtime(se.Message + "\n\n  " + callName + " parameters:\n" + detail))
+	}
+	panic(r)
+}
+
+// schemaDetail renders each property of an input schema on its own line:
+// name, type or enum values, required or default, and description.
+//
+//	status?: "paid" | "open" | "overdue" — payment status
+//	page_size?: integer, default 20 — rows per page, 1-25
+func schemaDetail(schema json.RawMessage) string {
+	var s struct {
+		Properties json.RawMessage `json:"properties"`
+		Required   []string        `json:"required"`
+	}
+	if json.Unmarshal(schema, &s) != nil || len(s.Properties) == 0 {
+		return ""
+	}
+	var props map[string]struct {
+		Type        json.RawMessage   `json:"type"`
+		Enum        []json.RawMessage `json:"enum"`
+		Default     json.RawMessage   `json:"default"`
+		Description string            `json:"description"`
+		Items       struct {
+			Type string `json:"type"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(s.Properties, &props) != nil {
+		return ""
+	}
+	required := map[string]bool{}
+	for _, r := range s.Required {
+		required[r] = true
+	}
+	var lines []string
+	for _, name := range orderedKeys(s.Properties) {
+		p := props[name]
+		typ := strings.Trim(string(p.Type), `"`)
+		if strings.HasPrefix(typ, "[") { // ["string","null"]
+			var many []string
+			_ = json.Unmarshal(p.Type, &many)
+			typ = strings.Join(many, " | ")
+		}
+		if typ == "array" && p.Items.Type != "" {
+			typ = p.Items.Type + "[]"
+		}
+		if len(p.Enum) > 0 {
+			vals := make([]string, len(p.Enum))
+			for i, e := range p.Enum {
+				vals[i] = string(e)
+			}
+			typ = strings.Join(vals, " | ")
+		}
+		if typ == "" {
+			typ = "any"
+		}
+		line := "    " + name
+		if !required[name] {
+			line += "?"
+		}
+		line += ": " + typ
+		if len(p.Default) > 0 {
+			line += ", default " + string(p.Default)
+		}
+		if d := strings.TrimSpace(p.Description); d != "" {
+			if i := strings.IndexByte(d, '\n'); i >= 0 {
+				d = d[:i]
+			}
+			if r := []rune(d); len(r) > 160 {
+				d = string(r[:160]) + "…"
+			}
+			line += " — " + d
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // toolError builds the error for a failed upstream call: the tool, the

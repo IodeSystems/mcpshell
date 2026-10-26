@@ -490,6 +490,28 @@ func TestArgTypesConverted(t *testing.T) {
 	}
 }
 
+// TestParamDetail: help("ns.tool") lists each parameter with its type or
+// enum, default and description, and an error from the tool carries the same
+// list, so the next call can be fixed without a help() turn.
+func TestParamDetail(t *testing.T) {
+	const schema = `{"type":"object","properties":{"status":{"type":"string","enum":["paid","open"],"description":"payment status"},` +
+		`"page_size":{"type":"integer","default":20,"description":"rows per page, 1-25\nmore"},"tags":{"type":"array","items":{"type":"string"}}},"required":["status"]}`
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	detail := "    status: \"paid\" | \"open\" — payment status\n" +
+		"    page_size?: integer, default 20 — rows per page, 1-25\n" +
+		"    tags?: string[]"
+	if got := evalString(t, sh, `help("remote.echo")`); !strings.Contains(got, "Parameters:\n"+detail) {
+		t.Errorf("help = %s\nwant parameters:\n%s", got, detail)
+	}
+	_, err := sh.Eval(`remote.echo({page_size: 5})`)
+	if err == nil || !strings.Contains(err.Error(), "missing required argument: status") ||
+		!strings.Contains(err.Error(), "remote.echo parameters:\n"+detail) {
+		t.Errorf("error = %v\nwant the parameter list", err)
+	}
+}
+
 func TestUncheckedToolsSkipChecks(t *testing.T) {
 	const schema = `{"type":"object","properties":{"limit":{"type":"integer"},"folderUid":{"type":"string"}},"required":["limit"],"additionalProperties":false}`
 	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true, schema: schema, tools: []string{"bad_tool", "good_tool"}})

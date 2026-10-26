@@ -16,6 +16,7 @@ type CommandDef struct {
 	Examples    []string
 	Hidden      bool
 	Category    string // optional group within the namespace, listed by help("Ns.category")
+	Params      string // per-parameter detail, one line each; shown by help("name") only
 	Fn          NativeFn
 }
 
@@ -501,6 +502,9 @@ func detailedHelp(c *CommandDef) string {
 	var b strings.Builder
 	b.WriteString(c.CallName() + "(" + c.Signature + ")\n\n")
 	b.WriteString("  " + c.Description + "\n")
+	if c.Params != "" {
+		b.WriteString("\n  Parameters:\n" + c.Params + "\n")
+	}
 	if len(c.Examples) > 0 {
 		b.WriteString("\n  Examples:\n")
 		for _, ex := range c.Examples {
