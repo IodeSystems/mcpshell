@@ -32,7 +32,7 @@ func TestJsCompatProbe(t *testing.T) {
 		{"11 JSON stringify", `JSON.stringify({a: 1})`, ok, `{"a":1}`},
 		{"12 Math floor", `Math.floor(3.5)`, ok, "3"},
 		{"13 Object keys", `Object.keys({a: 1})`, ok, `["a"]`},
-		{"14 typeof undefined ref", `typeof x === "number"`, err, "Unknown"},
+		{"14 typeof undefined ref", `typeof x === "number"`, ok, "false"},
 		{"15 instanceof", `let x = 1; x instanceof Array`, err, "instanceof"},
 		{"16 new Date", `new Date()`, err, "new"},
 		{"17 class Foo", `class Foo {}`, err, "classes"},

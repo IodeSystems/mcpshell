@@ -88,6 +88,7 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 	}{
 		{"unknown command suggests similar", `mpa([1], x => x)`, []string{"Did you mean", "map", `help("<words>") searches commands`}},
 		{"unknown name suggests a case form", `let myList = 1; mylist`, []string{"Did you mean?\n    myList"}},
+		{"a longer name containing a command suggests it", `mylen([1])`, []string{"Did you mean?\n    len"}},
 		{"wrong arg type names the type", `[1,2] |> map(42)`, []string{"function"}},
 		{"pipe type mismatch explains", `42 |> map(x => x)`, []string{"array", "number"}},
 		{"new suggests no constructors", `new Date()`, []string{"no constructors"}},
@@ -233,12 +234,39 @@ func TestNamedArguments(t *testing.T) {
 	}
 }
 
+// TestTypeofUndeclared: typeof of an undeclared name is "undefined", as in
+// JS, so feature checks (typeof eval === "function") run instead of failing.
+func TestTypeofUndeclared(t *testing.T) {
+	for src, want := range map[string]string{
+		`typeof eval`:                "undefined",
+		`typeof require`:             "undefined",
+		`typeof eval === "function"`: "false",
+		`typeof map`:                 "function",
+		`let x = 1; typeof x`:        "number",
+	} {
+		v, err := toolkit.InstallCore(runtime.NewShell()).Eval(src)
+		if err != nil || v.Display() != want {
+			t.Errorf("%s = %v, %v; want %s", src, v, err, want)
+		}
+	}
+	// Only a bare name: a member of an undeclared name still fails.
+	if msg := evalErr(t, `typeof nope.bar`); !strings.Contains(msg, "'nope'") {
+		t.Errorf("typeof nope.bar error = %q", msg)
+	}
+}
+
 // TestUnknownCommandIsShort: the error names near matches, not every
 // command — with an upstream hosted, the full list was 100+ lines.
 func TestUnknownCommandIsShort(t *testing.T) {
 	msg := evalErr(t, `nopecommand(1)`)
 	if strings.Contains(msg, "Available commands") || len(msg) > 300 {
 		t.Errorf("unknown-command error is %d bytes:\n%s", len(msg), msg)
+	}
+	// Short and long names get no substring junk.
+	for _, src := range []string{`x + 1`, `undefinedThing(1)`} {
+		if msg := evalErr(t, src); strings.Contains(msg, "Did you mean") {
+			t.Errorf("%s suggests:\n%s", src, msg)
+		}
 	}
 }
 

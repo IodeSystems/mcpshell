@@ -1210,6 +1210,11 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 		}
 		return &NumberVal{V: float64(^int32(n.V))}
 	case ctx.TYPEOF() != nil:
+		if name, ok := bareIdentifier(ctx.UnaryExpr()); ok && !v.resolves(name) {
+			// As in JS, typeof of an undeclared name is "undefined", not an
+			// error: typeof eval === "function" is how code detects a feature.
+			return &StringVal{V: "undefined"}
+		}
 		return &StringVal{V: v.eval(ctx.UnaryExpr()).TypeName()}
 	case ctx.DELETE() != nil:
 		return v.evalDelete(ctx.UnaryExpr())
@@ -1219,6 +1224,29 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 	default:
 		return v.eval(ctx.PostfixExpr())
 	}
+}
+
+// bareIdentifier returns the name when a unary operand is just an identifier
+// (typeof x), not a member access or call.
+func bareIdentifier(u parser.IUnaryExprContext) (string, bool) {
+	uc, ok := u.(*parser.UnaryExprContext)
+	if !ok || uc.PostfixExpr() == nil {
+		return "", false
+	}
+	pc, ok := uc.PostfixExpr().(*parser.PostfixExprContext)
+	if !ok || len(pc.AllPostfixOp()) > 0 {
+		return "", false
+	}
+	id, ok := pc.PrimaryExpr().(*parser.IdentifierExprContext)
+	if !ok {
+		return "", false
+	}
+	return identOrFunctionText(id.IDENTIFIER(), id.FUNCTION()), true
+}
+
+// resolves reports whether an identifier names a variable or a command.
+func (v *Visitor) resolves(name string) bool {
+	return v.env.Get(name) != nil || v.resolveCommand(name) != nil
 }
 
 // evalDelete implements the `delete` operator. `delete obj.key` / `delete arr[i]`
