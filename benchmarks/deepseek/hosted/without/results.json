@@ -1,0 +1,98 @@
+[
+  {
+    "name": "hosted_lookup_email",
+    "success": true,
+    "turns": 2,
+    "tool_calls": 1,
+    "prompt_tokens": 20699,
+    "cached_tokens": 10170,
+    "completion_tokens": 53,
+    "tool_ms": 0,
+    "model_ms": 2452,
+    "total_ms": 2452
+  },
+  {
+    "name": "hosted_region_paid_invoices",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 6,
+    "prompt_tokens": 37071,
+    "cached_tokens": 10178,
+    "completion_tokens": 2838,
+    "tool_ms": 2,
+    "model_ms": 12641,
+    "total_ms": 12643
+  },
+  {
+    "name": "hosted_gold_open_tickets",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 8,
+    "prompt_tokens": 32432,
+    "cached_tokens": 10146,
+    "completion_tokens": 575,
+    "tool_ms": 0,
+    "model_ms": 5258,
+    "total_ms": 5258
+  },
+  {
+    "name": "hosted_top_product_delivered",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 25,
+    "prompt_tokens": 122011,
+    "cached_tokens": 80234,
+    "completion_tokens": 17579,
+    "tool_ms": 5,
+    "model_ms": 68219,
+    "total_ms": 68224
+  },
+  {
+    "name": "hosted_platform_open_tasks",
+    "success": true,
+    "turns": 5,
+    "tool_calls": 7,
+    "prompt_tokens": 54325,
+    "cached_tokens": 11394,
+    "completion_tokens": 677,
+    "tool_ms": 2,
+    "model_ms": 7711,
+    "total_ms": 7713
+  },
+  {
+    "name": "hosted_customer_overdue_total",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 2,
+    "prompt_tokens": 31335,
+    "cached_tokens": 10276,
+    "completion_tokens": 171,
+    "tool_ms": 0,
+    "model_ms": 3848,
+    "total_ms": 3848
+  },
+  {
+    "name": "hosted_west_avg_order",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 4,
+    "prompt_tokens": 32005,
+    "cached_tokens": 20570,
+    "completion_tokens": 405,
+    "tool_ms": 0,
+    "model_ms": 6895,
+    "total_ms": 6895
+  },
+  {
+    "name": "hosted_vendor_approved_po",
+    "success": true,
+    "turns": 3,
+    "tool_calls": 3,
+    "prompt_tokens": 32848,
+    "cached_tokens": 21122,
+    "completion_tokens": 459,
+    "tool_ms": 0,
+    "model_ms": 6080,
+    "total_ms": 6080
+  }
+]

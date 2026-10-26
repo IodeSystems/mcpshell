@@ -1,0 +1,98 @@
+[
+  {
+    "name": "hosted_lookup_email",
+    "success": true,
+    "turns": 4,
+    "tool_calls": 3,
+    "prompt_tokens": 18073,
+    "cached_tokens": 8930,
+    "completion_tokens": 199,
+    "tool_ms": 19,
+    "model_ms": 3484,
+    "total_ms": 3503
+  },
+  {
+    "name": "hosted_region_paid_invoices",
+    "success": true,
+    "turns": 6,
+    "tool_calls": 5,
+    "prompt_tokens": 30207,
+    "cached_tokens": 9680,
+    "completion_tokens": 589,
+    "tool_ms": 101,
+    "model_ms": 6924,
+    "total_ms": 7025
+  },
+  {
+    "name": "hosted_gold_open_tickets",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 6,
+    "prompt_tokens": 36244,
+    "cached_tokens": 23136,
+    "completion_tokens": 800,
+    "tool_ms": 101,
+    "model_ms": 7865,
+    "total_ms": 7966
+  },
+  {
+    "name": "hosted_top_product_delivered",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 6,
+    "prompt_tokens": 37916,
+    "cached_tokens": 21174,
+    "completion_tokens": 862,
+    "tool_ms": 234,
+    "model_ms": 12128,
+    "total_ms": 12362
+  },
+  {
+    "name": "hosted_platform_open_tasks",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 6,
+    "prompt_tokens": 35521,
+    "cached_tokens": 24884,
+    "completion_tokens": 486,
+    "tool_ms": 53,
+    "model_ms": 7498,
+    "total_ms": 7551
+  },
+  {
+    "name": "hosted_customer_overdue_total",
+    "success": true,
+    "turns": 6,
+    "tool_calls": 5,
+    "prompt_tokens": 30567,
+    "cached_tokens": 9124,
+    "completion_tokens": 407,
+    "tool_ms": 42,
+    "model_ms": 6364,
+    "total_ms": 6406
+  },
+  {
+    "name": "hosted_west_avg_order",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 6,
+    "prompt_tokens": 35978,
+    "cached_tokens": 16770,
+    "completion_tokens": 602,
+    "tool_ms": 62,
+    "model_ms": 7787,
+    "total_ms": 7849
+  },
+  {
+    "name": "hosted_vendor_approved_po",
+    "success": true,
+    "turns": 7,
+    "tool_calls": 6,
+    "prompt_tokens": 36904,
+    "cached_tokens": 21404,
+    "completion_tokens": 1414,
+    "tool_ms": 205,
+    "model_ms": 11049,
+    "total_ms": 11254
+  }
+]

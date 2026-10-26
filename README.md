@@ -15,8 +15,11 @@ tools can't offer at once:
   or ambient I/O, plus step/time limits, so model-authored code can't reach or
   hang the host.
 
-Measured against the reasoning-only baseline — 96% context cut, 3.3× faster on
-LLM-hard tasks, every host escape blocked — in [`benchmarks/`](benchmarks/README.md).
+Measured in [`benchmarks/`](benchmarks/README.md): a 96% cut in tool-schema
+context; on DeepSeek with a 102-tool server, 38% fewer processed tokens and 43%
+less time than the same tools given directly (but 51 turns to 29); every host
+escape blocked. On small self-contained problems a fast model is quicker
+without the tool.
 
 **Status: complete.** Parser, runtime, interpreter, all toolkits
 (core, math, web, file, graph, SQL, browser), the MCP server, and the LLM

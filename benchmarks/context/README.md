@@ -48,6 +48,10 @@ orders |> groupBy(o => o.region)
        |> sort("desc") |> at(0)
 ```
 
-The composition benchmark shows the tool-equipped model solving these in 1–2
-turns rather than a turn per operation — fewer round-trips, less latency, and no
-intermediate results shuttled back through the context window.
+That is the design intent, and it holds per pipeline. Measured end to end it
+does not show up as fewer turns: the composition runs took 2–6 turns with the
+tool (bonsai) and 12 turns for 5 problems (DeepSeek) against 1 each from
+reasoning, and on the [DeepSeek hosted run](../deepseek/README.md) mcpshell
+used 51 turns to the discrete tools' 29, the difference spent looking tools up
+with `help()`. What composition does save is the intermediate data: 38% fewer
+processed tokens and 43% less time on that run.
