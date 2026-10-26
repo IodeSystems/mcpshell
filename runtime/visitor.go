@@ -1528,6 +1528,11 @@ func (v *Visitor) resolveCommand(name string) *FuncVal {
 	}
 	cmd := v.itp.commands.Get(name)
 	if cmd == nil {
+		if alias, ok := jsCommandAliases[name]; ok {
+			cmd = v.itp.commands.Get(alias)
+		}
+	}
+	if cmd == nil {
 		return nil
 	}
 	fn := commandFuncVal(cmd.Name, cmd)

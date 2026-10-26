@@ -52,6 +52,18 @@ var jsMethodAliases = map[string]map[string]string{
 	},
 }
 
+// jsCommandAliases lets a JS method name work as a command too, so the call
+// and pipe forms match the method form: [1, 2] |> includes(2) as well as
+// [1, 2].includes(2). Only names that are not commands themselves (slice is).
+var jsCommandAliases = map[string]string{
+	"includes":    "contains",
+	"toUpperCase": "upper",
+	"toLowerCase": "lower",
+	"replaceAll":  "replace",
+	"trimLeft":    "trimStart",
+	"trimRight":   "trimEnd",
+}
+
 // jsMethodHints holds JS methods with no mcpshell equivalent → error hint text.
 var jsMethodHints = map[string]map[string]string{
 	"array": {},
