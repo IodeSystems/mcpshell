@@ -32,15 +32,21 @@ func InstallMath(sh *Shell) *Shell {
 			}},
 		})
 	}
-	unary("abs", math.Abs)
-	unary("floor", math.Floor)
-	unary("ceil", math.Ceil)
 	obj.Set("round", &FuncVal{
 		Name: ns + ".round", Params: []string{"n", "digits"},
 		Body: &NativeBody{Fn: func(args []Value) Value { return roundArgs(ns+".round", args) }},
 	})
+	exact := func(name string, op func(*NumberVal) *NumberVal) {
+		obj.Set(name, &FuncVal{
+			Name: ns + "." + name, Params: []string{"n"},
+			Body: &NativeBody{Fn: func(args []Value) Value { return op(requireNum(ns+"."+name, args)) }},
+		})
+	}
+	exact("abs", AbsNumber)
+	exact("floor", func(n *NumberVal) *NumberVal { return IntegerPart(n, "floor") })
+	exact("ceil", func(n *NumberVal) *NumberVal { return IntegerPart(n, "ceil") })
+	exact("trunc", func(n *NumberVal) *NumberVal { return IntegerPart(n, "trunc") })
 	unary("sign", mathSign)
-	unary("trunc", math.Trunc)
 	unary("sqrt", math.Sqrt)
 	unary("cbrt", math.Cbrt)
 	unary("exp", math.Exp)

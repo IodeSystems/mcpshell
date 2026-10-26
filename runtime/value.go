@@ -422,6 +422,52 @@ func RoundNumber(n *NumberVal, digits int) *NumberVal {
 	return Num(math.Floor(n.V*s+0.5) / s)
 }
 
+// IntegerPart rounds an exact value to an integer exactly — mode "floor",
+// "ceil" or "trunc" — and a float-only value with math. floor(2 ** 60 + 0.5)
+// keeps every digit.
+func IntegerPart(n *NumberVal, mode string) *NumberVal {
+	r, ok := n.Exact()
+	if !ok {
+		switch mode {
+		case "floor":
+			return Num(math.Floor(n.V))
+		case "ceil":
+			return Num(math.Ceil(n.V))
+		}
+		return Num(math.Trunc(n.V))
+	}
+	q, m := new(big.Int).QuoRem(r.Num(), r.Denom(), new(big.Int)) // truncated toward zero
+	if m.Sign() != 0 {
+		if mode == "floor" && r.Sign() < 0 {
+			q.Sub(q, big.NewInt(1))
+		} else if mode == "ceil" && r.Sign() > 0 {
+			q.Add(q, big.NewInt(1))
+		}
+	}
+	return numBigInt(q)
+}
+
+// AbsNumber is |n|, exact for an exact value.
+func AbsNumber(n *NumberVal) *NumberVal {
+	if r, ok := n.Exact(); ok {
+		return numRat(new(big.Rat).Abs(r))
+	}
+	return Num(math.Abs(n.V))
+}
+
+// FixedString formats n with digits decimal places, rounded as RoundNumber
+// rounds: exact for an exact value, so (1.005).toFixed(2) is "1.01" and
+// agrees with round(1.005, 2). (JS gives "1.00", from its float64 value.)
+func FixedString(n *NumberVal, digits int) string {
+	if digits < 0 {
+		digits = 0
+	}
+	if r, ok := RoundNumber(n, digits).Exact(); ok {
+		return r.FloatString(digits)
+	}
+	return strconv.FormatFloat(n.V, 'f', digits, 64)
+}
+
 func abs(i int) int {
 	if i < 0 {
 		return -i

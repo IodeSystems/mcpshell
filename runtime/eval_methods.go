@@ -595,7 +595,7 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 			}}}
 		case "toFixed":
 			return &FuncVal{Name: "toFixed", Params: []string{"digits"}, Body: &NativeBody{Fn: func(args []Value) Value {
-				return &StringVal{V: fmt.Sprintf("%.*f", argInt(args, 0, 0), o.V)}
+				return &StringVal{V: FixedString(o, argInt(args, 0, 0))}
 			}}}
 		default:
 			panic(TypeMismatch("member access ."+field, "object, array, or string", obj, ""))

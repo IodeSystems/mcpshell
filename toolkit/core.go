@@ -1079,14 +1079,14 @@ func InstallCore(sh *Shell) *Shell {
 	// --- Math ---
 
 	reg("floor", "n: number", "rounds down", []string{`3.7 |> floor()`},
-		func(args []Value) Value { return Num(math.Floor(requireNumber("floor", args, 0))) })
+		func(args []Value) Value { return IntegerPart(requireNum("floor", args), "floor") })
 	reg("ceil", "n: number", "rounds up", []string{`3.2 |> ceil()`},
-		func(args []Value) Value { return Num(math.Ceil(requireNumber("ceil", args, 0))) })
+		func(args []Value) Value { return IntegerPart(requireNum("ceil", args), "ceil") })
 	reg("round", "n: number, digits?: number", "rounds to the nearest integer, or to digits decimal places; a half rounds up (2.5 → 3, -2.5 → -2) as in JS Math.round",
 		[]string{`3.5 |> round()`, `round(2.345, 2)`},
 		func(args []Value) Value { return roundArgs("round", args) })
 	reg("abs", "n: number", "absolute value", []string{`-5 |> abs()`},
-		func(args []Value) Value { return Num(math.Abs(requireNumber("abs", args, 0))) })
+		func(args []Value) Value { return AbsNumber(requireNum("abs", args)) })
 
 	reg("min", "...values: number[]", "minimum", []string{`min(3, 1, 2)`},
 		func(args []Value) Value { return minMax(args, "min", false) })

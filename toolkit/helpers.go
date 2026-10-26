@@ -47,6 +47,15 @@ func requireNumber(cmd string, args []Value, idx int) float64 {
 	panic(WrongArguments(cmd, "number", args, ""))
 }
 
+// requireNum returns the first argument as a number value, keeping its exact
+// form (requireNumber returns only the float64).
+func requireNum(cmd string, args []Value) *NumberVal {
+	if n, ok := arg(args, 0).(*NumberVal); ok {
+		return n
+	}
+	panic(WrongArguments(cmd, "number", args, ""))
+}
+
 // roundArgs implements round(n, digits?) for round and Math.round.
 func roundArgs(cmd string, args []Value) Value {
 	n, ok := arg(args, 0).(*NumberVal)
