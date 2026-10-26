@@ -20,6 +20,12 @@ func InstallMath(sh *Shell) *Shell {
 	obj.Set("LN10", Num(math.Log(10)))
 	obj.Set("SQRT2", Num(math.Sqrt2))
 
+	// sig gives a Math function a signature, so a call with extra arguments
+	// drops them with a warning as a command call does.
+	sig := func(name, signature string) *CommandDef {
+		return &CommandDef{Namespace: ns, Name: name, Signature: signature}
+	}
+
 	unary := func(name string, op func(float64) float64) {
 		obj.Set(name, &FuncVal{
 			Name: ns + "." + name, Params: []string{"n"},
@@ -29,17 +35,17 @@ func InstallMath(sh *Shell) *Shell {
 					panic(TypeMismatch(ns+"."+name, "number", arg(args, 0), ""))
 				}
 				return Num(op(n.V))
-			}},
+			}, Cmd: sig(name, "n: number")},
 		})
 	}
 	obj.Set("round", &FuncVal{
 		Name: ns + ".round", Params: []string{"n", "digits"},
-		Body: &NativeBody{Fn: func(args []Value) Value { return roundArgs(ns+".round", args) }},
+		Body: &NativeBody{Fn: func(args []Value) Value { return roundArgs(ns+".round", args) }, Cmd: sig("round", "n: number, digits?: number")},
 	})
 	exact := func(name string, op func(*NumberVal) *NumberVal) {
 		obj.Set(name, &FuncVal{
 			Name: ns + "." + name, Params: []string{"n"},
-			Body: &NativeBody{Fn: func(args []Value) Value { return op(requireNum(ns+"."+name, args)) }},
+			Body: &NativeBody{Fn: func(args []Value) Value { return op(requireNum(ns+"."+name, args)) }, Cmd: sig(name, "n: number")},
 		})
 	}
 	exact("abs", AbsNumber)
@@ -73,7 +79,7 @@ func InstallMath(sh *Shell) *Shell {
 					panic(TypeMismatch(ns+"."+name, "number", arg(args, 1), ""))
 				}
 				return Num(op(a.V, b.V))
-			}},
+			}, Cmd: sig(name, "a: number, b: number")},
 		})
 	}
 	binary("pow", math.Pow)
