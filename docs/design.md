@@ -13,6 +13,10 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 ## Language
 
 - **`await x` is the identity.** Tool calls return their values directly, so there is nothing to wait for. Agents write `await` by habit, and rejecting it sent them looking for a concurrency problem. `async` functions are still unsupported.
+- **JS habits run, with a warning.** An agent pays a turn for every refusal, so code that works in JS works here when the meaning is clear, and the eval result carries `warning: line N: …` lines (also after an error) when it may not do what was meant.
+  - Declaring a builtin's name (`let all = []`) replaces it for the rest of the scope, with a warning. Refusing it was round-1 behaviour; on the hosted benchmark it cost 5 of 14 error turns. Command names (`sum`, `count`) were always declarable and do not warn: a warning on every common name would be noise.
+  - Extra arguments to a command are dropped, as in JS, and warned with the line: the signature's parameter count is the limit (`CommandDef.MaxArgs`); a signature with `...` or no signature is not checked, and one object argument is named arguments. `round(x, 2)` returned an integer with no sign of it before.
+  - `round(n, digits?)` rounds a half toward +∞ like JS `Math.round` (it was round-half-even), exactly for exact values: `round(1.005, 2)` is `1.01`.
 - **A caught error is its message string.** `"x" + e` keeps working. `e.message` returns the string for JS habit. Any other unknown member on a string raises an error, because silently returning `null` hid real errors ("ERR null").
 
 ## Large output

@@ -19,6 +19,34 @@ type CommandDef struct {
 	Fn          NativeFn
 }
 
+// MaxArgs is how many arguments the signature lists, or -1 when it does not
+// say: an empty signature, or a rest parameter (...values).
+func (c *CommandDef) MaxArgs() int {
+	sig := strings.TrimSpace(c.Signature)
+	if sig == "" || strings.Contains(sig, "...") {
+		return -1
+	}
+	n, depth := 1, 0
+	for i, r := range sig {
+		switch r {
+		case '(', '[', '{', '<':
+			depth++
+		case '>':
+			if i > 0 && sig[i-1] == '=' { // the arrow in a function type
+				continue
+			}
+			depth--
+		case ')', ']', '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // CollapseNamespaceAt is the command count above which help() and the prompt
 // list a namespace as one line instead of every command.
 const CollapseNamespaceAt = 20
@@ -130,7 +158,7 @@ func (r *CommandRegistry) BuildNamespaceObject(namespace string) *ObjectVal {
 	for _, c := range cmds {
 		obj.Set(c.Name, &FuncVal{
 			Name: c.DisplayName(),
-			Body: &NativeBody{Fn: c.Fn},
+			Body: &NativeBody{Fn: c.Fn, Cmd: c},
 		})
 	}
 	return obj

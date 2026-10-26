@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -433,6 +435,11 @@ func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 			last = Null
 		}
 		value := last
+		names := map[string]struct{}{}
+		v.collectDestructureNames(bc.Destructure(), names)
+		for _, name := range slices.Sorted(maps.Keys(names)) {
+			v.warnShadow(name, bc)
+		}
 		v.withLocation(bc, func() Value {
 			v.bindDestructure(bc.Destructure(), value)
 			return nil
@@ -454,8 +461,18 @@ func (v *Visitor) visitFnDecl(ctx *parser.FnDeclContext) Value {
 		ParamDefaults: defaults,
 		ParamNodes:    nodes,
 	}
+	v.warnShadow(name, ctx)
 	v.env.DefineOrSet(name, fn)
 	return Null
+}
+
+// warnShadow warns when a declaration replaces a builtin. The declaration
+// works — models name a list `all` or a total `sum` by habit — but the
+// builtin is gone for the rest of the scope, which the warning says.
+func (v *Visitor) warnShadow(name string, ctx antlr.ParserRuleContext) {
+	if v.env.IsBuiltin(name) {
+		v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s for the rest of this scope", startLine(ctx), name, name))
+	}
 }
 
 // fnDeclName resolves the declared name for a function declaration.
@@ -1436,7 +1453,7 @@ func (v *Visitor) resolveCommand(name string) *FuncVal {
 	if cmd == nil {
 		return nil
 	}
-	fn := nativeFn(cmd.Name, cmd.Fn)
+	fn := commandFuncVal(cmd.Name, cmd)
 	v.commandFnCache[name] = fn
 	return fn
 }

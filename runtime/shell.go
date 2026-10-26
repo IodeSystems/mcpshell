@@ -8,6 +8,20 @@ type Shell struct {
 	commands *CommandRegistry
 	limits   *ExecutionLimits
 	globals  *Environment
+	warnings []string // from the last eval
+}
+
+// Warnings returns the last eval's warnings, after success or error. Each
+// starts with "line N:".
+func (t *Shell) Warnings() []string { return t.warnings }
+
+// FormatWarnings renders warnings as a block to append to a tool result, or
+// "" when there are none.
+func FormatWarnings(warnings []string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	return "\n\nwarning: " + strings.Join(warnings, "\nwarning: ")
 }
 
 // NewShell builds a shell with default limits and the builtin `help` command.
@@ -90,7 +104,9 @@ func (t *Shell) Eval(source string) (result Value, err error) {
 	if t.limits.ResetOnEval {
 		t.limits.Reset()
 	}
+	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {
+		t.warnings = itp.Warnings()
 		if r := recover(); r != nil {
 			if te, ok := r.(*ShellError); ok {
 				result, err = Null, te
@@ -99,7 +115,7 @@ func (t *Shell) Eval(source string) (result Value, err error) {
 			panic(r)
 		}
 	}()
-	return NewInterpreter(t.commands, t.globals, t.limits).Eval(source).Value, nil
+	return itp.Eval(source).Value, nil
 }
 
 // EvalExported evaluates source in an isolated child scope, promoting only
@@ -109,10 +125,14 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 		t.limits.Reset()
 	}
 	childEnv := t.globals.Child()
+	itp := NewInterpreter(t.commands, childEnv, t.limits)
+	// vars bind after the interpreter's builtins, so a var named like a
+	// builtin (all, sum) holds the caller's value instead of being replaced.
 	for name, value := range vars {
 		childEnv.Define(name, value)
 	}
 	defer func() {
+		t.warnings = itp.Warnings()
 		if r := recover(); r != nil {
 			if te, ok := r.(*ShellError); ok {
 				result, err = Null, te
@@ -121,7 +141,7 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 			panic(r)
 		}
 	}()
-	res := NewInterpreter(t.commands, childEnv, t.limits).Eval(source)
+	res := itp.Eval(source)
 	for name := range res.ExportedNames {
 		if value := childEnv.Get(name); value != nil {
 			t.globals.DefineOrSet(name, value)
@@ -136,7 +156,9 @@ func (t *Shell) EvalTransactional(source string) (result Value, err error) {
 		t.limits.Reset()
 	}
 	snapshot := t.globals.Snapshot()
+	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {
+		t.warnings = itp.Warnings()
 		if r := recover(); r != nil {
 			t.globals.Restore(snapshot)
 			if te, ok := r.(*ShellError); ok {
@@ -146,7 +168,7 @@ func (t *Shell) EvalTransactional(source string) (result Value, err error) {
 			panic(r)
 		}
 	}()
-	return NewInterpreter(t.commands, t.globals, t.limits).Eval(source).Value, nil
+	return itp.Eval(source).Value, nil
 }
 
 // GetState returns all global bindings as an object.

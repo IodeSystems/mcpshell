@@ -1082,8 +1082,9 @@ func InstallCore(sh *Shell) *Shell {
 		func(args []Value) Value { return Num(math.Floor(requireNumber("floor", args, 0))) })
 	reg("ceil", "n: number", "rounds up", []string{`3.2 |> ceil()`},
 		func(args []Value) Value { return Num(math.Ceil(requireNumber("ceil", args, 0))) })
-	reg("round", "n: number", "rounds", []string{`3.5 |> round()`},
-		func(args []Value) Value { return Num(math.RoundToEven(requireNumber("round", args, 0))) })
+	reg("round", "n: number, digits?: number", "rounds to the nearest integer, or to digits decimal places; a half rounds up (2.5 → 3, -2.5 → -2) as in JS Math.round",
+		[]string{`3.5 |> round()`, `round(2.345, 2)`},
+		func(args []Value) Value { return roundArgs("round", args) })
 	reg("abs", "n: number", "absolute value", []string{`-5 |> abs()`},
 		func(args []Value) Value { return Num(math.Abs(requireNumber("abs", args, 0))) })
 

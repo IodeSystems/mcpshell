@@ -98,10 +98,8 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		{"missing member suggests prefixed name in brackets",
 			`let ns = {"grafana-search_docs": x => x}; ns.search_docs({})`,
 			[]string{"ns has no member 'search_docs'", `ns["grafana-search_docs"]`}},
-		{"redeclaring a builtin says so, with a line", "let x = 1\nlet all = []", []string{"'all' is a builtin", "at line 2"}},
 		{"camel name suggests its snake form", `let ns = {list_alert_rule_groups: x => x}; ns.listAlertRuleGroups()`,
 			[]string{"Did you mean", "ns.list_alert_rule_groups"}},
-		{"redeclaring Math says it is a builtin", `let Math = 1`, []string{"'Math' is a builtin"}},
 		{"redeclaring a let has a line", `let x = 1; let x = 2`, []string{"already declared", "at line 1"}},
 		{"null member names the member", `let o = {b: null}; o.b()`, []string{"'o.b' is not a function", "null"}},
 	}
@@ -112,6 +110,79 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 				if !strings.Contains(msg, sub) {
 					t.Errorf("eval(%q) error = %q, want substring %q", c.src, msg, sub)
 				}
+			}
+		})
+	}
+}
+
+// TestBuiltinShadowWarns: declaring a builtin's name works, as in JS, and
+// the result carries a warning with the line. Models name a list `all` by
+// habit; refusing cost a turn each time. (A command name such as sum was
+// always declarable, without a warning.)
+func TestBuiltinShadowWarns(t *testing.T) {
+	cases := []struct{ name, src, want, warn string }{
+		{"let replaces all", "let x = 1\nlet all = [x, 2]\nall", "[1, 2]", "line 2: 'all' replaces the builtin all"},
+		{"let replaces Math", "let Math = 3; Math", "3", "line 1: 'Math' replaces the builtin Math"},
+		{"function replaces all", "function all(a) { return 7 }\nall([1])", "7", "line 1: 'all' replaces the builtin all"},
+		{"destructure replaces race", "let {race} = {race: 4}; race", "4", "line 1: 'race' replaces the builtin race"},
+		{"an ordinary name has no warning", "let total = 1; total", "1", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sh := toolkit.InstallCore(runtime.NewShell())
+			v, err := sh.EvalExported(c.src, nil)
+			if err != nil {
+				t.Fatalf("eval(%q): %v", c.src, err)
+			}
+			if got := v.Display(); got != c.want {
+				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
+			}
+			warnings := strings.Join(sh.Warnings(), "\n")
+			if c.warn == "" && warnings != "" || !strings.Contains(warnings, c.warn) {
+				t.Errorf("eval(%q) warnings = %q, want %q", c.src, warnings, c.warn)
+			}
+		})
+	}
+	// A var named like a builtin holds the caller's value.
+	sh := toolkit.InstallCore(runtime.NewShell())
+	v, err := sh.EvalExported("all", map[string]runtime.Value{"all": &runtime.StringVal{V: "mine"}})
+	if err != nil || v.Display() != "mine" {
+		t.Errorf("var all = %v, %v; want mine", v, err)
+	}
+}
+
+// TestRoundAndDroppedArgs: round takes digits, rounds a half up as JS does,
+// and rounds exact values exactly. A command given more arguments than its
+// signature lists drops them with a warning, so round(x, 2) can no longer
+// silently return an integer.
+func TestRoundAndDroppedArgs(t *testing.T) {
+	cases := []struct{ src, want, warn string }{
+		{"round(2.345, 2)", "2.35", ""},
+		{"round(1.005, 2)", "1.01", ""},
+		{"round(2.5)", "3", ""},
+		{"round(-2.5)", "-2", ""},
+		{"round(1250, -2)", "1300", ""},
+		{"2.345 |> round(1)", "2.3", ""},
+		{"Math.round(429.58333, 2)", "429.58", ""},
+		{"floor(2.7, 9)", "2", "line 1: floor(n: number) takes 1 argument(s); ignored the extra 9"},
+		{"let s = \"a\"\ns |> upper(1, 2)", "A", "line 2: upper(input: string) takes 1 argument(s); ignored the extra 1, 2"},
+		{"[3, 1] |> sort((a, b) => a - b)", "[1, 3]", ""},
+		{"[1, 2] |> reduce((a, x) => a + x, 10)", "13", ""},
+		{"print(1, 2, 3)", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.src, func(t *testing.T) {
+			sh := toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell()))
+			v, err := sh.Eval(c.src)
+			if err != nil {
+				t.Fatalf("eval(%q): %v", c.src, err)
+			}
+			if got := v.Display(); c.want != "" && got != c.want {
+				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
+			}
+			warnings := strings.Join(sh.Warnings(), "\n")
+			if c.warn == "" && warnings != "" || !strings.Contains(warnings, c.warn) {
+				t.Errorf("eval(%q) warnings = %q, want %q", c.src, warnings, c.warn)
 			}
 		})
 	}

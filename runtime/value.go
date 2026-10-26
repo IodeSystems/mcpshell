@@ -288,7 +288,10 @@ type NativeFn func(args []Value) Value
 type FunctionBody interface{ isFunctionBody() }
 
 // NativeBody wraps a Go-implemented command or pipe function.
-type NativeBody struct{ Fn NativeFn }
+type NativeBody struct {
+	Fn  NativeFn
+	Cmd *CommandDef // the command this calls, if any: its signature caps the argument count
+}
 
 // ExpressionBody is an arrow function with an expression body: `x => expr`.
 type ExpressionBody struct {
@@ -399,6 +402,31 @@ func ParseNumber(s string) (*NumberVal, bool) {
 		return &NumberVal{V: f, kind: kFloat}, true
 	}
 	return nil, false
+}
+
+// RoundNumber rounds to digits decimal places (negative digits round to tens,
+// hundreds, …), with a half rounded up toward +∞ like JS Math.round:
+// 2.5 → 3, -2.5 → -2. An exact value rounds exactly, so 1.005 → 1.01.
+func RoundNumber(n *NumberVal, digits int) *NumberVal {
+	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(abs(digits))), nil))
+	if digits < 0 {
+		scale.Inv(scale)
+	}
+	if r, ok := n.Exact(); ok {
+		x := new(big.Rat).Mul(r, scale)
+		x.Add(x, big.NewRat(1, 2))
+		floor := new(big.Int).Div(x.Num(), x.Denom()) // Euclidean: floor for a positive denominator
+		return numRat(new(big.Rat).Quo(new(big.Rat).SetInt(floor), scale))
+	}
+	s, _ := scale.Float64()
+	return Num(math.Floor(n.V*s+0.5) / s)
+}
+
+func abs(i int) int {
+	if i < 0 {
+		return -i
+	}
+	return i
 }
 
 // Exact returns the value's arbitrary-precision rational and whether it is

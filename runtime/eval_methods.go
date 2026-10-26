@@ -77,7 +77,33 @@ func isIdentifierText(s string) bool {
 
 func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleContext) Value {
 	v.step(ctx)
+	if nb, ok := fn.Body.(*NativeBody); ok && nb.Cmd != nil {
+		args = v.dropExtraArgs(nb.Cmd, args, ctx)
+	}
 	return v.callFunctionInternal(fn, args)
+}
+
+// dropExtraArgs drops arguments past the command's signature, as JS ignores
+// extra arguments, and warns: an extra argument usually means the caller
+// expected another signature — round(x, 2) for two decimals — and the result
+// silently differs from what was meant. One object argument is named
+// arguments and never extra.
+func (v *Visitor) dropExtraArgs(cmd *CommandDef, args []Value, ctx antlr.ParserRuleContext) []Value {
+	max := cmd.MaxArgs()
+	if max < 0 || len(args) <= max {
+		return args
+	}
+	if _, named := args[0].(*ObjectVal); named && len(args) == 1 {
+		return args
+	}
+	extra := make([]string, 0, len(args)-max)
+	for _, a := range args[max:] {
+		extra = append(extra, a.Display())
+	}
+	v.itp.warn(fmt.Sprintf("line %d: %s(%s) takes %d argument(s); ignored the extra %s. "+
+		"The result may not be what was meant — see help(%q)",
+		startLine(ctx), cmd.DisplayName(), cmd.Signature, max, strings.Join(extra, ", "), cmd.DisplayName()))
+	return args[:max]
 }
 
 // callFunctionInternal dispatches a call by body type, evaluating user

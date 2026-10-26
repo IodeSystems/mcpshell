@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 type EvalResult struct {
 	Value         Value
 	ExportedNames map[string]struct{}
+	Warnings      []string
 }
 
 // Interpreter ties a command registry, global environment, and execution
@@ -21,6 +23,25 @@ type Interpreter struct {
 	commands *CommandRegistry
 	globals  *Environment
 	limits   *ExecutionLimits
+
+	warnMu   sync.Mutex
+	warnings []string
+}
+
+// warn records a warning for the eval result; a repeated warning is kept once.
+func (itp *Interpreter) warn(msg string) {
+	itp.warnMu.Lock()
+	defer itp.warnMu.Unlock()
+	if !slices.Contains(itp.warnings, msg) {
+		itp.warnings = append(itp.warnings, msg)
+	}
+}
+
+// Warnings returns the warnings recorded so far, also after a failed eval.
+func (itp *Interpreter) Warnings() []string {
+	itp.warnMu.Lock()
+	defer itp.warnMu.Unlock()
+	return slices.Clone(itp.warnings)
 }
 
 // NewInterpreter builds an interpreter and installs the builtin bindings
@@ -41,7 +62,7 @@ func (itp *Interpreter) Eval(source string) EvalResult {
 		v.returning = false
 		v.returnValue = nil
 	}
-	return EvalResult{Value: value, ExportedNames: v.exportedNames}
+	return EvalResult{Value: value, ExportedNames: v.exportedNames, Warnings: itp.Warnings()}
 }
 
 // executeInBranch runs a function in a fresh Visitor — used by parallel
@@ -74,7 +95,13 @@ func (itp *Interpreter) commandFn(name string) *FuncVal {
 	if cmd == nil {
 		return nil
 	}
-	return nativeFn(name, cmd.Fn)
+	return commandFuncVal(name, cmd)
+}
+
+// commandFuncVal wraps a command as a callable, keeping the command so a call
+// can be checked against its signature.
+func commandFuncVal(name string, cmd *CommandDef) *FuncVal {
+	return &FuncVal{Name: name, Body: &NativeBody{Fn: cmd.Fn, Cmd: cmd}}
 }
 
 // registerNamespace installs a namespace object in globals, optionally also

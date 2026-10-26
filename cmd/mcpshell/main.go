@@ -137,11 +137,19 @@ func main() {
 // evalAndPrint evaluates src, printing the result or exiting on error.
 func evalAndPrint(sh *runtime.Shell, src string) {
 	v, err := sh.Eval(src)
+	printWarnings(sh)
 	if err != nil {
 		fail("%v", err)
 	}
 	if _, isNull := v.(*runtime.NullVal); !isNull {
 		fmt.Println(v.Display())
+	}
+}
+
+// printWarnings writes the last eval's warnings to stderr.
+func printWarnings(sh *runtime.Shell) {
+	for _, w := range sh.Warnings() {
+		fmt.Fprintln(os.Stderr, "warning: "+w)
 	}
 }
 
@@ -162,6 +170,7 @@ func repl() {
 			continue
 		}
 		v, err := sh.Eval(line)
+		printWarnings(sh)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			continue

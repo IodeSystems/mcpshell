@@ -77,6 +77,14 @@ the same argument and returns `[{name, call, category, signature, description}]`
 for filtering in code. `await` is accepted and does nothing: tool calls return
 their values directly.
 
+Code an agent writes from JS habit runs, and the eval result says when it may
+not do what was meant: lines starting `warning: line N:` follow the result (or
+the error). `let all = []` replaces the builtin `all` for the rest of that
+scope, with a warning. A command given more arguments than its signature lists
+ignores the extras, as JS does, with a warning: `floor(2.7, 9)`.
+`round(n, digits?)` rounds to decimal places, and a half rounds up as in JS
+`Math.round` (`2.5` → `3`).
+
 Once the client sends `notifications/initialized`, mcpshell reports each
 connected upstream in a `notifications/message` with logger
 `mcpshell/hosted` and data `{"servers": [{"ns", "tools", "schemaBytes",

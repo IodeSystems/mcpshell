@@ -35,7 +35,10 @@ func InstallMath(sh *Shell) *Shell {
 	unary("abs", math.Abs)
 	unary("floor", math.Floor)
 	unary("ceil", math.Ceil)
-	unary("round", math.RoundToEven)
+	obj.Set("round", &FuncVal{
+		Name: ns + ".round", Params: []string{"n", "digits"},
+		Body: &NativeBody{Fn: func(args []Value) Value { return roundArgs(ns+".round", args) }},
+	})
 	unary("sign", mathSign)
 	unary("trunc", math.Trunc)
 	unary("sqrt", math.Sqrt)

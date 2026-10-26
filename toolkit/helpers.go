@@ -2,6 +2,7 @@ package toolkit
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -44,6 +45,23 @@ func requireNumber(cmd string, args []Value, idx int) float64 {
 		}
 	}
 	panic(WrongArguments(cmd, "number", args, ""))
+}
+
+// roundArgs implements round(n, digits?) for round and Math.round.
+func roundArgs(cmd string, args []Value) Value {
+	n, ok := arg(args, 0).(*NumberVal)
+	if !ok {
+		panic(WrongArguments(cmd, "number", args, ""))
+	}
+	digits := 0
+	if len(args) > 1 {
+		d, ok := args[1].(*NumberVal)
+		if !ok || d.V != math.Trunc(d.V) {
+			panic(WrongArguments(cmd, "an integer number of digits", args, ""))
+		}
+		digits = int(d.V)
+	}
+	return RoundNumber(n, digits)
 }
 
 // elemNumber requires that an array element is a number, for aggregators like

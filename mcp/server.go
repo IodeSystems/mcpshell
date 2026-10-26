@@ -235,8 +235,9 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		}
 	}
 	value, err := s.shell.EvalExported(code, vars)
+	warnings := runtime.FormatWarnings(s.shell.Warnings())
 	if err != nil {
-		return toolResult("ERROR: "+err.Error(), true)
+		return toolResult("ERROR: "+err.Error()+warnings, true)
 	}
 	out := value.Display()
 	if len(out) > s.maxOutputBytes {
@@ -245,7 +246,7 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		if path, err := s.saveOverflow(content); err == nil {
 			return toolResult(head+fmt.Sprintf("\n\n... OUTPUT TRUNCATED at %d of %d bytes. Full output saved to %s (%s)\n"+
 				"Page it with read(%q, start, lines) or search it with grep(%q, {match: …}).",
-				len(head), len(out), path, format, path, path), false)
+				len(head), len(out), path, format, path, path)+warnings, false)
 		} else if s.overflowDir != "" {
 			fmt.Fprintf(os.Stderr, "mcpshell mcp: saving overflow output failed: %v\n", err)
 		}
@@ -253,7 +254,7 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 			"\n\n... OUTPUT TRUNCATED (limit " + strconv.Itoa(s.maxOutputBytes) + " bytes). " +
 			"Use limit(), filter(), or read(path, start, lines) to reduce output."
 	}
-	return toolResult(out, false)
+	return toolResult(out+warnings, false)
 }
 
 // overflowContent renders an over-limit value for its overflow file so that

@@ -42,17 +42,31 @@ func (e *Environment) getLocked(name string) Value {
 	return nil
 }
 
-// Define binds a new name in this scope; panics if already declared here.
+// Define binds a new name in this scope; panics if already declared here. A
+// builtin is the exception: declaring its name replaces it for the rest of
+// the scope (the visitor warns, see warnShadow).
 func (e *Environment) Define(name string, value Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
 	if _, ok := e.bindings[name]; ok {
-		if e.builtins[name] {
-			panic(Runtime("'" + name + "' is a builtin and cannot be redeclared — use another name"))
+		if !e.builtins[name] {
+			panic(Runtime("'" + name + "' is already declared in this scope"))
 		}
-		panic(Runtime("'" + name + "' is already declared in this scope"))
+		delete(e.builtins, name)
 	}
 	e.bindings[name] = value
+}
+
+// IsBuiltin reports whether name currently resolves to a builtin binding.
+func (e *Environment) IsBuiltin(name string) bool {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	for env := e; env != nil; env = env.parent {
+		if _, ok := env.bindings[name]; ok {
+			return env.builtins[name]
+		}
+	}
+	return false
 }
 
 // Set assigns to an existing binding, searching outward; panics if undefined.

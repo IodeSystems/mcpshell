@@ -29,6 +29,8 @@ func TestServerProtocol(t *testing.T) {
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"eval","arguments":{"code":"nope("}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"eval","arguments":{"code":"x * 2","vars":{"x":21}}}}`,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"eval","arguments":{"code":"o","vars":{"o":{"z":12345678901234567890123,"a":0.12345678901234567890}}}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"eval","arguments":{"code":"floor(2.7, 9)"}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"eval","arguments":{"code":"let all = 1\nfloor(2.7, 9) + nope"}}}`,
 	}, "\n") + "\n"
 
 	var out bytes.Buffer
@@ -44,9 +46,9 @@ func TestServerProtocol(t *testing.T) {
 		}
 		resps = append(resps, m)
 	}
-	// The notification produces no response: 6 requests → 6 responses.
-	if len(resps) != 6 {
-		t.Fatalf("expected 6 responses, got %d", len(resps))
+	// The notification produces no response: 8 requests → 8 responses.
+	if len(resps) != 8 {
+		t.Fatalf("expected 8 responses, got %d", len(resps))
 	}
 
 	// initialize
@@ -74,6 +76,17 @@ func TestServerProtocol(t *testing.T) {
 	// vars keep exact numbers and key order
 	if got := toolText(t, resps[5]); got != "{z: 12345678901234567890123, a: 0.1234567890123456789}" {
 		t.Errorf("eval with exact vars = %q", got)
+	}
+	// warnings follow the result, and an error
+	want := "2\n\nwarning: line 1: floor(n: number) takes 1 argument(s); ignored the extra 9."
+	if got := toolText(t, resps[6]); !strings.HasPrefix(got, want) {
+		t.Errorf("eval with a dropped argument = %q, want prefix %q", got, want)
+	}
+	got := toolText(t, resps[7])
+	for _, sub := range []string{"ERROR:", "warning: line 1: 'all' replaces the builtin", "warning: line 2: floor"} {
+		if !strings.Contains(got, sub) {
+			t.Errorf("failed eval = %q, want %q", got, sub)
+		}
 	}
 }
 
