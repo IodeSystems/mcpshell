@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
@@ -23,26 +22,16 @@ type Interpreter struct {
 	commands *CommandRegistry
 	globals  *Environment
 	limits   *ExecutionLimits
-
-	warnMu   sync.Mutex
-	warnings []string
 }
 
-// warn records a warning for the eval result; a repeated warning is kept once.
-func (itp *Interpreter) warn(msg string) {
-	itp.warnMu.Lock()
-	defer itp.warnMu.Unlock()
-	if !slices.Contains(itp.warnings, msg) {
-		itp.warnings = append(itp.warnings, msg)
-	}
-}
+// warn records a warning for the eval result. Warnings live on the limits,
+// which every interpreter of one eval shares — callbacks a command runs (the
+// fn given to map) get a fresh Interpreter, and their warnings must not be lost.
+func (itp *Interpreter) warn(msg string) { itp.limits.warn(msg) }
 
-// Warnings returns the warnings recorded so far, also after a failed eval.
-func (itp *Interpreter) Warnings() []string {
-	itp.warnMu.Lock()
-	defer itp.warnMu.Unlock()
-	return slices.Clone(itp.warnings)
-}
+// Warnings returns the warnings recorded since the limits' last ClearWarnings,
+// also after a failed eval.
+func (itp *Interpreter) Warnings() []string { return itp.limits.Warnings() }
 
 // NewInterpreter builds an interpreter and installs the builtin bindings
 // (composition functions, JS namespace/constructor aliases).

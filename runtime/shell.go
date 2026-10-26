@@ -104,6 +104,7 @@ func (t *Shell) Eval(source string) (result Value, err error) {
 	if t.limits.ResetOnEval {
 		t.limits.Reset()
 	}
+	t.limits.ClearWarnings()
 	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {
 		t.warnings = itp.Warnings()
@@ -124,6 +125,7 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 	if t.limits.ResetOnEval {
 		t.limits.Reset()
 	}
+	t.limits.ClearWarnings()
 	childEnv := t.globals.Child()
 	itp := NewInterpreter(t.commands, childEnv, t.limits)
 	// vars bind after the interpreter's builtins, so a var named like a
@@ -155,6 +157,7 @@ func (t *Shell) EvalTransactional(source string) (result Value, err error) {
 	if t.limits.ResetOnEval {
 		t.limits.Reset()
 	}
+	t.limits.ClearWarnings()
 	snapshot := t.globals.Snapshot()
 	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {

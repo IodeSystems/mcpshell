@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,9 @@ type ExecutionLimits struct {
 	TimeoutMs      int64
 	MaxOutputBytes int
 	ResetOnEval    bool
+
+	warnMu   sync.Mutex
+	warnings []string
 
 	stepCount   atomic.Int64
 	callDepth   atomic.Int64
@@ -235,4 +239,27 @@ func (l *ExecutionLimits) Fork() *ExecutionLimits {
 	child.MaxOutputBytes = l.MaxOutputBytes
 	child.startTimeMs.Store(l.startTimeMs.Load())
 	return child
+}
+
+// warn records a warning for the current eval; a repeated one is kept once.
+func (l *ExecutionLimits) warn(msg string) {
+	l.warnMu.Lock()
+	defer l.warnMu.Unlock()
+	if !slices.Contains(l.warnings, msg) {
+		l.warnings = append(l.warnings, msg)
+	}
+}
+
+// Warnings returns the warnings recorded since ClearWarnings.
+func (l *ExecutionLimits) Warnings() []string {
+	l.warnMu.Lock()
+	defer l.warnMu.Unlock()
+	return slices.Clone(l.warnings)
+}
+
+// ClearWarnings starts a new eval's warnings.
+func (l *ExecutionLimits) ClearWarnings() {
+	l.warnMu.Lock()
+	defer l.warnMu.Unlock()
+	l.warnings = nil
 }

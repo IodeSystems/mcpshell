@@ -188,6 +188,36 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 	}
 }
 
+// TestMissingMemberWarns: reading an absent key gives null as before, and
+// warns only when the read is likely a mistake — .length on an object, or a
+// key resembling an existing one. Optional-field checks stay silent.
+func TestMissingMemberWarns(t *testing.T) {
+	cases := []struct{ src, want, warn string }{
+		{"let r = {items: [1, 2], total: 2}\nr.length", "null", "line 2: an object has no .length, so it read null — .items.length is the array inside"},
+		{"let o = {name: 1}\no.nmae", "null", "line 2: no member 'nmae', so it read null — did you mean 'name'?"},
+		{`let xs = [{name: "a"}]; xs |> map(x => x.nam)`, "[null]", "line 1: no member 'nam'"},
+		{"let o = {name: 1}; o.next ?? 5", "5", ""},
+		{"let o = {name: 1}; o?.nmae", "null", ""},
+		{"let o = {page: 1}; o.size", "null", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.src, func(t *testing.T) {
+			sh := toolkit.InstallCore(runtime.NewShell())
+			v, err := sh.Eval(c.src)
+			if err != nil {
+				t.Fatalf("eval(%q): %v", c.src, err)
+			}
+			if got := v.Display(); got != c.want {
+				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
+			}
+			warnings := strings.Join(sh.Warnings(), "\n")
+			if c.warn == "" && warnings != "" || !strings.Contains(warnings, c.warn) {
+				t.Errorf("eval(%q) warnings = %q, want %q", c.src, warnings, c.warn)
+			}
+		})
+	}
+}
+
 // TestErrorQualityJsCompat ports the cases where JS syntax resolves to a
 // mcpshell command and produces a value.
 func TestErrorQualityJsCompat(t *testing.T) {

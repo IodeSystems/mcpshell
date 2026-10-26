@@ -466,6 +466,47 @@ func (v *Visitor) visitFnDecl(ctx *parser.FnDeclContext) Value {
 	return Null
 }
 
+// warnMissingMember warns when a read of an absent object key is likely a
+// mistake. Reading an absent key gives null, as JS gives undefined, and that
+// is how optional fields are checked (if (r.next) …), so an absent key alone
+// is not warned. Two cases are: .length, which objects do not have (a JS
+// habit — the value is usually an array inside), and a key that resembles an
+// existing one (o.nmae for o.name). Either one otherwise surfaces later, far
+// from the cause, as a null in a comparison or a sum.
+func (v *Visitor) warnMissingMember(o *ObjectVal, field string, ctx antlr.ParserRuleContext) {
+	if o.Has(field) || field == "hasOwnProperty" {
+		return
+	}
+	line := startLine(ctx)
+	if field == "length" {
+		hint := "len(obj) counts its keys"
+		for _, k := range o.Keys() {
+			if val, _ := o.Get(k); val != nil {
+				if _, isArr := val.(*ArrayVal); isArr {
+					hint = "." + k + ".length is the array inside; len(obj) counts keys"
+					break
+				}
+			}
+		}
+		v.itp.warn(fmt.Sprintf("line %d: an object has no .length, so it read null — %s", line, hint))
+		return
+	}
+	near := nearKeys(field, o.Keys())
+	if len(near) == 0 && len(field) >= 4 {
+		// Two swapped letters (nmae) are two edits, past nearKeys' limit for
+		// short names; a typo of a 4+ letter key within 2 edits still counts.
+		for _, k := range o.Keys() {
+			if EditDistance(NormalizeName(field), NormalizeName(k)) <= 2 {
+				near = append(near, k)
+				break
+			}
+		}
+	}
+	if len(near) > 0 {
+		v.itp.warn(fmt.Sprintf("line %d: no member '%s', so it read null — did you mean '%s'?", line, field, near[0]))
+	}
+}
+
 // warnShadow warns when a declaration replaces a builtin. The declaration
 // works — models name a list `all` or a total `sum` by habit — but the
 // builtin is gone for the rest of the scope, which the warning says.
@@ -1200,7 +1241,12 @@ func (v *Visitor) applyPostfixRead(base Value, opc *parser.PostfixOpContext) Val
 	return v.withLocation(opc, func() Value {
 		switch {
 		case opc.FieldName() != nil:
-			return v.accessMember(base, v.fieldNameText(opc.FieldName()))
+			field := v.fieldNameText(opc.FieldName())
+			val := v.accessMember(base, field)
+			if o, ok := base.(*ObjectVal); ok && opc.OPTIONAL_CHAIN() == nil {
+				v.warnMissingMember(o, field, opc)
+			}
+			return val
 		case opc.LBRACKET() != nil:
 			return v.accessIndex(base, v.eval(opc.Expression()))
 		case opc.LPAREN() != nil:
@@ -1290,7 +1336,12 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 				}
 				lvaluePath = append(lvaluePath, field)
 				memberOf, member = current, field
-				return v.accessMember(current, field)
+				val := v.accessMember(current, field)
+				// A call on the member reports a missing one itself (NotCallable).
+				if o, ok := current.(*ObjectVal); ok && !isOptional && (nextOp == nil || nextOp.LPAREN() == nil) {
+					v.warnMissingMember(o, field, opc)
+				}
+				return val
 			case opc.LBRACKET() != nil:
 				index := v.eval(opc.Expression())
 				if s, ok := index.(*StringVal); ok {
