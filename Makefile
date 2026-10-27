@@ -45,7 +45,9 @@ fmt:
 # at the archive root, plus SHA256SUMS (the shape dun's deps.json downloads).
 # Build from a clean checkout of the release tag so --version reports the
 # tag; a DIST outside the checkout keeps the tree clean. cgo is off: every
-# dependency is pure Go. Upload with  gh release upload <tag> $(DIST)/*
+# dependency is pure Go. -tags release marks the binary as a release build
+# (dun's update.OfFile reads it; no file uses the tag). Upload with
+#   gh release upload <tag> $(DIST)/*
 DIST ?= dist
 RELEASE_TARGETS = linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 release:
@@ -53,7 +55,7 @@ release:
 	for t in $(RELEASE_TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; d=$(DIST)/mcpshell_$${os}_$${arch}; \
 		mkdir -p $$d && \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -o $$d/mcpshell ./cmd/mcpshell && \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -tags release -o $$d/mcpshell ./cmd/mcpshell && \
 		tar -C $$d --owner=0 --group=0 --numeric-owner -czf $$d.tar.gz mcpshell && \
 		rm -rf $$d || exit 1; \
 	done
