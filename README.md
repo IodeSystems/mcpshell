@@ -67,7 +67,9 @@ Upstreams are stdio commands or remote streamable-HTTP servers
 (`--connect 'ns=https://…'`, or `url` in the `--mcp` JSON). For hosted servers
 with short-lived OAuth tokens, `auth_cmd` is a shell command that prints a
 bearer token; it is cached, re-run on a 401, and re-run 60s before a JWT's
-`exp`:
+`exp`. The re-run on a 401 has `MCPSHELL_AUTH_RETRY=1` and
+`MCPSHELL_AUTH_REJECTED=<the rejected token>` in its environment, so a script
+that caches tokens knows to mint a new one:
 
 ```json
 {"mcpServers": {"el": {"url": "https://api.us.elevenlabs.io/v1/mcp",

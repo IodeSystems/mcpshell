@@ -182,20 +182,23 @@ func TestHTTPUpstream(t *testing.T) {
 }
 
 // TestHTTPAuthCmdRefresh covers a token that rotates mid-session: the cached
-// token gets a 401, auth_cmd runs again, and the request is retried.
+// token gets a 401, auth_cmd runs again, and the request is retried. Only the
+// re-run after the 401 has MCPSHELL_AUTH_RETRY and MCPSHELL_AUTH_REJECTED set.
 func TestHTTPAuthCmdRefresh(t *testing.T) {
 	var token atomic.Value
 	token.Store("tok-1")
 	srv := fakeHTTPServer(t, fakeOpts{token: &token})
 	defer srv.Close()
 
-	tokenFile := filepath.Join(t.TempDir(), "token")
+	dir := t.TempDir()
+	tokenFile, envLog := filepath.Join(dir, "token"), filepath.Join(dir, "env")
 	if err := os.WriteFile(tokenFile, []byte("tok-1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	authCmd := `echo "${MCPSHELL_AUTH_RETRY-unset} ${MCPSHELL_AUTH_REJECTED-unset}" >> ` + envLog + `; cat ` + tokenFile
 	sh := coreShell()
 	closers := mcp.InstallClients(sh, []mcp.NamedServer{
-		{Namespace: "remote", Config: mcp.ServerConfig{URL: srv.URL, AuthCmd: "cat " + tokenFile}},
+		{Namespace: "remote", Config: mcp.ServerConfig{URL: srv.URL, AuthCmd: authCmd}},
 	})
 	for _, c := range closers {
 		defer c.Close()
@@ -214,6 +217,13 @@ func TestHTTPAuthCmdRefresh(t *testing.T) {
 	}
 	if v.Display() != "echo: after rotation" {
 		t.Errorf("got %q", v.Display())
+	}
+	b, err := os.ReadFile(envLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(b), "unset unset\n1 tok-1\n"; got != want {
+		t.Errorf("auth_cmd environment per run = %q, want %q", got, want)
 	}
 }
 

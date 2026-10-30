@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -228,7 +229,7 @@ func (c *HTTPClient) post(body []byte) (*http.Response, error) {
 }
 
 // setHeaders applies static headers, the session id, and the bearer token
-// (minted by authCmd; forceAuth discards the cached one).
+// (minted by authCmd; forceAuth discards the cached one and tells authCmd so).
 func (c *HTTPClient) setHeaders(req *http.Request, forceAuth bool) error {
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
@@ -245,7 +246,14 @@ func (c *HTTPClient) setHeaders(req *http.Request, forceAuth bool) error {
 	if forceAuth || c.token == "" || (!c.tokenExp.IsZero() && time.Now().After(c.tokenExp.Add(-authRefreshMargin))) {
 		ctx, cancel := context.WithTimeout(context.Background(), authCmdTimeout)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "sh", "-c", c.authCmd).Output()
+		cmd := exec.CommandContext(ctx, "sh", "-c", c.authCmd)
+		if forceAuth {
+			// The 401 retry: a minter that caches tokens (an opaque one, or
+			// one revoked before its exp) must mint a new one, not return
+			// the rejected token again.
+			cmd.Env = append(os.Environ(), "MCPSHELL_AUTH_RETRY=1", "MCPSHELL_AUTH_REJECTED="+c.token)
+		}
+		out, err := cmd.Output()
 		if err != nil {
 			return fmt.Errorf("auth_cmd failed: %w", err)
 		}
