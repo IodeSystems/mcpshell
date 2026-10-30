@@ -15,7 +15,7 @@ type CommandDef struct {
 	Description string
 	Examples    []string
 	Hidden      bool
-	Category    string // optional group within the namespace, listed by help("Ns.category")
+	Category    string   // optional group within the namespace, listed by help("Ns.category")
 	Params      string   // per-parameter detail, one line each; shown by help("name") only
 	ParamNames  []string // parameter names in order, for named arguments: f(region: "West")
 	Fn          NativeFn
