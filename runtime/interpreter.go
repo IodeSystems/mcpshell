@@ -22,6 +22,12 @@ type Interpreter struct {
 	commands *CommandRegistry
 	globals  *Environment
 	limits   *ExecutionLimits
+
+	// evalScoped: globals is one eval's scope (Shell.EvalExported), so a
+	// top-level let lasts this eval only. earlierLets are the names an
+	// earlier eval declared without export.
+	evalScoped  bool
+	earlierLets map[string]bool
 }
 
 // warn records a warning for the eval result. Warnings live on the limits,

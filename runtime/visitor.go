@@ -527,9 +527,14 @@ func (v *Visitor) warnMissingMember(o *ObjectVal, field string, ctx antlr.Parser
 // works — models name a list `all` or a total `sum` by habit — but the
 // builtin is gone for the rest of the scope, which the warning says.
 func (v *Visitor) warnShadow(name string, ctx antlr.ParserRuleContext) {
-	if v.env.IsBuiltin(name) {
-		v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s for the rest of this scope", startLine(ctx), name, name))
+	if !v.env.IsBuiltin(name) {
+		return
 	}
+	if v.itp.evalScoped && v.env == v.itp.globals {
+		v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s in this eval only: a let lasts one eval, and the next eval sees the builtin (export let keeps a value)", startLine(ctx), name, name))
+		return
+	}
+	v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s for the rest of this scope", startLine(ctx), name, name))
 }
 
 // fnDeclName resolves the declared name for a function declaration.
@@ -1575,6 +1580,9 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 			msg += ", and none is kept now"
 		}
 		panic(Runtime(msg))
+	}
+	if v.itp.earlierLets[name] {
+		panic(&ShellError{Message: fmt.Sprintf("'%s' was declared with let in an earlier eval, and a let lasts one eval. Declare it with export (export let %s = …) to keep it for later evals\n\n  at line %d:%d", name, name, startLine(ctx), startCol(ctx))})
 	}
 	for _, d := range v.declaring {
 		if d.name == name {

@@ -420,3 +420,36 @@ func TestOwnInitializer(t *testing.T) {
 		t.Errorf("recursive let = %v, %v", v, err)
 	}
 }
+
+// TestLetLastsOneEval: in eval-scoped mode (the MCP server), a let lasts one
+// eval. Reading it in a later eval says so, and declaring a builtin's name
+// warns that the next eval sees the builtin. Found in a live dun session: the
+// model read `all` after `let all = []` and got the builtin function.
+func TestLetLastsOneEval(t *testing.T) {
+	sh := toolkit.InstallCore(runtime.NewShell())
+	steps := []struct{ src, want, warn string }{
+		{`let x = [1]; let all = []; export let y = 2`, "2", "in this eval only"},
+		{`x`, "ERR:'x' was declared with let in an earlier eval", ""},
+		{`1`, "1", ""},
+		{`x`, "ERR:export let x", ""},
+		{`y`, "2", ""},
+		{`all`, "function all()", ""},
+		{`export let x = 9`, "9", ""},
+		{`x`, "9", ""},
+	}
+	for _, s := range steps {
+		v, err := sh.EvalExported(s.src, nil)
+		got := ""
+		if err != nil {
+			got = "ERR:" + err.Error()
+		} else {
+			got = v.Display()
+		}
+		if !strings.HasPrefix(got, s.want) && !(strings.HasPrefix(s.want, "ERR:") && strings.Contains(got, strings.TrimPrefix(s.want, "ERR:"))) {
+			t.Errorf("%s = %q, want %q", s.src, got, s.want)
+		}
+		if w := strings.Join(sh.Warnings(), "\n"); !strings.Contains(w, s.warn) {
+			t.Errorf("%s warnings = %q, want %q", s.src, w, s.warn)
+		}
+	}
+}

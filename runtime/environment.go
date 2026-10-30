@@ -176,6 +176,20 @@ func (e *Environment) OwnBindings() map[string]Value {
 	return copyBindings(e.bindings)
 }
 
+// OwnDeclared returns the names declared directly in this scope, builtins
+// excluded (a declaration that replaced a builtin is included).
+func (e *Environment) OwnDeclared() []string {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	var names []string
+	for name := range e.bindings {
+		if !e.builtins[name] {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // AllBindings returns every visible binding, child shadowing parent.
 func (e *Environment) AllBindings() map[string]Value {
 	e.gil.Lock()

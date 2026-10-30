@@ -17,6 +17,10 @@ type Shell struct {
 
 	resultSeq int      // last $rN handed out
 	kept      []string // $rN names still bound, oldest first
+
+	// earlierLets are the names earlier EvalExported calls declared without
+	// export: they are gone in later evals, and reading one says so.
+	earlierLets map[string]bool
 }
 
 // KeptResults is how many truncated results the shell keeps as $r1, $r2, …
@@ -181,13 +185,26 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 	t.limits.ClearWarnings()
 	childEnv := t.globals.Child()
 	itp := NewInterpreter(t.commands, childEnv, t.limits)
+	itp.evalScoped, itp.earlierLets = true, t.earlierLets
 	// vars bind after the interpreter's builtins, so a var named like a
 	// builtin (all, sum) holds the caller's value instead of being replaced.
 	for name, value := range vars {
 		childEnv.Define(name, value)
 	}
+	var exported map[string]struct{}
 	defer func() {
 		t.warnings = itp.Warnings()
+		if t.earlierLets == nil {
+			t.earlierLets = map[string]bool{}
+		}
+		for _, name := range childEnv.OwnDeclared() {
+			if _, isVar := vars[name]; !isVar && t.globals.Get(name) == nil {
+				t.earlierLets[name] = true
+			}
+		}
+		for name := range exported {
+			delete(t.earlierLets, name)
+		}
 		if r := recover(); r != nil {
 			if te, ok := r.(*ShellError); ok {
 				result, err = Null, te
@@ -197,6 +214,7 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 		}
 	}()
 	res := itp.Eval(source)
+	exported = res.ExportedNames
 	for name := range res.ExportedNames {
 		if value := childEnv.Get(name); value != nil {
 			t.globals.DefineOrSet(name, value)
