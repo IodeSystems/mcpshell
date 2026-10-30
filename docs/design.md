@@ -21,6 +21,8 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
   - Reading an absent object key gives null, as JS gives undefined, and that is how optional fields are checked, so it is not warned in general. It is warned for `.length` on an object (the array is usually inside: `.items.length`) and for a key that resembles an existing one (`o.nmae`). Warnings are kept on `ExecutionLimits`, which every interpreter of one eval shares, so a callback that a command runs (the fn given to `map`) warns too.
   - `floor`, `ceil`, `trunc`, `abs` and `toFixed` are exact for exact values. `toFixed` rounds as `round` does, so `(1.005).toFixed(2)` is `"1.01"` where JS gives `"1.00"` from its float64 value: the README promises exact numbers, and two answers for one rounding would be worse.
   - `round(n, digits?)` rounds a half toward +∞ like JS `Math.round` (it was round-half-even), exactly for exact values: `round(1.005, 2)` is `1.01`.
+  - ±Infinity and NaN print as `Infinity`, `-Infinity`, `NaN`, and those names are values. Go's `+Inf` did not parse back with `num()`, and an agent copied it into the next eval. In JSON (`toJson`, upstream arguments) they are null, as `JSON.stringify` gives.
+  - A name read in its own `let` initializer says so instead of "Unknown command". The usual cause is a line starting with `-` or `+`, which continues the previous expression as in JS (`let s = "a"` then `-s` is `let s = "a" - s`); the error names that cause when the read is on a later line.
 - **A caught error is its message string.** `"x" + e` keeps working. `e.message` returns the string for JS habit. Any other unknown member on a string raises an error, because silently returning `null` hid real errors ("ERR null").
 
 ## Large output

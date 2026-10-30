@@ -32,6 +32,15 @@ type Visitor struct {
 	// break/continue stay panic-based (they only unwind loops, not hot).
 	returning   bool
 	returnValue Value
+
+	// declaring holds the names whose let initializer is being evaluated, and
+	// the line each let starts on, so reading one of them says so.
+	declaring []declaringName
+}
+
+type declaringName struct {
+	name string
+	line int
 }
 
 // blockStatements returns a block's statements, cached — AllStatement() rebuilds
@@ -429,14 +438,21 @@ func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 	var last Value = Null
 	for _, b := range ctx.AllLetBinding() {
 		bc := b.(*parser.LetBindingContext)
+		names := map[string]struct{}{}
+		v.collectDestructureNames(bc.Destructure(), names)
 		if bc.Expression() != nil {
-			last = v.eval(bc.Expression())
+			depth := len(v.declaring)
+			for name := range names {
+				v.declaring = append(v.declaring, declaringName{name, bc.GetStart().GetLine()})
+			}
+			func() {
+				defer func() { v.declaring = v.declaring[:depth] }()
+				last = v.eval(bc.Expression())
+			}()
 		} else {
 			last = Null
 		}
 		value := last
-		names := map[string]struct{}{}
-		v.collectDestructureNames(bc.Destructure(), names)
 		for _, name := range slices.Sorted(maps.Keys(names)) {
 			v.warnShadow(name, bc)
 		}
@@ -1559,6 +1575,15 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 			msg += ", and none is kept now"
 		}
 		panic(Runtime(msg))
+	}
+	for _, d := range v.declaring {
+		if d.name == name {
+			msg := "'" + name + "' is read in its own initializer, before it is defined"
+			if ctx.GetStart().GetLine() > d.line {
+				msg += ". A line that starts with - or + continues the expression on the line before, as in JS; end that line with ; to start a new statement"
+			}
+			panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d", msg, startLine(ctx), startCol(ctx))})
+		}
 	}
 	available = append(available, v.itp.commands.Names()...)
 	panic(UnknownCommand(name, available))

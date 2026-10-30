@@ -96,8 +96,6 @@ func jsGlobalHint(name string) string {
 		return "mcpshell does not support " + name
 	case "Error", "TypeError", "RangeError":
 		return "mcpshell does not have error types — use fail(message)\n\n  Example: fail(\"invalid input\")"
-	case "NaN", "Infinity":
-		return "mcpshell does not have " + name + " — use numeric checks instead"
 	case "isNaN", "isFinite":
 		return "mcpshell does not have '" + name + "'"
 	case "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI":

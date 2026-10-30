@@ -16,6 +16,9 @@ import (
 // math, JSON, and utility commands — on the shell.
 func InstallCore(sh *Shell) *Shell {
 	sh.RegisterGuide("core", coreGuide)
+	// Results print ±Infinity and NaN as JS does, so the names read back.
+	sh.SetBuiltin("Infinity", Num(math.Inf(1)))
+	sh.SetBuiltin("NaN", Num(math.NaN()))
 
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
 		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})

@@ -77,7 +77,10 @@ func (n *NumberVal) Display() string {
 		return displayRat(n.rat)
 	}
 	v := n.V
-	if !math.IsInf(v, 0) && !math.IsNaN(v) && v == math.Trunc(v) {
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return nonFinite(v)
+	}
+	if v == math.Trunc(v) {
 		return strconv.FormatFloat(v, 'f', -1, 64)
 	}
 	return strconv.FormatFloat(v, 'g', -1, 64)
@@ -465,7 +468,22 @@ func FixedString(n *NumberVal, digits int) string {
 	if r, ok := RoundNumber(n, digits).Exact(); ok {
 		return r.FloatString(digits)
 	}
+	if math.IsInf(n.V, 0) || math.IsNaN(n.V) {
+		return nonFinite(n.V)
+	}
 	return strconv.FormatFloat(n.V, 'f', digits, 64)
+}
+
+// nonFinite spells ±Inf and NaN as JS does: Infinity, -Infinity, NaN. Go's
+// "+Inf" does not parse back with num().
+func nonFinite(v float64) string {
+	switch {
+	case math.IsNaN(v):
+		return "NaN"
+	case v > 0:
+		return "Infinity"
+	}
+	return "-Infinity"
 }
 
 func abs(i int) int {

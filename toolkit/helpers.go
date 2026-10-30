@@ -756,6 +756,9 @@ func toJSONString(v Value) string {
 	case *BoolVal:
 		return strconv.FormatBool(x.V)
 	case *NumberVal:
+		if math.IsInf(x.V, 0) || math.IsNaN(x.V) {
+			return "null" // as JSON.stringify: JSON has no Infinity or NaN
+		}
 		return x.Display()
 	case *StringVal:
 		return "\"" + escapeJSONString(x.V) + "\""

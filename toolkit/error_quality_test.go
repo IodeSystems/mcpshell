@@ -380,3 +380,43 @@ func TestErrorQualityNamespaceHelp(t *testing.T) {
 		t.Errorf("Math.help error = %q", msg)
 	}
 }
+
+// TestNonFiniteNumbers: ±Infinity and NaN print as JS prints them, read back
+// as names and through num(), and become null in JSON, as JSON.stringify does.
+func TestNonFiniteNumbers(t *testing.T) {
+	for src, want := range map[string]string{
+		`1 / 0`:                            "Infinity",
+		`-1 / 0`:                           "-Infinity",
+		`0 / 0`:                            "NaN",
+		"`${1 / 0}`":                       "Infinity",
+		`(1 / 0).toFixed(2)`:               "Infinity",
+		`num(String(-1 / 0)) == -Infinity`: "true",
+		`Infinity > 1e308`:                 "true",
+		`typeof NaN`:                       "number",
+		`toJson([1 / 0, 0 / 0, 1])`:        "[null,null,1]",
+	} {
+		v, err := toolkit.InstallCore(runtime.NewShell()).Eval(src)
+		if err != nil || v.Display() != want {
+			t.Errorf("%s = %v, %v; want %s", src, v, err, want)
+		}
+	}
+}
+
+// TestOwnInitializer: a name read in its own let initializer says so, not
+// "Unknown command", and names the line-continuation cause when the read is on
+// a later line.
+func TestOwnInitializer(t *testing.T) {
+	msg := evalErr(t, "let s = \"a\"\n-s")
+	if !strings.Contains(msg, "'s' is read in its own initializer") || !strings.Contains(msg, "continues the expression") || !strings.Contains(msg, "line 2") {
+		t.Errorf("continued line error = %q", msg)
+	}
+	msg = evalErr(t, `let q = q + 1`)
+	if !strings.Contains(msg, "'q' is read in its own initializer") || strings.Contains(msg, "continues") {
+		t.Errorf("same line error = %q", msg)
+	}
+	// A recursive function reads its name when called, after the binding.
+	v, err := toolkit.InstallCore(runtime.NewShell()).Eval(`let f = n => n < 1 ? 0 : f(n - 1); f(3)`)
+	if err != nil || v.Display() != "0" {
+		t.Errorf("recursive let = %v, %v", v, err)
+	}
+}
