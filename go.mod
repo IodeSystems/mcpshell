@@ -8,7 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.21.0
 	github.com/dlclark/regexp2/v2 v2.12.0
 	github.com/lib/pq v1.12.3
-	modernc.org/sqlite v1.61.0
+	modernc.org/sqlite v1.61.1
 )
 
 require (
