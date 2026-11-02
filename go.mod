@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
-	github.com/chromedp/chromedp v0.21.0
+	github.com/chromedp/chromedp v0.21.1
 	github.com/dlclark/regexp2/v2 v2.12.0
 	github.com/lib/pq v1.12.3
 	modernc.org/sqlite v1.61.1
@@ -13,7 +13,7 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.3.5 // indirect
-	github.com/chromedp/cdproto v0.158.3 // indirect
+	github.com/chromedp/cdproto v0.159.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
