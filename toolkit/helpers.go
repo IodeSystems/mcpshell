@@ -31,8 +31,16 @@ func argOpt(args []Value, i int) Value {
 
 func requireFn(cmd string, args []Value, idx int) *FuncVal {
 	if idx < len(args) {
-		if fn, ok := args[idx].(*FuncVal); ok {
+		switch fn := args[idx].(type) {
+		case *FuncVal:
 			return fn
+		case *ObjectVal:
+			// A callable namespace (Number, String, Array): xs.map(Number).
+			if c, ok := fn.Get("__call"); ok {
+				if f, ok := c.(*FuncVal); ok {
+					return f
+				}
+			}
 		}
 	}
 	panic(WrongArguments(cmd, "function", args, cmd+"(x => x.field)"))
@@ -381,6 +389,13 @@ func pad(args []Value, cmd string, atStart bool) string {
 }
 
 func minMax(args []Value, cmd string, isMax bool) Value {
+	if len(args) == 0 {
+		// As JS Math.max() / Math.min(), and so max(...[]) too.
+		if isMax {
+			return Num(math.Inf(-1))
+		}
+		return Num(math.Inf(1))
+	}
 	nums := args
 	if len(args) == 1 {
 		if a, ok := args[0].(*ArrayVal); ok {
@@ -501,11 +516,133 @@ func regexSplit(re *regexp2.Regexp, s string) []string {
 	return out
 }
 
-// regexReplace replaces every match of re; replacement may use $1 backrefs.
-func regexReplace(re *regexp2.Regexp, input, replacement string) string {
-	out, err := re.Replace(input, replacement, -1, -1)
+// regexReplace replaces the first count matches of re (-1: every match);
+// replacement may use $1 backrefs.
+func regexReplace(re *regexp2.Regexp, input, replacement string, count int) string {
+	out, err := re.Replace(input, replacement, -1, count)
 	regexErr(err)
 	return out
+}
+
+// replaceString implements replace and replaceAll. As in JS, replace changes
+// the first occurrence unless the pattern is a /g regex; replaceAll changes
+// every occurrence (JS throws for a regex without g; here it replaces all).
+func replaceString(cmd string, args []Value, all bool) string {
+	sig := "input: string, old: string|regex, new: string"
+	input := requireString(cmd, arg(args, 0))
+	repl, ok := arg(args, 2).(*StringVal)
+	if !ok {
+		panic(WrongArguments(cmd, sig, args, ""))
+	}
+	switch pat := arg(args, 1).(type) {
+	case *RegexVal:
+		count := 1
+		if all || strings.ContainsRune(pat.Flags, 'g') {
+			count = -1
+		}
+		return regexReplace(buildRegex(pat), input, repl.V, count)
+	case *StringVal:
+		if all {
+			return strings.ReplaceAll(input, pat.V, repl.V)
+		}
+		return strings.Replace(input, pat.V, repl.V, 1)
+	default:
+		panic(WrongArguments(cmd, sig, args, ""))
+	}
+}
+
+// reduceElements folds els with fn as JS reduce/reduceRight: args[2] is the
+// initial value; without it the fold starts from the first (last) element.
+// An empty array with no initial value gives 0, not an error.
+func reduceElements(fn *FuncVal, els []Value, args []Value, right bool) Value {
+	idx := make([]int, len(els))
+	for i := range idx {
+		idx[i] = i
+		if right {
+			idx[i] = len(els) - 1 - i
+		}
+	}
+	var acc Value
+	if len(args) > 2 {
+		acc = args[2]
+	} else if len(els) == 0 {
+		return Num(0)
+	} else {
+		acc, idx = els[idx[0]], idx[1:]
+	}
+	for _, i := range idx {
+		acc = Call(fn, []Value{acc, els[i], Num(float64(i))})
+	}
+	return acc
+}
+
+// flatten spreads nested arrays depth levels deep (+Inf: all levels).
+func flatten(els []Value, depth float64) []Value {
+	out := []Value{}
+	for _, el := range els {
+		if sub, ok := el.(*ArrayVal); ok && depth >= 1 {
+			out = append(out, flatten(sub.Elements, depth-1)...)
+		} else {
+			out = append(out, el)
+		}
+	}
+	return out
+}
+
+// indexArray returns [0, 1, …, n-1].
+func indexArray(n int) *ArrayVal {
+	out := make([]Value, n)
+	for i := range out {
+		out[i] = Num(float64(i))
+	}
+	return &ArrayVal{Elements: out}
+}
+
+// findIndexOf returns the index of the first (last, when fromEnd) element of
+// args[0] for which args[1] is truthy, or -1.
+func findIndexOf(cmd string, args []Value, fromEnd bool) int {
+	a := requireArray(cmd, arg(args, 0))
+	fn := requireFn(cmd, args, 1)
+	for k := range a.Elements {
+		i := k
+		if fromEnd {
+			i = len(a.Elements) - 1 - k
+		}
+		if Call(fn, []Value{a.Elements[i], Num(float64(i))}).IsTruthy() {
+			return i
+		}
+	}
+	return -1
+}
+
+// deepCopy copies arrays and objects recursively; other values are immutable.
+func deepCopy(v Value) Value {
+	switch x := v.(type) {
+	case *ArrayVal:
+		out := make([]Value, len(x.Elements))
+		for i, e := range x.Elements {
+			out[i] = deepCopy(e)
+		}
+		return &ArrayVal{Elements: out}
+	case *ObjectVal:
+		out := NewObject()
+		for _, k := range x.Keys() {
+			e, _ := x.Get(k)
+			out.Set(k, deepCopy(e))
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// localeCompare orders strings case-insensitively, then lowercase before
+// uppercase, which is what the default ICU collation gives for ASCII text.
+func localeCompare(a, b string) int {
+	if c := strings.Compare(strings.ToLower(a), strings.ToLower(b)); c != 0 {
+		return c
+	}
+	return -strings.Compare(a, b)
 }
 
 // --- JSON --------------------------------------------------------------------
@@ -852,3 +989,21 @@ IMPORTANT — STRINGS WITH BACKSLASHES:
 IMPORTANT — ALGORITHM COMPLEXITY:
   mcpshell has no memoization. Naive recursion like fib(n-1)+fib(n-2) is O(2^n)
   and will hit limits. Prefer iterative solutions with loops.`
+
+// sliceBounds resolves slice's start (args[1]) and end (args[2]) against
+// length n as JS does: absent start is 0, absent end is n, a negative index
+// counts from the end, and both are clamped to [0, n] with lo <= hi.
+func sliceBounds(args []Value, n int) (lo, hi int) {
+	resolve := func(i, def int) int {
+		v := optInt(args, i)
+		if v == nil {
+			return def
+		}
+		if *v < 0 {
+			return max(n+*v, 0)
+		}
+		return min(*v, n)
+	}
+	lo, hi = resolve(1, 0), resolve(2, n)
+	return lo, max(hi, lo)
+}

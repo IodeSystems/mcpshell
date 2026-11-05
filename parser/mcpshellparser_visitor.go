@@ -40,6 +40,9 @@ type McpShellParserVisitor interface {
 	// Visit a parse tree produced by McpShellParser#continueStatement.
 	VisitContinueStatement(ctx *ContinueStatementContext) interface{}
 
+	// Visit a parse tree produced by McpShellParser#labeledStatement.
+	VisitLabeledStatement(ctx *LabeledStatementContext) interface{}
+
 	// Visit a parse tree produced by McpShellParser#assignStatement.
 	VisitAssignStatement(ctx *AssignStatementContext) interface{}
 
@@ -111,6 +114,9 @@ type McpShellParserVisitor interface {
 
 	// Visit a parse tree produced by McpShellParser#arrayDestructure.
 	VisitArrayDestructure(ctx *ArrayDestructureContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#arrayDestructureElem.
+	VisitArrayDestructureElem(ctx *ArrayDestructureElemContext) interface{}
 
 	// Visit a parse tree produced by McpShellParser#paramList.
 	VisitParamList(ctx *ParamListContext) interface{}

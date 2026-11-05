@@ -18,7 +18,9 @@ func TestRegexJSCompat(t *testing.T) {
 		{"negative lookahead", `"cat car cap" |> match(/ca(?!t)/g)`, `["ca", "ca"]`},
 		// Lookbehind
 		{"positive lookbehind", `"price $100 and free" |> match(/(?<=\$)[0-9]+/)`, `["100"]`},
-		{"replace lookbehind", `"a1 b2 c3" |> replace(/(?<=[a-z])[0-9]/, "X")`, "aX bX cX"},
+		{"replace lookbehind", `"a1 b2 c3" |> replace(/(?<=[a-z])[0-9]/g, "X")`, "aX bX cX"},
+		{"replace regex without g: first only", `"a1 b2 c3" |> replace(/[0-9]/, "X")`, "aX b2 c3"},
+		{"replaceAll regex", `"a1 b2 c3" |> replaceAll(/[0-9]/, "X")`, "aX bX cX"},
 		// Backreferences
 		{"backref test true", `"hello hello world" |> test(/(\w+) \1/)`, "true"},
 		{"backref test false", `"hello world" |> test(/(\w+) \1/)`, "false"},

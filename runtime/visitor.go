@@ -33,6 +33,9 @@ type Visitor struct {
 	returning   bool
 	returnValue Value
 
+	// loopLabel is the label of the loop about to run (see takeLabel).
+	loopLabel string
+
 	// declaring holds the names whose let initializer is being evaluated, and
 	// the line each let starts on, so reading one of them says so.
 	declaring []declaringName
@@ -215,9 +218,11 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 	case *parser.ReturnStatementContext:
 		return v.visitReturnStatement(ctx)
 	case *parser.BreakStatementContext:
-		panic(BreakSignal{})
+		panic(BreakSignal{Label: identOrFunctionTextOrEmpty(ctx.IDENTIFIER(), ctx.FUNCTION())})
 	case *parser.ContinueStatementContext:
-		panic(ContinueSignal{})
+		panic(ContinueSignal{Label: identOrFunctionTextOrEmpty(ctx.IDENTIFIER(), ctx.FUNCTION())})
+	case *parser.LabeledStatementContext:
+		return v.visitLabeledStatement(ctx)
 	case *parser.AssignStatementContext:
 		return v.visitAssignStatement(ctx)
 	case *parser.IncrDecrStatementContext:
@@ -287,7 +292,7 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		if n, ok := v.numLitCache[ctx]; ok {
 			return n
 		}
-		text := ctx.NUMBER().GetText()
+		text := strings.ReplaceAll(ctx.NUMBER().GetText(), "_", "") // 1_000_000
 		// Parse the literal exactly (big.Rat handles integers, decimals, and
 		// scientific notation), so 0.1 stays 1/10 and huge integers keep every
 		// digit — auto-promotion with no float64 rounding at the source.
@@ -421,10 +426,14 @@ func (v *Visitor) collectDestructureNames(ctx parser.IDestructureContext, names 
 				names[identOrFunctionText(fc.IDENTIFIER(), fc.FUNCTION())] = struct{}{}
 			}
 		}
+		od := ctx.ObjectDestructure()
+		if rest := identOrFunctionTextOrEmpty(od.IDENTIFIER(), od.FUNCTION()); rest != "" {
+			names[rest] = struct{}{}
+		}
 	case ctx.ArrayDestructure() != nil:
 		ad := ctx.ArrayDestructure()
-		for _, d := range ad.AllDestructure() {
-			v.collectDestructureNames(d, names)
+		for _, e := range ad.AllArrayDestructureElem() {
+			v.collectDestructureNames(e.Destructure(), names)
 		}
 		if ad.SPREAD() != nil {
 			if rest := identOrFunctionTextOrEmpty(ad.IDENTIFIER(), ad.FUNCTION()); rest != "" {
@@ -652,9 +661,26 @@ func (v *Visitor) visitThrowStatement(ctx *parser.ThrowStatementContext) Value {
 }
 
 func (v *Visitor) visitAssignStatement(ctx *parser.AssignStatementContext) Value {
-	rhs := v.eval(ctx.Expression())
-	v.performAssign(ctx.AssignTarget().(*parser.AssignTargetContext), ctx.AssignOp().GetText(), rhs)
+	v.assignFrom(ctx.AssignTarget().(*parser.AssignTargetContext), ctx.AssignOp().GetText(), ctx.Expression())
 	return Null
+}
+
+// assignFrom evaluates rhs and assigns it with op, returning the expression's
+// value. ??=, ||= and &&= short-circuit as in JS: when the current value
+// decides, rhs is not evaluated and nothing is assigned.
+func (v *Visitor) assignFrom(target *parser.AssignTargetContext, op string, rhs parser.IExpressionContext) Value {
+	switch op {
+	case "??=", "||=", "&&=":
+		current := v.readAssignTarget(target)
+		_, isNull := current.(*NullVal)
+		if op == "??=" && !isNull || op == "||=" && current.IsTruthy() || op == "&&=" && !current.IsTruthy() {
+			return current
+		}
+		op = "="
+	}
+	value := v.eval(rhs)
+	v.performAssign(target, op, value)
+	return value
 }
 
 func (v *Visitor) visitIncrDecrStatement(ctx *parser.IncrDecrStatementContext) Value {
@@ -701,9 +727,7 @@ func (v *Visitor) isNonTerminalInBlock(ctx *parser.ExpressionStatementContext) b
 }
 
 func (v *Visitor) visitAssignExpr(ctx *parser.AssignExprContext) Value {
-	rhs := v.eval(ctx.Expression())
-	v.performAssign(ctx.AssignTarget().(*parser.AssignTargetContext), ctx.AssignOp().GetText(), rhs)
-	return rhs
+	return v.assignFrom(ctx.AssignTarget().(*parser.AssignTargetContext), ctx.AssignOp().GetText(), ctx.Expression())
 }
 
 func (v *Visitor) visitBlockOrStatement(ctx parser.IBlockOrStatementContext) Value {
@@ -750,7 +774,7 @@ func (v *Visitor) visitSwitchStatement(ctx *parser.SwitchStatementContext) (resu
 
 	defer func() {
 		if r := recover(); r != nil {
-			if _, ok := r.(BreakSignal); ok {
+			if s, ok := r.(BreakSignal); ok && s.Label == "" {
 				return
 			}
 			panic(r)
@@ -784,10 +808,11 @@ func (v *Visitor) visitSwitchStatement(ctx *parser.SwitchStatementContext) (resu
 }
 
 func (v *Visitor) visitDoWhileStatement(ctx *parser.DoWhileStatementContext) Value {
+	label := v.takeLabel()
 	var result Value = Null
 	for {
 		v.step(ctx)
-		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
+		brk := v.runLoop(label, func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		if brk || v.returning {
 			break
 		}
@@ -799,11 +824,12 @@ func (v *Visitor) visitDoWhileStatement(ctx *parser.DoWhileStatementContext) Val
 }
 
 func (v *Visitor) visitWhileStatement(ctx *parser.WhileStatementContext) Value {
+	label := v.takeLabel()
 	var result Value = Null
 	parenless := ctx.LPAREN() == nil
 	for v.eval(ctx.Expression()).IsTruthy() {
 		v.step(ctx)
-		brk := v.runLoop(func() {
+		brk := v.runLoop(label, func() {
 			if parenless {
 				result = v.visitBlock(ctx.Block().(*parser.BlockContext))
 			} else {
@@ -818,6 +844,7 @@ func (v *Visitor) visitWhileStatement(ctx *parser.WhileStatementContext) Value {
 }
 
 func (v *Visitor) visitForOfStatement(ctx *parser.ForOfStatementContext) Value {
+	label := v.takeLabel()
 	iterable := v.eval(ctx.Expression())
 	var items []Value
 	switch it := iterable.(type) {
@@ -836,7 +863,7 @@ func (v *Visitor) visitForOfStatement(ctx *parser.ForOfStatementContext) Value {
 		v.step(ctx)
 		v.env = outer.Child()
 		v.bindDestructure(ctx.Destructure(), item)
-		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
+		brk := v.runLoop(label, func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		v.env = outer
 		if brk || v.returning {
 			break
@@ -846,6 +873,7 @@ func (v *Visitor) visitForOfStatement(ctx *parser.ForOfStatementContext) Value {
 }
 
 func (v *Visitor) visitForInStatement(ctx *parser.ForInStatementContext) Value {
+	label := v.takeLabel()
 	obj := v.eval(ctx.Expression())
 	var keys []Value
 	switch o := obj.(type) {
@@ -867,7 +895,7 @@ func (v *Visitor) visitForInStatement(ctx *parser.ForInStatementContext) Value {
 		v.step(ctx)
 		v.env = outer.Child()
 		v.env.Define(varName, key)
-		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
+		brk := v.runLoop(label, func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		v.env = outer
 		if brk || v.returning {
 			break
@@ -877,6 +905,7 @@ func (v *Visitor) visitForInStatement(ctx *parser.ForInStatementContext) Value {
 }
 
 func (v *Visitor) visitForStatement(ctx *parser.ForStatementContext) Value {
+	label := v.takeLabel()
 	outer := v.env
 	v.env = v.env.Child()
 	defer func() { v.env = outer }()
@@ -887,7 +916,7 @@ func (v *Visitor) visitForStatement(ctx *parser.ForStatementContext) Value {
 		v.env.Define(identOrFunctionText(lic.IDENTIFIER(), lic.FUNCTION()), value)
 	} else if ai := ctx.ForInitAssign(); ai != nil {
 		aic := ai.(*parser.ForInitAssignContext)
-		v.performAssign(aic.AssignTarget().(*parser.AssignTargetContext), aic.AssignOp().GetText(), v.eval(aic.Expression()))
+		v.assignFrom(aic.AssignTarget().(*parser.AssignTargetContext), aic.AssignOp().GetText(), aic.Expression())
 	}
 
 	var result Value = Null
@@ -898,13 +927,13 @@ func (v *Visitor) visitForStatement(ctx *parser.ForStatementContext) Value {
 				break
 			}
 		}
-		brk := v.runLoop(func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
+		brk := v.runLoop(label, func() { result = v.visitBlockOrStatement(ctx.BlockOrStatement()) })
 		if brk || v.returning {
 			break
 		}
 		if ua := ctx.ForUpdateAssign(); ua != nil {
 			uac := ua.(*parser.ForUpdateAssignContext)
-			v.performAssign(uac.AssignTarget().(*parser.AssignTargetContext), uac.AssignOp().GetText(), v.eval(uac.Expression()))
+			v.assignFrom(uac.AssignTarget().(*parser.AssignTargetContext), uac.AssignOp().GetText(), uac.Expression())
 		} else if ui := ctx.ForUpdateIncrDecr(); ui != nil {
 			uic := ui.(*parser.ForUpdateIncrDecrContext)
 			op := "++"
@@ -933,15 +962,21 @@ func (v *Visitor) visitBlock(ctx parser.IBlockContext) Value {
 	return result
 }
 
-// runLoop runs a loop body, swallowing a continue signal and reporting a break.
-func (v *Visitor) runLoop(body func()) (brk bool) {
+// runLoop runs a loop body, swallowing a continue signal and reporting a
+// break. A labeled signal for another loop passes through to it.
+func (v *Visitor) runLoop(label string, body func()) (brk bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			switch r.(type) {
+			switch s := r.(type) {
 			case BreakSignal:
+				if s.Label != "" && s.Label != label {
+					panic(r)
+				}
 				brk = true
 			case ContinueSignal:
-				// swallow
+				if s.Label != "" && s.Label != label {
+					panic(r)
+				}
 			default:
 				panic(r)
 			}
@@ -949,6 +984,24 @@ func (v *Visitor) runLoop(body func()) (brk bool) {
 	}()
 	body()
 	return false
+}
+
+// takeLabel returns and clears the label a labeled statement set for the loop
+// it is about to run. Each loop takes it first, so a nested loop never sees it.
+func (v *Visitor) takeLabel() string {
+	l := v.loopLabel
+	v.loopLabel = ""
+	return l
+}
+
+func (v *Visitor) visitLabeledStatement(ctx *parser.LabeledStatementContext) Value {
+	v.loopLabel = identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())
+	for _, c := range ctx.GetChildren() {
+		if loop, ok := c.(antlr.ParserRuleContext); ok {
+			return v.eval(loop)
+		}
+	}
+	return Null
 }
 
 // --- Expressions -------------------------------------------------------------
@@ -1621,11 +1674,7 @@ func (v *Visitor) visitArrayLiteral(ctx *parser.ArrayLiteralContext) Value {
 		sc := soe.(*parser.SpreadOrExprContext)
 		value := v.eval(sc.Expression())
 		if sc.SPREAD() != nil {
-			arr, ok := value.(*ArrayVal)
-			if !ok {
-				panic(TypeMismatch("spread", "array", value, "... can only spread arrays into arrays"))
-			}
-			elements = append(elements, arr.Elements...)
+			elements = append(elements, spreadElements(value, "... can only spread arrays and strings into arrays")...)
 		} else {
 			elements = append(elements, value)
 		}
@@ -1747,4 +1796,21 @@ func receiverText(ctx *parser.PostfixExprContext, ops []parser.IPostfixOpContext
 		b.WriteString(op.GetText())
 	}
 	return b.String()
+}
+
+// spreadElements is what ...value yields: an array's elements, or a string's
+// characters as JS iterates them.
+func spreadElements(value Value, hint string) []Value {
+	switch x := value.(type) {
+	case *ArrayVal:
+		return x.Elements
+	case *StringVal:
+		out := []Value{}
+		for _, r := range x.V {
+			out = append(out, &StringVal{V: string(r)})
+		}
+		return out
+	default:
+		panic(TypeMismatch("spread", "array or string", value, hint))
+	}
 }

@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
@@ -109,9 +111,18 @@ func (v *Visitor) dropExtraArgs(cmd *CommandDef, args []Value, ctx antlr.ParserR
 // callFunctionInternal dispatches a call by body type, evaluating user
 // functions in the function's captured scope.
 func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
+	if nb, ok := fn.Body.(*NativeBody); ok {
+		return nb.Fn(args)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if e := strayLoopSignal(r); e != nil {
+				panic(e)
+			}
+			panic(r)
+		}
+	}()
 	switch body := fn.Body.(type) {
-	case *NativeBody:
-		return body.Fn(args)
 	case *ExpressionBody:
 		node := body.Node.(parser.IExpressionContext)
 		v.pushCall(node)
@@ -150,8 +161,19 @@ func (v *Visitor) runFunctionBlock(node parser.IBlockContext) Value {
 func (v *Visitor) bindParamsWithDefaults(fn *FuncVal, args []Value, fnEnv *Environment) {
 	outer := v.env
 	for i, p := range fn.Params {
+		var paramCtx parser.IParamContext
+		if i < len(fn.ParamNodes) && fn.ParamNodes[i] != nil {
+			paramCtx = fn.ParamNodes[i].(parser.IParamContext)
+		}
 		var value Value
 		switch {
+		case paramCtx != nil && paramCtx.SPREAD() != nil:
+			// A rest parameter (...xs) takes the remaining arguments as an array.
+			var rest []Value
+			if i < len(args) {
+				rest = append([]Value(nil), args[i:]...)
+			}
+			value = &ArrayVal{Elements: rest}
 		case i < len(args):
 			value = args[i]
 		case i < len(fn.ParamDefaults) && fn.ParamDefaults[i] != nil:
@@ -163,52 +185,23 @@ func (v *Visitor) bindParamsWithDefaults(fn *FuncVal, args []Value, fnEnv *Envir
 			value = Null
 		}
 
-		var paramCtx parser.IParamContext
-		if i < len(fn.ParamNodes) && fn.ParamNodes[i] != nil {
-			paramCtx = fn.ParamNodes[i].(parser.IParamContext)
-		}
 		if paramCtx != nil && (paramCtx.ArrayDestructure() != nil || paramCtx.ObjectDestructure() != nil) {
 			prev := v.env
 			v.env = fnEnv
+			// A param is lenient where a let is not: a non-array destructures
+			// as [value], and a non-object as {}.
 			if paramCtx.ArrayDestructure() != nil {
 				arr, ok := value.(*ArrayVal)
 				if !ok {
 					arr = &ArrayVal{Elements: []Value{value}}
 				}
-				dc := paramCtx.ArrayDestructure()
-				named := dc.AllDestructure()
-				for j, dest := range named {
-					var el Value = Null
-					if j < len(arr.Elements) {
-						el = arr.Elements[j]
-					}
-					v.bindDestructure(dest, el)
-				}
-				if dc.SPREAD() != nil {
-					if restName := identOrFunctionTextOrEmpty(dc.IDENTIFIER(), dc.FUNCTION()); restName != "" {
-						var rest []Value
-						if len(named) < len(arr.Elements) {
-							rest = append([]Value(nil), arr.Elements[len(named):]...)
-						}
-						v.env.Define(restName, &ArrayVal{Elements: rest})
-					}
-				}
+				v.bindArrayDestructure(paramCtx.ArrayDestructure(), arr)
 			} else {
 				obj, ok := value.(*ObjectVal)
 				if !ok {
 					obj = NewObject()
 				}
-				for _, f := range paramCtx.ObjectDestructure().AllDestructureField() {
-					name := identOrFunctionTextOrEmpty(f.IDENTIFIER(), f.FUNCTION())
-					if name == "" {
-						continue
-					}
-					fv, has := obj.Get(name)
-					if !has {
-						fv = Null
-					}
-					v.env.Define(name, fv)
-				}
+				v.bindObjectDestructure(paramCtx.ObjectDestructure(), obj)
 			}
 			v.env = prev
 		} else {
@@ -228,45 +221,70 @@ func (v *Visitor) bindDestructure(ctx parser.IDestructureContext, value Value) {
 		if !ok {
 			panic(TypeMismatch("destructure", "object", value, ""))
 		}
-		for _, f := range ctx.ObjectDestructure().AllDestructureField() {
-			fieldName := identOrFunctionText(f.IDENTIFIER(), f.FUNCTION())
-			td := f.Destructure()
-			fieldValue, has := obj.Get(fieldName)
-			if !has {
-				if f.Expression() != nil {
-					fieldValue = v.eval(f.Expression())
-				} else {
-					fieldValue = Null
-				}
-			}
-			if td != nil {
-				v.bindDestructure(td, fieldValue)
-			} else {
-				v.env.Define(fieldName, fieldValue)
-			}
-		}
+		v.bindObjectDestructure(ctx.ObjectDestructure(), obj)
 	case ctx.ArrayDestructure() != nil:
 		arr, ok := value.(*ArrayVal)
 		if !ok {
 			panic(TypeMismatch("destructure", "array", value, ""))
 		}
-		ad := ctx.ArrayDestructure()
-		named := ad.AllDestructure()
-		for idx, dest := range named {
-			var el Value = Null
-			if idx < len(arr.Elements) {
-				el = arr.Elements[idx]
+		v.bindArrayDestructure(ctx.ArrayDestructure(), arr)
+	}
+}
+
+// bindObjectDestructure binds {a, b: c, d = 1, ...rest}. A field's default
+// applies when the key is absent; an explicit null stays null, as in JS. rest
+// gets the keys not named, in source order.
+func (v *Visitor) bindObjectDestructure(od parser.IObjectDestructureContext, obj *ObjectVal) {
+	named := map[string]struct{}{}
+	for _, f := range od.AllDestructureField() {
+		fieldName := identOrFunctionText(f.IDENTIFIER(), f.FUNCTION())
+		named[fieldName] = struct{}{}
+		fieldValue, has := obj.Get(fieldName)
+		if !has {
+			if f.Expression() != nil {
+				fieldValue = v.eval(f.Expression())
+			} else {
+				fieldValue = Null
 			}
-			v.bindDestructure(dest, el)
 		}
-		if ad.SPREAD() != nil {
-			if restName := identOrFunctionTextOrEmpty(ad.IDENTIFIER(), ad.FUNCTION()); restName != "" {
-				var rest []Value
-				if len(named) < len(arr.Elements) {
-					rest = append([]Value(nil), arr.Elements[len(named):]...)
-				}
-				v.env.Define(restName, &ArrayVal{Elements: rest})
+		if td := f.Destructure(); td != nil {
+			v.bindDestructure(td, fieldValue)
+		} else {
+			v.env.Define(fieldName, fieldValue)
+		}
+	}
+	if rest := identOrFunctionTextOrEmpty(od.IDENTIFIER(), od.FUNCTION()); rest != "" {
+		out := NewObject()
+		for _, k := range obj.Keys() {
+			if _, ok := named[k]; !ok {
+				val, _ := obj.Get(k)
+				out.Set(k, val)
 			}
+		}
+		v.env.Define(rest, out)
+	}
+}
+
+// bindArrayDestructure binds [a, b = 1, ...rest]; a default applies when the
+// array is shorter than the element's position.
+func (v *Visitor) bindArrayDestructure(ad parser.IArrayDestructureContext, arr *ArrayVal) {
+	elems := ad.AllArrayDestructureElem()
+	for idx, e := range elems {
+		var el Value = Null
+		if idx < len(arr.Elements) {
+			el = arr.Elements[idx]
+		} else if e.Expression() != nil {
+			el = v.eval(e.Expression())
+		}
+		v.bindDestructure(e.Destructure(), el)
+	}
+	if ad.SPREAD() != nil {
+		if restName := identOrFunctionTextOrEmpty(ad.IDENTIFIER(), ad.FUNCTION()); restName != "" {
+			var rest []Value
+			if len(elems) < len(arr.Elements) {
+				rest = append([]Value(nil), arr.Elements[len(elems):]...)
+			}
+			v.env.Define(restName, &ArrayVal{Elements: rest})
 		}
 	}
 }
@@ -317,11 +335,7 @@ func (v *Visitor) evalCallArgs(ctx parser.IArgumentListContext) callArgs {
 			soe := a.SpreadOrExpr()
 			value := v.eval(soe.Expression())
 			if soe.SPREAD() != nil {
-				arr, ok := value.(*ArrayVal)
-				if !ok {
-					panic(TypeMismatch("spread", "array", value, ""))
-				}
-				ca.positional = append(ca.positional, arr.Elements...)
+				ca.positional = append(ca.positional, spreadElements(value, "")...)
 			} else {
 				ca.positional = append(ca.positional, value)
 			}
@@ -419,6 +433,19 @@ func (v *Visitor) performAssign(target *parser.AssignTargetContext, op string, r
 		finalValue = v.applyCompoundOp(op, v.resolveStep(current, last), rhs)
 	}
 	v.mutateInPlace(current, last, finalValue)
+}
+
+// readAssignTarget returns the current value at an assignment target.
+func (v *Visitor) readAssignTarget(target *parser.AssignTargetContext) Value {
+	rootName := identOrFunctionText(target.IDENTIFIER(), target.FUNCTION())
+	current := v.env.Get(rootName)
+	if current == nil {
+		panic(Runtime("'" + rootName + "' is not defined"))
+	}
+	for _, step := range v.buildAccessorSteps(target) {
+		current = v.resolveStep(current, step)
+	}
+	return current
 }
 
 func (v *Visitor) buildAccessorSteps(target *parser.AssignTargetContext) []any {
@@ -571,6 +598,9 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		switch field {
 		case "length":
 			return &NumberVal{V: float64(len(o.Elements))}
+		case "toString":
+			// JS Array.prototype.toString is join(","), and so is join's default.
+			return v.bindMethodOrHint(o, "array", "join")
 		case "entries":
 			return &FuncVal{
 				Name: "entries",
@@ -591,6 +621,8 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 			return &NumberVal{V: float64(len([]rune(o.V)))}
 		case "message":
 			return o // a caught error is its message string; e.message is the JS habit
+		case "toString", "valueOf":
+			return &FuncVal{Name: field, Body: &NativeBody{Fn: func(_ []Value) Value { return o }}}
 		}
 		if m := v.bindMethodOrHint(o, "string", field); m != Null {
 			return m
@@ -599,8 +631,18 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 	case *NumberVal:
 		switch field {
 		case "toString":
-			return &FuncVal{Name: "toString", Body: &NativeBody{Fn: func(_ []Value) Value {
-				return &StringVal{V: o.Display()}
+			return &FuncVal{Name: "toString", Params: []string{"radix"}, Body: &NativeBody{Fn: func(args []Value) Value {
+				radix := argInt(args, 0, 10)
+				if radix == 10 {
+					return &StringVal{V: o.Display()}
+				}
+				if radix < 2 || radix > 36 {
+					panic(Runtime(fmt.Sprintf("toString: radix must be between 2 and 36, got %d", radix)))
+				}
+				if o.V != math.Trunc(o.V) || math.IsInf(o.V, 0) || math.IsNaN(o.V) {
+					panic(Runtime("toString(radix) supports integers only, got " + o.Display()))
+				}
+				return &StringVal{V: strconv.FormatInt(int64(o.V), radix)}
 			}}}
 		case "toFixed":
 			return &FuncVal{Name: "toFixed", Params: []string{"digits"}, Body: &NativeBody{Fn: func(args []Value) Value {

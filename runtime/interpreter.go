@@ -51,6 +51,14 @@ func NewInterpreter(commands *CommandRegistry, globals *Environment, limits *Exe
 func (itp *Interpreter) Eval(source string) EvalResult {
 	tree := itp.parse(source)
 	v := newVisitor(itp, itp.globals)
+	defer func() {
+		if r := recover(); r != nil {
+			if e := strayLoopSignal(r); e != nil {
+				panic(e)
+			}
+			panic(r)
+		}
+	}()
 	value := v.eval(tree)
 	if v.returning { // a top-level `return`
 		value = v.returnValue
@@ -139,15 +147,20 @@ func (itp *Interpreter) initBuiltinBindings() {
 		}
 	}
 
-	// JS namespaces — only define when not already present.
+	// JS namespaces — only define when not already present. A namespace that
+	// is also a constructor alias (Number, String) keeps the alias as __call.
 	for _, ns := range jsNamespaceAliases {
 		if ns.name == "Array" {
 			continue // handled specially below
 		}
-		if itp.globals.Get(ns.name) != nil {
-			continue
-		}
 		methods := NewObject()
+		if existing := itp.globals.Get(ns.name); existing != nil {
+			fn, isFn := existing.(*FuncVal)
+			if !isFn || !itp.globals.IsBuiltin(ns.name) {
+				continue
+			}
+			methods.Set("__call", fn)
+		}
 		for _, m := range ns.methods {
 			if fn := itp.commandFn(m.v); fn != nil {
 				methods.Set(m.k, fn)

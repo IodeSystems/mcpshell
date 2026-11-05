@@ -42,6 +42,9 @@ ARROW       : '=>';
 SPREAD      : '...';
 INCREMENT   : '++';
 DECREMENT   : '--';
+NULLISH_ASSIGN: '??=';
+OR_ASSIGN   : '||=';
+AND_ASSIGN  : '&&=';
 PLUS_ASSIGN : '+=';
 MINUS_ASSIGN: '-=';
 STAR_STAR_ASSIGN: '**=';
@@ -102,12 +105,14 @@ LBRACE      : '{' -> pushMode(DEFAULT_MODE);
 RBRACE      : '}' -> popMode;
 
 // Literals
+// Digits may be grouped with _ (1_000_000), as in JS; the visitor strips it.
 NUMBER
-  : [0-9]+ ('.' [0-9]+)? EXPONENT?
-  | '.' [0-9]+ EXPONENT?
+  : DIGITS ('.' DIGITS)? EXPONENT?
+  | '.' DIGITS EXPONENT?
   ;
 
-fragment EXPONENT : [eE] [+-]? [0-9]+ ;
+fragment DIGITS   : [0-9]+ ('_' [0-9]+)* ;
+fragment EXPONENT : [eE] [+-]? DIGITS ;
 
 STRING
   : '"' (~["\\\r\n] | '\\' .)* '"'

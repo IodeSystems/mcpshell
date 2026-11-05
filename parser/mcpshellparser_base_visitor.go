@@ -51,6 +51,10 @@ func (v *BaseMcpShellParserVisitor) VisitContinueStatement(ctx *ContinueStatemen
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseMcpShellParserVisitor) VisitLabeledStatement(ctx *LabeledStatementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseMcpShellParserVisitor) VisitAssignStatement(ctx *AssignStatementContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -144,6 +148,10 @@ func (v *BaseMcpShellParserVisitor) VisitDestructureField(ctx *DestructureFieldC
 }
 
 func (v *BaseMcpShellParserVisitor) VisitArrayDestructure(ctx *ArrayDestructureContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitArrayDestructureElem(ctx *ArrayDestructureElemContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

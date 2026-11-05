@@ -14,6 +14,7 @@ statement
   | forOfStatement
   | forInStatement
   | forStatement
+  | labeledStatement
   | tryCatchStatement
   | throwStatement
   | returnStatement
@@ -36,15 +37,18 @@ fnDecl            : FUNCTION (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN (C
 tryCatchStatement : TRY block (CATCH LPAREN (IDENTIFIER | FUNCTION) RPAREN block)? (FINALLY block)?;
 throwStatement    : THROW expression SEMI?;
 returnStatement   : RETURN expression? SEMI?;
-breakStatement    : BREAK SEMI?;
-continueStatement : CONTINUE SEMI?;
+breakStatement    : BREAK (IDENTIFIER | FUNCTION)? SEMI?;
+continueStatement : CONTINUE (IDENTIFIER | FUNCTION)? SEMI?;
+// A label names a loop for break/continue; labels on other statements are not supported.
+labeledStatement  : (IDENTIFIER | FUNCTION) COLON (forOfStatement | forInStatement | forStatement | whileStatement | doWhileStatement);
 assignStatement   : assignTarget assignOp expression SEMI?;
 incrDecrStatement : assignTarget (INCREMENT | DECREMENT) SEMI?;
 expressionStatement : expression SEMI?;
 
 assignTarget      : (IDENTIFIER | FUNCTION) (DOT fieldName | LBRACKET expression RBRACKET)*;
 assignOp          : ASSIGN | PLUS_ASSIGN | MINUS_ASSIGN | STAR_STAR_ASSIGN | STAR_ASSIGN | SLASH_ASSIGN | PERCENT_ASSIGN
-                   | AMP_ASSIGN | PIPE_ASSIGN | CARET_ASSIGN | LSHIFT_ASSIGN | RSHIFT_ASSIGN | URSHIFT_ASSIGN;
+                   | AMP_ASSIGN | PIPE_ASSIGN | CARET_ASSIGN | LSHIFT_ASSIGN | RSHIFT_ASSIGN | URSHIFT_ASSIGN
+                   | NULLISH_ASSIGN | OR_ASSIGN | AND_ASSIGN;
 
 ifStatement       : IF LPAREN expression RPAREN blockOrStatement (ELSE ifStatement | ELSE blockOrStatement)?
                   | IF expression block (ELSE ifStatement | ELSE block)?
@@ -75,9 +79,11 @@ destructure
   | arrayDestructure
   ;
 
-objectDestructure : LBRACE destructureField (COMMA destructureField)* COMMA? RBRACE;
+objectDestructure : LBRACE destructureField (COMMA destructureField)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? COMMA? RBRACE
+                  | LBRACE SPREAD (IDENTIFIER | FUNCTION) COMMA? RBRACE;
 destructureField  : (IDENTIFIER | FUNCTION) (COLON destructure)? (ASSIGN expression)?;
-arrayDestructure  : LBRACKET destructure (COMMA destructure)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? COMMA? RBRACKET;
+arrayDestructure  : LBRACKET arrayDestructureElem (COMMA arrayDestructureElem)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? COMMA? RBRACKET;
+arrayDestructureElem : destructure (ASSIGN expression)?;
 
 // Parameters
 paramList         : param (COMMA param)*;

@@ -2,12 +2,15 @@
 package toolkit
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	. "github.com/iodesystems/mcpshell/runtime"
 )
@@ -83,19 +86,18 @@ func InstallCore(sh *Shell) *Shell {
 			}
 		})
 
-	reg("reduce", "input: array, fn: (acc, T, index?) => acc, init?: any = 0", "folds array to single value",
+	reg("reduce", "input: array, fn: (acc, T, index?) => acc, init?: any",
+		"folds array to single value; without init, starts from the first element as in JS (empty → 0)",
 		[]string{`[1, 2, 3] |> reduce((sum, x) => sum + x)`},
 		func(args []Value) Value {
 			a := requireArray("reduce", arg(args, 0))
-			fn := requireFn("reduce", args, 1)
-			var acc Value = Num(0)
-			if len(args) > 2 {
-				acc = args[2]
-			}
-			for i, el := range a.Elements {
-				acc = Call(fn, []Value{acc, el, Num(float64(i))})
-			}
-			return acc
+			return reduceElements(requireFn("reduce", args, 1), a.Elements, args, false)
+		})
+
+	regH("reduceRight", "input: array, fn: (acc, T, index?) => acc, init?: any", "reduce from the last element",
+		func(args []Value) Value {
+			a := requireArray("reduceRight", arg(args, 0))
+			return reduceElements(requireFn("reduceRight", args, 1), a.Elements, args, true)
 		})
 
 	reg("sum", "input: array", "sums an array of numbers (empty → 0)",
@@ -213,7 +215,7 @@ func InstallCore(sh *Shell) *Shell {
 			return Str(strings.Join(parts, sep))
 		})
 
-	reg("split", "input: string, sep?: string|regex", "splits by separator; default: ,",
+	reg("split", "input: string, sep?: string|regex", "splits by separator; no separator → [input], as in JS",
 		[]string{`"a,b,c" |> split(",")`, `split("hello world", " ")`},
 		func(args []Value) Value {
 			s := requireString("split", arg(args, 0))
@@ -226,7 +228,7 @@ func InstallCore(sh *Shell) *Shell {
 				}
 				return strArr(strings.Split(s, sep.V))
 			default:
-				return strArr(strings.Split(s, ","))
+				return strArr([]string{s})
 			}
 		})
 
@@ -245,19 +247,15 @@ func InstallCore(sh *Shell) *Shell {
 			return strArr(stringChars(requireString("chars", arg(args, 0))))
 		})
 
-	reg("flat", "input: array", "flattens one level",
-		[]string{`[[1, 2], [3, 4]] |> flat()`},
+	reg("flat", "input: array, depth?: number = 1", "flattens depth levels (Infinity: all)",
+		[]string{`[[1, 2], [3, 4]] |> flat()`, `[1, [2, [3]]] |> flat(Infinity)`},
 		func(args []Value) Value {
 			a := requireArray("flat", arg(args, 0))
-			var out []Value
-			for _, el := range a.Elements {
-				if sub, ok := el.(*ArrayVal); ok {
-					out = append(out, sub.Elements...)
-				} else {
-					out = append(out, el)
-				}
+			depth := 1.0
+			if n, ok := argOpt(args, 1).(*NumberVal); ok {
+				depth = n.V
 			}
-			return &ArrayVal{Elements: out}
+			return &ArrayVal{Elements: flatten(a.Elements, depth)}
 		})
 
 	reg("unique", "input: array", "deduplicates",
@@ -387,6 +385,9 @@ func InstallCore(sh *Shell) *Shell {
 	reg("keys", "input: object", "object keys",
 		[]string{`{a: 1, b: 2} |> keys()`},
 		func(args []Value) Value {
+			if a, ok := arg(args, 0).(*ArrayVal); ok {
+				return indexArray(len(a.Elements))
+			}
 			o := requireObject("keys", arg(args, 0))
 			return strArr(o.Keys())
 		})
@@ -394,6 +395,9 @@ func InstallCore(sh *Shell) *Shell {
 	reg("values", "input: object", "object values",
 		[]string{`{a: 1, b: 2} |> values()`},
 		func(args []Value) Value {
+			if a, ok := arg(args, 0).(*ArrayVal); ok {
+				return &ArrayVal{Elements: append([]Value(nil), a.Elements...)}
+			}
 			o := requireObject("values", arg(args, 0))
 			out := make([]Value, 0, o.Len())
 			for _, k := range o.Keys() {
@@ -688,23 +692,14 @@ func InstallCore(sh *Shell) *Shell {
 		func(args []Value) Value { return Str(strings.ToUpper(requireString("upper", arg(args, 0)))) })
 
 	reg("replace", "input: string, old: string|regex, new: string",
-		"replaces occurrences (string literal or regex with $1 backrefs)",
-		[]string{`"hello world" |> replace("world", "mcpshell")`},
-		func(args []Value) Value {
-			input := requireString("replace", arg(args, 0))
-			repl, ok := arg(args, 2).(*StringVal)
-			if !ok {
-				panic(WrongArguments("replace", "input: string, old: string|regex, new: string", args, ""))
-			}
-			switch pat := arg(args, 1).(type) {
-			case *RegexVal:
-				return Str(regexReplace(buildRegex(pat), input, repl.V))
-			case *StringVal:
-				return Str(strings.ReplaceAll(input, pat.V, repl.V))
-			default:
-				panic(WrongArguments("replace", "input: string, old: string|regex, new: string", args, ""))
-			}
-		})
+		"replaces the first occurrence, as in JS; a /g regex replaces all (regex replacement takes $1 backrefs). replaceAll replaces all",
+		[]string{`"a-b-c" |> replace("-", "+")`, `"a-b-c" |> replace(/-/g, "+")`, `"a-b-c" |> replaceAll("-", "+")`},
+		func(args []Value) Value { return Str(replaceString("replace", args, false)) })
+
+	reg("replaceAll", "input: string, old: string|regex, new: string",
+		"replaces every occurrence (regex replacement takes $1 backrefs)",
+		[]string{`"a-b-c" |> replaceAll("-", "+")`},
+		func(args []Value) Value { return Str(replaceString("replaceAll", args, true)) })
 
 	reg("startsWith", "input: string, prefix: string", "prefix test", []string{`"hello" |> startsWith("hel")`},
 		func(args []Value) Value {
@@ -726,16 +721,25 @@ func InstallCore(sh *Shell) *Shell {
 			return Bln(strings.HasSuffix(input, suffix.V))
 		})
 
-	reg("substring", "input: string, start: number, end?: number", "slice string",
+	reg("substring", "input: string, start?: number, end?: number",
+		"slice string, as JS substring: negative → 0, start > end swaps",
 		[]string{`"hello" |> substring(1, 4)`},
 		func(args []Value) Value {
 			r := []rune(requireString("substring", arg(args, 0)))
-			start := clamp(int(requireNumber("substring", args, 1)), 0, len(r))
+			if len(args) > 1 && args[1] != Null {
+				requireNumber("substring", args, 1)
+			}
+			start := 0
+			if s := optInt(args, 1); s != nil {
+				start = clamp(*s, 0, len(r))
+			}
 			end := len(r)
 			if e := optInt(args, 2); e != nil {
-				end = *e
+				end = clamp(*e, 0, len(r))
 			}
-			end = clamp(end, start, len(r))
+			if start > end {
+				start, end = end, start
+			}
 			return Str(string(r[start:end]))
 		})
 
@@ -840,10 +844,13 @@ func InstallCore(sh *Shell) *Shell {
 
 	// --- Array operations ---
 
-	reg("at", "input: array|string, index: number", "element at index (supports negative)",
+	reg("at", "input: array|string, index?: number = 0", "element at index (supports negative)",
 		[]string{`[1,2,3] |> at(-1)`},
 		func(args []Value) Value {
-			idx := int(requireNumber("at", args, 1))
+			idx := 0
+			if len(args) > 1 && args[1] != Null {
+				idx = int(requireNumber("at", args, 1))
+			}
 			switch input := arg(args, 0).(type) {
 			case *ArrayVal:
 				i := idx
@@ -900,12 +907,28 @@ func InstallCore(sh *Shell) *Shell {
 			return &ArrayVal{Elements: out}
 		})
 
-	reg("concat", "a: array, b: array", "concatenates two arrays",
-		[]string{`[1, 2] |> concat([3, 4])`},
+	reg("concat", "input: array|string, ...values: any",
+		"concatenates, as JS concat: array arguments are spread one level, others appended; on a string, joins as strings",
+		[]string{`[1, 2] |> concat([3, 4])`, `[1] |> concat([2], 3)`},
 		func(args []Value) Value {
+			if s, ok := arg(args, 0).(*StringVal); ok {
+				var b strings.Builder
+				b.WriteString(s.V)
+				for _, x := range args[1:] {
+					b.WriteString(x.Display())
+				}
+				return Str(b.String())
+			}
 			a := requireArray("concat", arg(args, 0))
-			b := requireArray("concat", arg(args, 1))
-			return &ArrayVal{Elements: append(append([]Value(nil), a.Elements...), b.Elements...)}
+			out := append([]Value(nil), a.Elements...)
+			for _, x := range args[1:] {
+				if sub, ok := x.(*ArrayVal); ok {
+					out = append(out, sub.Elements...)
+				} else {
+					out = append(out, x)
+				}
+			}
+			return &ArrayVal{Elements: out}
 		})
 
 	regH("push", "input: array, ...values: any", "appends values to array, returns array",
@@ -949,9 +972,17 @@ func InstallCore(sh *Shell) *Shell {
 			}
 		})
 
-	reg("lastIndexOf", "input: string, substr: string", "last index of substring, or -1",
-		[]string{`"hello world hello" |> lastIndexOf("hello")`},
+	reg("lastIndexOf", "input: array|string, value: any", "last index of value, or -1",
+		[]string{`"hello world hello" |> lastIndexOf("hello")`, `[1, 2, 1] |> lastIndexOf(1)`},
 		func(args []Value) Value {
+			if a, ok := arg(args, 0).(*ArrayVal); ok {
+				for i := len(a.Elements) - 1; i >= 0; i-- {
+					if valuesEqual(a.Elements[i], arg(args, 1)) {
+						return Num(float64(i))
+					}
+				}
+				return Num(-1)
+			}
 			input := requireString("lastIndexOf", arg(args, 0))
 			sub, ok := arg(args, 1).(*StringVal)
 			if !ok {
@@ -1002,33 +1033,20 @@ func InstallCore(sh *Shell) *Shell {
 			return Bln(true)
 		})
 
-	reg("slice", "input: array|string, start: number, end?: number", "extracts section",
-		[]string{`[1, 2, 3, 4] |> slice(1, 3)`},
+	reg("slice", "input: array|string, start?: number, end?: number",
+		"extracts section, as JS slice: a negative index counts from the end",
+		[]string{`[1, 2, 3, 4] |> slice(1, 3)`, `[1, 2, 3, 4] |> slice(-2)`},
 		func(args []Value) Value {
-			start := int(requireNumber("slice", args, 1))
+			if len(args) > 1 && args[1] != Null {
+				requireNumber("slice", args, 1)
+			}
 			switch input := arg(args, 0).(type) {
 			case *ArrayVal:
-				end := len(input.Elements)
-				if e := optInt(args, 2); e != nil {
-					end = *e
-				}
-				lo := max(start, 0)
-				hi := min(end, len(input.Elements))
-				if lo > hi {
-					lo = hi
-				}
+				lo, hi := sliceBounds(args, len(input.Elements))
 				return &ArrayVal{Elements: append([]Value(nil), input.Elements[lo:hi]...)}
 			case *StringVal:
 				r := []rune(input.V)
-				end := len(r)
-				if e := optInt(args, 2); e != nil {
-					end = *e
-				}
-				lo := max(start, 0)
-				hi := min(end, len(r))
-				if lo > hi {
-					lo = hi
-				}
+				lo, hi := sliceBounds(args, len(r))
 				return Str(string(r[lo:hi]))
 			default:
 				panic(TypeMismatch("slice", "array or string", input, ""))
@@ -1091,9 +1109,9 @@ func InstallCore(sh *Shell) *Shell {
 	reg("abs", "n: number", "absolute value", []string{`-5 |> abs()`},
 		func(args []Value) Value { return AbsNumber(requireNum("abs", args)) })
 
-	reg("min", "...values: number[]", "minimum", []string{`min(3, 1, 2)`},
+	reg("min", "...values: number[]", "minimum (no arguments → Infinity, as in JS)", []string{`min(3, 1, 2)`},
 		func(args []Value) Value { return minMax(args, "min", false) })
-	reg("max", "...values: number[]", "maximum", []string{`max(3, 1, 2)`},
+	reg("max", "...values: number[]", "maximum (no arguments → -Infinity, as in JS)", []string{`max(3, 1, 2)`},
 		func(args []Value) Value { return minMax(args, "max", true) })
 
 	reg("pow", "base: number, exp: number", "exponentiation", []string{`pow(2, 3)`},
@@ -1207,6 +1225,33 @@ func InstallCore(sh *Shell) *Shell {
 
 	// --- JS compat (hidden) ---
 
+	regH("jsonStringify", "value: any, replacer?: null, space?: number|string",
+		"JSON.stringify: space indents (a number of spaces, at most 10, or a string)",
+		func(args []Value) Value {
+			out := toJSONString(arg(args, 0))
+			if r := argOpt(args, 1); r != nil && r != Null {
+				panic(Runtime("JSON.stringify: a replacer is not supported; pass null, or map the value first"))
+			}
+			indent := ""
+			switch sp := argOpt(args, 2).(type) {
+			case *NumberVal:
+				indent = strings.Repeat(" ", clamp(int(sp.V), 0, 10))
+			case *StringVal:
+				indent = sp.V
+				if len(indent) > 10 {
+					indent = indent[:10]
+				}
+			}
+			if indent == "" {
+				return Str(out)
+			}
+			var b bytes.Buffer
+			if err := json.Indent(&b, []byte(out), "", indent); err != nil {
+				return Str(out)
+			}
+			return Str(b.String())
+		})
+
 	regH("parseInt", "value: any, radix?: number", "parse string to integer",
 		func(args []Value) Value {
 			radix := 10
@@ -1264,6 +1309,120 @@ func InstallCore(sh *Shell) *Shell {
 			default:
 				return Num(math.NaN())
 			}
+		})
+
+	regH("findIndex", "input: array, fn: (T, index?) => boolean", "index of the first match, or -1",
+		func(args []Value) Value { return Num(float64(findIndexOf("findIndex", args, false))) })
+
+	regH("findLastIndex", "input: array, fn: (T, index?) => boolean", "index of the last match, or -1",
+		func(args []Value) Value { return Num(float64(findIndexOf("findLastIndex", args, true))) })
+
+	regH("findLast", "input: array, fn: (T, index?) => boolean", "last match or null",
+		func(args []Value) Value {
+			if i := findIndexOf("findLast", args, true); i >= 0 {
+				return arg(args, 0).(*ArrayVal).Elements[i]
+			}
+			return Null
+		})
+
+	regH("withAt", "input: array, index: number, value: any", "copy with one element replaced (JS arr.with)",
+		func(args []Value) Value {
+			a := requireArray("with", arg(args, 0))
+			i := int(requireNumber("with", args, 1))
+			if i < 0 {
+				i += len(a.Elements)
+			}
+			if i < 0 || i >= len(a.Elements) {
+				panic(Runtime(fmt.Sprintf("with: index %d is out of range for length %d", int(requireNumber("with", args, 1)), len(a.Elements))))
+			}
+			out := append([]Value(nil), a.Elements...)
+			out[i] = arg(args, 2)
+			return &ArrayVal{Elements: out}
+		})
+
+	regH("toSpliced", "input: array, start: number, deleteCount?: number, ...items: any", "copy with splice applied (JS arr.toSpliced)",
+		func(args []Value) Value {
+			a := requireArray("toSpliced", arg(args, 0))
+			n := len(a.Elements)
+			start := 0
+			if s := optInt(args, 1); s != nil {
+				start = *s
+				if start < 0 {
+					start = max(n+start, 0)
+				}
+				start = min(start, n)
+			}
+			del := n - start
+			if d := optInt(args, 2); d != nil {
+				del = clamp(*d, 0, n-start)
+			} else if len(args) < 2 {
+				del = 0
+			}
+			out := append([]Value(nil), a.Elements[:start]...)
+			if len(args) > 3 {
+				out = append(out, args[3:]...)
+			}
+			out = append(out, a.Elements[start+del:]...)
+			return &ArrayVal{Elements: out}
+		})
+
+	regH("arrayOf", "...values: any", "array of the arguments (JS Array.of)",
+		func(args []Value) Value { return &ArrayVal{Elements: append([]Value(nil), args...)} })
+
+	regH("assign", "target: object, ...sources: object", "copy of target with each source's keys set (JS Object.assign, without mutation)",
+		func(args []Value) Value {
+			out := NewObject()
+			for i, src := range args {
+				o, ok := src.(*ObjectVal)
+				if !ok {
+					if src == Null && i > 0 {
+						continue
+					}
+					panic(TypeMismatch("Object.assign", "object", src, ""))
+				}
+				for _, k := range o.Keys() {
+					v, _ := o.Get(k)
+					out.Set(k, v)
+				}
+			}
+			return out
+		})
+
+	regH("structuredClone", "value: any", "deep copy of arrays and objects",
+		func(args []Value) Value { return deepCopy(arg(args, 0)) })
+
+	regH("localeCompare", "input: string, other: string", "-1, 0 or 1 by case-insensitive order, then case (lowercase first)",
+		func(args []Value) Value {
+			a := requireString("localeCompare", arg(args, 0))
+			b := requireString("localeCompare", arg(args, 1))
+			return Num(float64(localeCompare(a, b)))
+		})
+
+	regH("fromCharCode", "...codes: number", "string of the given UTF-16 code units (JS String.fromCharCode)",
+		func(args []Value) Value {
+			units := make([]uint16, len(args))
+			for i := range args {
+				units[i] = uint16(requireNumber("String.fromCharCode", args, i))
+			}
+			return Str(string(utf16.Decode(units)))
+		})
+
+	regH("isInteger", "value: any", "true for a finite integer number (JS Number.isInteger)",
+		func(args []Value) Value {
+			n, ok := arg(args, 0).(*NumberVal)
+			return Bln(ok && !math.IsInf(n.V, 0) && n.V == math.Trunc(n.V))
+		})
+
+	regH("isFinite", "value: any", "true for a finite number (JS Number.isFinite; no string coercion)",
+		func(args []Value) Value {
+			n, ok := arg(args, 0).(*NumberVal)
+			return Bln(ok && !math.IsInf(n.V, 0) && !math.IsNaN(n.V))
+		})
+
+	regH("isNaN", "value: any", "true for NaN (JS Number.isNaN; no string coercion)",
+		func(args []Value) Value {
+			n, ok := arg(args, 0).(*NumberVal)
+			return Bln(ok && math.IsNaN(n.V))
 		})
 
 	regH("String", "value: any", "convert to string",

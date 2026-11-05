@@ -294,7 +294,8 @@ func (t *Shell) ToPrompt(compact bool) string {
 const PromptSyntax = `## Syntax: JS subset
 let/const/var, function, =>, if/else (parens optional with braces), while (parens optional with braces),
 for/for..of/for..in, switch/case,
-try/catch/finally, throw, break, continue, destructuring, spread, ?., ??, ternary,
+try/catch/finally, throw, break, continue, labels on loops, destructuring (with defaults and ...rest),
+rest params, spread, ?., ??, ??=, ||=, &&=, ternary,
 template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwise. All work as expected.
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
 Not supported: class, new, this, import, yield, async functions, generators. await is allowed and does nothing — calls return values directly.

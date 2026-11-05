@@ -221,9 +221,9 @@ func nearKeys(name string, keys []string) []string {
 		switch {
 		case nk == n:
 			near = append(near, scored{k, -1})
-		case len(n) > 2 && strings.Contains(nk, n) || len(nk) > 2 && 2*len(nk) >= len(n) && strings.Contains(n, nk):
+		case len(n) > 2 && 2*len(n) >= len(nk) && strings.Contains(nk, n) || len(nk) > 2 && 2*len(nk) >= len(n) && strings.Contains(n, nk):
 			// A short string is inside almost anything: x suggested indexOf,
-			// and undefinedThing suggested inE.
+			// undefinedThing suggested inE, and mpa suggested localeCompare.
 			near = append(near, scored{k, 0})
 		default:
 			if d := levenshtein(n, nk); d <= maxDist {

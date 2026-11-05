@@ -90,9 +90,6 @@ func InstallMath(sh *Shell) *Shell {
 		obj.Set(name, &FuncVal{
 			Name: ns + "." + name, Params: []string{"...values"},
 			Body: &NativeBody{Fn: func(args []Value) Value {
-				if len(args) == 0 {
-					panic(Runtime(ns + "." + name + ": requires at least one argument"))
-				}
 				return minMax(args, ns+"."+name, isMax)
 			}},
 		})

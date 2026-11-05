@@ -11,16 +11,23 @@ var jsNamespaceAliases = []struct {
 	name    string
 	methods []kv
 }{
-	{"JSON", []kv{{"parse", "parseJson"}, {"stringify", "toJson"}}},
+	{"JSON", []kv{{"parse", "parseJson"}, {"stringify", "jsonStringify"}}},
 	{"Math", []kv{
 		{"floor", "floor"}, {"ceil", "ceil"}, {"round", "round"}, {"abs", "abs"},
 		{"min", "min"}, {"max", "max"}, {"pow", "pow"},
 	}},
 	{"Object", []kv{
 		{"keys", "keys"}, {"values", "values"}, {"entries", "entries"}, {"fromEntries", "fromEntries"},
+		{"assign", "assign"}, {"groupBy", "groupBy"},
 	}},
 	{"console", []kv{{"log", "print"}}},
-	{"Array", []kv{{"isArray", "isArray"}, {"from", "toArray"}}},
+	{"Array", []kv{{"isArray", "isArray"}, {"from", "toArray"}, {"of", "arrayOf"}}},
+	// Number and String are also callable: their constructor alias is __call.
+	{"Number", []kv{
+		{"isInteger", "isInteger"}, {"isFinite", "isFinite"}, {"isNaN", "isNaN"},
+		{"parseFloat", "parseFloat"}, {"parseInt", "parseInt"},
+	}},
+	{"String", []kv{{"fromCharCode", "fromCharCode"}}},
 }
 
 // jsConstructorAliases maps JS constructor-style calls to mcpshell command names.
@@ -37,16 +44,17 @@ var mutatingArrayMethods = map[string]bool{
 // jsMethodAliases maps JS method names to mcpshell command names, keyed by receiver type.
 var jsMethodAliases = map[string]map[string]string{
 	"array": {
-		"includes": "contains",
+		"includes":   "contains",
+		"toSorted":   "sort",
+		"toReversed": "reverse",
+		"with":       "withAt",
 	},
 	"string": {
 		"toUpperCase": "upper",
 		"toLowerCase": "lower",
 		"includes":    "contains",
-		"replaceAll":  "replace",
 		"matchAll":    "match",
 		"search":      "test",
-		"slice":       "substring",
 		"trimLeft":    "trimStart",
 		"trimRight":   "trimEnd",
 	},
@@ -59,7 +67,6 @@ var jsCommandAliases = map[string]string{
 	"includes":    "contains",
 	"toUpperCase": "upper",
 	"toLowerCase": "lower",
-	"replaceAll":  "replace",
 	"trimLeft":    "trimStart",
 	"trimRight":   "trimEnd",
 }
