@@ -274,7 +274,7 @@ func (itp *Interpreter) settle(fn *FuncVal) (value Value, failed *ShellError) {
 	defer func() {
 		if r := recover(); r != nil {
 			te, ok := r.(*ShellError)
-			if !ok {
+			if !ok || te.Internal() {
 				panic(r)
 			}
 			failed = te
@@ -304,6 +304,9 @@ func (itp *Interpreter) executeRace(args []Value) Value {
 		go func(idx int) {
 			defer func() {
 				if r := recover(); r != nil {
+					if ie := internalError(r); ie != nil {
+						r = ie // the stack is this goroutine's
+					}
 					ch <- outcome{err: r}
 				}
 			}()
@@ -320,6 +323,9 @@ func (itp *Interpreter) executeRace(args []Value) Value {
 			}
 			return o.value
 		}
+		if te, ok := o.err.(*ShellError); ok && te.Internal() {
+			panic(te)
+		}
 		failures++
 	}
 	panic(Runtime(fmt.Sprintf("race() — all %d producers failed", len(fns))))
@@ -334,7 +340,7 @@ func (itp *Interpreter) executeAny(args []Value) Value {
 	for idx, fn := range fns {
 		result, failed := callRecovering(fn)
 		if failed != nil {
-			if te, ok := failed.(*ShellError); ok {
+			if te, ok := failed.(*ShellError); ok && !te.Internal() {
 				errs = append(errs, fmt.Sprintf("  [%d] %s", idx+1, te.Message))
 				continue
 			}
@@ -392,6 +398,9 @@ func (itp *Interpreter) runParallel(branchLimits []*ExecutionLimits, work func(i
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
+					if ie := internalError(r); ie != nil {
+						r = ie // the stack is this goroutine's
+					}
 					errs[idx] = r
 				}
 			}()

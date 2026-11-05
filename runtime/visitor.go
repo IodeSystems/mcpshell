@@ -136,13 +136,17 @@ func (v *Visitor) pushCall(ctx antlr.ParserRuleContext) { v.itp.limits.PushCall(
 func (v *Visitor) popCall()                             { v.itp.limits.PopCall() }
 
 // withLocation runs block, appending a source location to any ShellError that
-// does not already carry one.
+// does not already carry one. A Go panic becomes an internal error here, the
+// innermost place that knows the line.
 func (v *Visitor) withLocation(ctx antlr.ParserRuleContext, block func() Value) (result Value) {
 	defer func() {
 		if r := recover(); r != nil {
+			if ie := internalError(r); ie != nil {
+				r = ie
+			}
 			if te, ok := r.(*ShellError); ok && !strings.Contains(te.Message, "at line") {
 				panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d",
-					te.Message, startLine(ctx), startCol(ctx))})
+					te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack})
 			}
 			panic(r)
 		}
@@ -615,7 +619,9 @@ func (v *Visitor) visitTryCatchStatement(ctx *parser.TryCatchStatementContext) V
 	caught := func() (errMsg string, threw bool) {
 		defer func() {
 			if r := recover(); r != nil {
-				if te, ok := r.(*ShellError); ok {
+				// An internal error is not caught: a script that handled it
+				// would hide the bug from the log.
+				if te, ok := r.(*ShellError); ok && !te.Internal() {
 					errMsg, threw = te.Message, true
 					return
 				}

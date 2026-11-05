@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,7 +11,43 @@ import (
 
 // ShellError is the runtime error type. It implements `error` and is raised
 // via panic; the top-level Eval recovers it into a result.
-type ShellError struct{ Message string }
+type ShellError struct {
+	Message string
+	// Stack is set for an internal error: a Go panic in mcpshell itself, not
+	// a mistake in the script. It is the Go stack at the panic.
+	Stack string
+}
+
+// Internal reports whether the error is a Go panic in mcpshell (a bug).
+func (e *ShellError) Internal() bool { return e.Stack != "" }
+
+// internalError wraps a recovered Go panic that is not a ShellError. Call it
+// from the deferred function that recovered r, so the stack is the panic's.
+// A loop signal is not a panic of this kind: it returns nil for those.
+func internalError(r any) *ShellError {
+	switch r.(type) {
+	case *ShellError, BreakSignal, ContinueSignal:
+		return nil
+	}
+	return &ShellError{
+		Message: fmt.Sprintf("internal error: %v\n\n  This is a bug in mcpshell, not a mistake in the script; "+
+			"the same code fails the same way. Work around it with other commands.", r),
+		Stack: string(debug.Stack()),
+	}
+}
+
+// AsShellError converts a value recovered from an eval into its error: a
+// ShellError as is, a loop signal as the stray break/continue error, any other
+// panic as an internal error.
+func AsShellError(r any) *ShellError {
+	if te, ok := r.(*ShellError); ok {
+		return te
+	}
+	if e := strayLoopSignal(r); e != nil {
+		return e
+	}
+	return internalError(r)
+}
 
 func (e *ShellError) Error() string { return e.Message }
 

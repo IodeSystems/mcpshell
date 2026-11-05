@@ -166,11 +166,7 @@ func (t *Shell) Eval(source string) (result Value, err error) {
 	defer func() {
 		t.warnings = itp.Warnings()
 		if r := recover(); r != nil {
-			if te, ok := r.(*ShellError); ok {
-				result, err = Null, te
-				return
-			}
-			panic(r)
+			result, err = Null, AsShellError(r)
 		}
 	}()
 	return itp.Eval(source).Value, nil
@@ -206,11 +202,7 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 			delete(t.earlierLets, name)
 		}
 		if r := recover(); r != nil {
-			if te, ok := r.(*ShellError); ok {
-				result, err = Null, te
-				return
-			}
-			panic(r)
+			result, err = Null, AsShellError(r)
 		}
 	}()
 	res := itp.Eval(source)
@@ -235,11 +227,7 @@ func (t *Shell) EvalTransactional(source string) (result Value, err error) {
 		t.warnings = itp.Warnings()
 		if r := recover(); r != nil {
 			t.globals.Restore(snapshot)
-			if te, ok := r.(*ShellError); ok {
-				result, err = Null, te
-				return
-			}
-			panic(r)
+			result, err = Null, AsShellError(r)
 		}
 	}()
 	return itp.Eval(source).Value, nil

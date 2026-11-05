@@ -139,10 +139,19 @@ func evalAndPrint(sh *runtime.Shell, src string) {
 	v, err := sh.Eval(src)
 	printWarnings(sh)
 	if err != nil {
+		printStack(err)
 		fail("%v", err)
 	}
 	if _, isNull := v.(*runtime.NullVal); !isNull {
 		fmt.Println(v.Display())
+	}
+}
+
+// printStack writes the Go stack of an internal error (a bug in mcpshell) to
+// stderr, for a bug report.
+func printStack(err error) {
+	if se, ok := err.(*runtime.ShellError); ok && se.Internal() {
+		fmt.Fprintf(os.Stderr, "--- stack (a bug in mcpshell; please report it with the script) ---\n%s--- end ---\n", se.Stack)
 	}
 }
 
@@ -172,6 +181,7 @@ func repl() {
 		v, err := sh.Eval(line)
 		printWarnings(sh)
 		if err != nil {
+			printStack(err)
 			fmt.Fprintln(os.Stderr, err)
 			continue
 		}

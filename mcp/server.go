@@ -235,6 +235,9 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	}
 	value, err := s.shell.EvalExported(code, vars)
 	warnings := runtime.FormatWarnings(s.shell.Warnings())
+	if se, ok := err.(*runtime.ShellError); ok && se.Internal() {
+		logInternalError(se, code, args.Vars)
+	}
 	if err != nil {
 		return toolResult("ERROR: "+err.Error()+warnings, true)
 	}
@@ -303,4 +306,20 @@ func (s *Server) saveOverflow(out string) (string, error) {
 		werr = cerr
 	}
 	return f.Name(), werr
+}
+
+// internalErrorLog receives logInternalError's reports; tests replace it.
+var internalErrorLog io.Writer = os.Stderr
+
+// logInternalError writes a Go panic in mcpshell to stderr with the script
+// that caused it, so the bug can be reproduced: the agent sees only the
+// message. vars are cut at 4 KB.
+func logInternalError(se *runtime.ShellError, code string, vars json.RawMessage) {
+	w := internalErrorLog
+	v := string(vars)
+	if len(v) > 4096 {
+		v = strings.ToValidUTF8(v[:4096], "") + "… (cut)"
+	}
+	fmt.Fprintf(w, "mcpshell mcp: internal error (a bug in mcpshell)\n%s\n--- script ---\n%s\n--- vars ---\n%s\n--- stack ---\n%s--- end ---\n",
+		se.Message, code, v, se.Stack)
 }
