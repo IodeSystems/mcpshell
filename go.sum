@@ -14,6 +14,8 @@ github.com/chromedp/chromedp v0.21.1 h1:5mwUk5QIyzYiyDQ6FQWJ+kCFLy4XMaxEMKPng8WT
 github.com/chromedp/chromedp v0.21.1/go.mod h1:hJcPsoPrgxu4ulIXhO1WmtKjosCD8jbZh0+TeVFsod8=
 github.com/chromedp/chromedp v0.22.0 h1:LmiA4TMBsfNG5ZwioC4n+aInRdnu9NCtHryKab2N3Aw=
 github.com/chromedp/chromedp v0.22.0/go.mod h1:hJcPsoPrgxu4ulIXhO1WmtKjosCD8jbZh0+TeVFsod8=
+github.com/chromedp/chromedp v0.23.0 h1:iNGzFz+exVgG4OynS2CnYzlAjHiOFW++fUPbbmSwy0w=
+github.com/chromedp/chromedp v0.23.0/go.mod h1:hJcPsoPrgxu4ulIXhO1WmtKjosCD8jbZh0+TeVFsod8=
 github.com/dlclark/regexp2/v2 v2.11.0 h1:z5uRPHav+eTVpoffDSuUP2KPS4f1ONZaPDK73S8HA0w=
 github.com/dlclark/regexp2/v2 v2.11.0/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/dlclark/regexp2/v2 v2.12.0 h1:GsCgDZZeHluUDHASr2yqQonZk4Tma5LFmLH9CSsFFEE=
