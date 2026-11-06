@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
-	github.com/chromedp/chromedp v0.22.0
+	github.com/chromedp/chromedp v0.23.0
 	github.com/dlclark/regexp2/v2 v2.12.0
 	github.com/lib/pq v1.12.3
 	modernc.org/sqlite v1.61.1
