@@ -79,12 +79,15 @@ func isIdentifierText(s string) bool {
 
 func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleContext) Value {
 	v.step(ctx)
-	if nb, ok := fn.Body.(*NativeBody); ok && nb.Cmd != nil {
-		args = v.dropExtraArgs(nb.Cmd, args, ctx)
-		// A command gets values, not a failed async call's rejection.
-		for _, a := range args {
-			settled(a)
+	if nb, ok := fn.Body.(*NativeBody); ok {
+		if nb.Cmd != nil {
+			args = v.dropExtraArgs(nb.Cmd, args, ctx)
 		}
+		if !nb.TakesRejections {
+			v.settledArgs(args)
+		}
+	} else if fn.Async {
+		return v.callAsync(fn, args, ctx)
 	}
 	return v.callFunctionInternal(fn, args)
 }
@@ -119,7 +122,7 @@ func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 		return nb.Fn(args)
 	}
 	if fn.Async {
-		return v.callAsync(fn, args)
+		return v.callAsync(fn, args, nil)
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -530,6 +533,8 @@ func (v *Visitor) mutateInPlace(parent Value, step any, value Value) {
 }
 
 func (v *Visitor) applyCompoundOp(op string, current, rhs Value) Value {
+	settled(current)
+	settled(rhs)
 	switch op {
 	case "+=":
 		return add(current, rhs)

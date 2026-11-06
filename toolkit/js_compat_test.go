@@ -191,6 +191,16 @@ func TestJsCompatProbe(t *testing.T) {
 		{"166 rethrow through async", `async function f() { throw "boom" }; async function g() { return await f() }; g().catch(e => e)`, ok, "boom"},
 		{"167 async arrow rejection", `const f = async () => { throw "boom" }; f().catch(e => e)`, ok, "boom"},
 		{"168 async fulfilled is the value", `async function f() { return 3 }; f() + 1`, ok, "4"},
+		{"170 rejection has the call site", "async function f() { throw \"boom\" }\nconst p = f();\nawait p", err, "at line 2:11"},
+		{"171 unhandled rejection has the call site", "async function f() { throw \"boom\" }\nf();\n1", err, "at line 2:1"},
+		{"172 rejection from a command call has the function line", "async function f(x) { throw \"boom\" }\nconst ps = [1].map(f);\n1", err, "at line 1:"},
+		{"173 rejection in string concat", `async function f() { throw "boom" }; const p = f(); try { "x" + p } catch (e) { e }`, ok, "boom"},
+		{"174 rejection in a template", "async function f() { throw \"boom\" }; const p = f(); try { `v=${p}` } catch (e) { e }", ok, "boom"},
+		{"175 rejection in equality", `async function f() { throw "boom" }; const p = f(); try { p === 1 } catch (e) { e }`, ok, "boom"},
+		{"176 rejection in comparison", `async function f() { throw "boom" }; const p = f(); try { p < 1 } catch (e) { e }`, ok, "boom"},
+		{"177 rejection in compound assign", `async function f() { throw "boom" }; let s = "a"; const p = f(); try { s += p } catch (e) { e }`, ok, "boom"},
+		{"178 rejection inside a command argument", `async function f() { throw "boom" }; const p = f(); try { upper([p]) } catch (e) { e }`, ok, "boom"},
+		{"179 handled rejection, then other work", `async function f() { throw "boom" }; const p = f(); p.catch(e => 0); "ok"`, ok, "ok"},
 		{"169 finally keeps async rejection", `async function f() { throw "boom" }; f().finally(() => 0).catch(e => "after " + e)`, ok, "after boom"},
 	}
 	for _, c := range cases {

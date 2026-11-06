@@ -294,6 +294,10 @@ type FunctionBody interface{ isFunctionBody() }
 type NativeBody struct {
 	Fn  NativeFn
 	Cmd *CommandDef // the command this calls, if any: its signature caps the argument count
+	// TakesRejections marks the Promise functions, which handle a failed
+	// async call's rejection in their arguments; any other native function
+	// raises it (see settledArgs).
+	TakesRejections bool
 }
 
 // ExpressionBody is an arrow function with an expression body: `x => expr`.

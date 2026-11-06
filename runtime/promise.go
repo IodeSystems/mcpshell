@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/antlr4-go/antlr/v4"
 	"github.com/iodesystems/mcpshell/parser"
 )
 
@@ -158,14 +159,19 @@ func settled(value Value) Value {
 
 // rejectionList records an eval's rejections to find an unhandled one.
 type rejectionList struct {
-	mu   sync.Mutex
-	list []*RejectedVal
+	mu    sync.Mutex
+	list  []*RejectedVal
+	count atomic.Int64 // rejections made this eval, handled or not
 }
+
+// any reports whether this eval made a rejection, so a value may hold one.
+func (l *rejectionList) any() bool { return l != nil && l.count.Load() > 0 }
 
 func (l *rejectionList) add(rv *RejectedVal) {
 	if l == nil {
 		return
 	}
+	l.count.Add(1)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.list = append(l.list, rv)
@@ -189,8 +195,10 @@ func (l *rejectionList) unhandled() *RejectedVal {
 }
 
 // callAsync calls an async function: an error it raises is returned as a
-// rejection, as an async function returns a rejected promise in JS.
-func (v *Visitor) callAsync(fn *FuncVal, args []Value) (result Value) {
+// rejection, as an async function returns a rejected promise in JS. The
+// error gets the location of the call site, or with no call site (a command
+// called fn), the function's own.
+func (v *Visitor) callAsync(fn *FuncVal, args []Value, site antlr.ParserRuleContext) (result Value) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e := strayLoopSignal(r); e != nil {
@@ -200,6 +208,12 @@ func (v *Visitor) callAsync(fn *FuncVal, args []Value) (result Value) {
 			if !ok || te.Internal() {
 				panic(r)
 			}
+			if site == nil {
+				site = fnNode(fn)
+			}
+			if site != nil {
+				te = located(te, site)
+			}
 			rv := &RejectedVal{Err: te}
 			v.itp.limits.rejections.add(rv)
 			result = rv
@@ -208,4 +222,60 @@ func (v *Visitor) callAsync(fn *FuncVal, args []Value) (result Value) {
 	plain := *fn
 	plain.Async = false
 	return v.callFunctionInternal(&plain, args)
+}
+
+// isRejected reports whether value is a failed async call's rejection.
+func isRejected(value Value) bool {
+	_, ok := value.(*RejectedVal)
+	return ok
+}
+
+// settledArgs raises a rejection in args, also one inside an array or
+// object: a native function gets values. It looks inside only when this
+// eval made a rejection, so the common call pays for nothing.
+func (v *Visitor) settledArgs(args []Value) {
+	if !v.itp.limits.rejections.any() {
+		return
+	}
+	seen := map[Value]bool{}
+	var walk func(Value)
+	walk = func(val Value) {
+		switch x := val.(type) {
+		case *RejectedVal:
+			settled(x)
+		case *ArrayVal:
+			if seen[x] {
+				return
+			}
+			seen[x] = true
+			for _, e := range x.Elements {
+				walk(e)
+			}
+		case *ObjectVal:
+			if seen[x] {
+				return
+			}
+			seen[x] = true
+			for _, k := range x.Keys() {
+				e, _ := x.Get(k)
+				walk(e)
+			}
+		}
+	}
+	for _, a := range args {
+		walk(a)
+	}
+}
+
+// fnNode is the source node of a user function, for an error's location.
+func fnNode(fn *FuncVal) antlr.ParserRuleContext {
+	switch b := fn.Body.(type) {
+	case *BlockBody:
+		n, _ := b.Node.(antlr.ParserRuleContext)
+		return n
+	case *ExpressionBody:
+		n, _ := b.Node.(antlr.ParserRuleContext)
+		return n
+	}
+	return nil
 }

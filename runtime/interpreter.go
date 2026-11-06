@@ -135,6 +135,7 @@ func (itp *Interpreter) initBuiltinBindings() {
 
 	allSettledFn := nativeFn("allSettled", func(args []Value) Value { return itp.executeAllSettled(args) })
 	for _, b := range []*FuncVal{allFn, raceFn, anyFn, chainFn, allSettledFn} {
+		b.Body.(*NativeBody).TakesRejections = true
 		// A user value under the name (export let all = …) wins, as it does
 		// for the JS aliases below; defining the builtin over it each eval
 		// made the exported value unreachable from the next eval on.
@@ -211,6 +212,12 @@ func (itp *Interpreter) initBuiltinBindings() {
 	promise.Set("all", allFn)
 	promise.Set("race", raceFn)
 	promise.Set("allSettled", allSettledFn)
+	defer func() {
+		for _, k := range promise.Keys() {
+			fn, _ := promise.Get(k)
+			fn.(*FuncVal).Body.(*NativeBody).TakesRejections = true
+		}
+	}()
 	// JS Promise.any is the first producer that does not fail; the any()
 	// builtin is the first truthy result.
 	promise.Set("any", nativeFn("any", func(args []Value) Value { return itp.executeFirstFulfilled(args) }))

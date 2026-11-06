@@ -138,15 +138,23 @@ func (v *Visitor) popCall()                             { v.itp.limits.PopCall()
 // withLocation runs block, appending a source location to any ShellError that
 // does not already carry one. A Go panic becomes an internal error here, the
 // innermost place that knows the line.
+// located returns te with the location of ctx, unless it carries one.
+func located(te *ShellError, ctx antlr.ParserRuleContext) *ShellError {
+	if strings.Contains(te.Message, "at line") {
+		return te
+	}
+	return &ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d",
+		te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack, Reason: te.Thrown()}
+}
+
 func (v *Visitor) withLocation(ctx antlr.ParserRuleContext, block func() Value) (result Value) {
 	defer func() {
 		if r := recover(); r != nil {
 			if ie := internalError(r); ie != nil {
 				r = ie
 			}
-			if te, ok := r.(*ShellError); ok && !strings.Contains(te.Message, "at line") {
-				panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d",
-					te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack, Reason: te.Thrown()})
+			if te, ok := r.(*ShellError); ok {
+				panic(located(te, ctx))
 			}
 			panic(r)
 		}
@@ -1126,6 +1134,10 @@ func (v *Visitor) visitEqualityExpr(ctx *parser.EqualityExprContext) Value {
 	result := v.eval(cmps[0])
 	for i := 1; i < len(cmps); i++ {
 		right := v.eval(cmps[i])
+		if isRejected(result) || isRejected(right) {
+			left := result
+			v.withLocation(ctx, func() Value { settled(left); return settled(right) })
+		}
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "==", "===":
@@ -1172,7 +1184,7 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 			cmp = compareValues(result, right)
 		} else { // a mismatch panics; give it the location, off the hot path
 			left := result
-			v.withLocation(ctx, func() Value { compareValues(left, right); return nil })
+			v.withLocation(ctx, func() Value { compareValues(settled(left), settled(right)); return nil })
 		}
 		switch op {
 		case "<":
@@ -1271,7 +1283,7 @@ func (v *Visitor) arith(ctx antlr.ParserRuleContext, op func(a, b Value) Value, 
 	if bothNumbers(a, b) {
 		return op(a, b)
 	}
-	return v.withLocation(ctx, func() Value { return op(a, b) })
+	return v.withLocation(ctx, func() Value { return op(settled(a), settled(b)) })
 }
 
 func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
@@ -1632,10 +1644,19 @@ func (v *Visitor) visitTemplateString(ctx *parser.TemplateStringContext) Value {
 		case *parser.TemplateTextContext:
 			sb.WriteString(unescapeString(p.TEMPLATE_TEXT().GetText()))
 		case *parser.TemplateInterpContext:
-			sb.WriteString(v.eval(p.Expression()).Display())
+			sb.WriteString(v.templateValue(p).Display())
 		}
 	}
 	return &StringVal{V: sb.String()}
+}
+
+// templateValue evaluates a template's ${expr}; a rejection raises there.
+func (v *Visitor) templateValue(p *parser.TemplateInterpContext) Value {
+	val := v.eval(p.Expression())
+	if isRejected(val) {
+		return v.withLocation(p, func() Value { return settled(val) })
+	}
+	return val
 }
 
 func (v *Visitor) visitRawTemplateString(ctx *parser.RawTemplateStringContext) Value {
@@ -1645,7 +1666,7 @@ func (v *Visitor) visitRawTemplateString(ctx *parser.RawTemplateStringContext) V
 		case *parser.TemplateTextContext:
 			sb.WriteString(p.TEMPLATE_TEXT().GetText())
 		case *parser.TemplateInterpContext:
-			sb.WriteString(v.eval(p.Expression()).Display())
+			sb.WriteString(v.templateValue(p).Display())
 		}
 	}
 	return &StringVal{V: sb.String()}
