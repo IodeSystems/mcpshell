@@ -205,17 +205,52 @@ func (itp *Interpreter) initBuiltinBindings() {
 	promise.Set("all", allFn)
 	promise.Set("race", raceFn)
 	promise.Set("allSettled", allSettledFn)
+	// JS Promise.any is the first producer that does not fail; the any()
+	// builtin is the first truthy result.
+	promise.Set("any", nativeFn("any", func(args []Value) Value { return itp.executeFirstFulfilled(args) }))
+	promise.Set("resolve", nativeFn("resolve", func(args []Value) Value {
+		if len(args) == 0 {
+			return Null
+		}
+		return args[0]
+	}))
+	promise.Set("reject", nativeFn("reject", func(args []Value) Value {
+		if len(args) == 0 {
+			panic(Runtime("rejected"))
+		}
+		if s, ok := args[0].(*StringVal); ok {
+			panic(Runtime(s.V))
+		}
+		panic(Runtime(args[0].Display()))
+	}))
 	itp.registerNamespace("Promise", promise, false)
 }
 
 // --- Composition -------------------------------------------------------------
 
+// requireFnArgs returns the producers of all, race, any, allSettled and
+// chain: functions as arguments, or one array as Promise.all([...]) takes.
+// An array element that is not a function is a value already produced, as a
+// settled promise is in JS (a call returns its value directly).
 func requireFnArgs(name string, args []Value) []*FuncVal {
+	if len(args) == 1 {
+		if arr, ok := args[0].(*ArrayVal); ok {
+			fns := make([]*FuncVal, len(arr.Elements))
+			for i, e := range arr.Elements {
+				if fn, ok := e.(*FuncVal); ok {
+					fns[i] = fn
+				} else {
+					fns[i] = nativeFn("value", func([]Value) Value { return e })
+				}
+			}
+			return fns
+		}
+	}
 	fns := make([]*FuncVal, len(args))
 	for i, a := range args {
 		fn, ok := a.(*FuncVal)
 		if !ok {
-			panic(WrongArguments(name, "...fns: function[]", args,
+			panic(WrongArguments(name, "...fns: function[] | array", args,
 				name+"(() => a(), () => b())"))
 		}
 		fns[i] = fn
@@ -256,11 +291,16 @@ func (itp *Interpreter) executeAllSettled(args []Value) Value {
 		b := &Interpreter{commands: itp.commands, globals: itp.globals, limits: branchLimits[idx]}
 		value, failed := b.settle(fns[idx])
 		out := NewObject()
+		// status and reason are the JS Promise.allSettled shape; ok and
+		// error are mcpshell's.
 		if failed != nil {
 			out.Set("ok", &BoolVal{V: false})
+			out.Set("status", &StringVal{V: "rejected"})
 			out.Set("error", &StringVal{V: failed.Message})
+			out.Set("reason", &StringVal{V: failed.Message})
 		} else {
 			out.Set("ok", &BoolVal{V: true})
+			out.Set("status", &StringVal{V: "fulfilled"})
 			out.Set("value", value)
 		}
 		return out
@@ -284,6 +324,17 @@ func (itp *Interpreter) settle(fn *FuncVal) (value Value, failed *ShellError) {
 }
 
 func (itp *Interpreter) executeRace(args []Value) Value {
+	// An array element that is a value has already settled, so it wins the
+	// race (the first one, as in JS) and no producer runs.
+	if len(args) == 1 {
+		if arr, ok := args[0].(*ArrayVal); ok {
+			for _, e := range arr.Elements {
+				if _, isFn := e.(*FuncVal); !isFn {
+					return e
+				}
+			}
+		}
+	}
 	fns := requireFnArgs("race", args)
 	if len(fns) == 0 {
 		panic(Runtime("race() — no producers given"))
@@ -355,6 +406,29 @@ func (itp *Interpreter) executeAny(args []Value) Value {
 		msg += "Errors:\n" + strings.Join(errs, "\n")
 	} else {
 		msg += fmt.Sprintf("All %d producers returned falsy values", len(fns))
+	}
+	panic(Runtime(msg))
+}
+
+// executeFirstFulfilled is Promise.any: the first producer, in order, that
+// does not fail.
+func (itp *Interpreter) executeFirstFulfilled(args []Value) Value {
+	fns := requireFnArgs("Promise.any", args)
+	var errs []string
+	for idx, fn := range fns {
+		result, failed := callRecovering(fn)
+		if failed == nil {
+			return result
+		}
+		te, ok := failed.(*ShellError)
+		if !ok || te.Internal() {
+			panic(failed)
+		}
+		errs = append(errs, fmt.Sprintf("  [%d] %s", idx+1, te.Message))
+	}
+	msg := "Promise.any() — no producer given"
+	if len(errs) > 0 {
+		msg = "Promise.any() — all producers failed\n\nErrors:\n" + strings.Join(errs, "\n")
 	}
 	panic(Runtime(msg))
 }

@@ -94,7 +94,6 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 		{"new suggests no constructors", `new Date()`, []string{"no constructors"}},
 		{"class suggests objects and functions", `class Foo {}`, []string{"objects and functions"}},
 		{"throw surfaces the value", `throw "something broke"`, []string{"something broke"}},
-		{"async suggests all()", `async function f() {}`, []string{"all()"}},
 		{"import explains no imports", `import x from 'y'`, []string{"import"}},
 		{"missing namespace member suggests similar", `Math.rond(4)`, []string{"'Math.rond' is not a function", "Did you mean", "Math.round"}},
 		{"missing member suggests prefixed name in brackets",

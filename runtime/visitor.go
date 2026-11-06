@@ -1434,19 +1434,42 @@ func (v *Visitor) deleteIndex(base, index Value) Value {
 }
 
 func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
-	result := v.eval(ctx.PrimaryExpr())
+	ops := v.postfixOps(ctx)
+	// A chain with .then/.catch/.finally keeps an error raised before them as
+	// a rejection, for them to handle (see settlePromiseCall).
+	lastPromise := lastPromiseCall(ops)
+	var rejected *ShellError
+	var result Value
+	if lastPromise >= 0 {
+		result, rejected = catchRejection(func() Value { return v.eval(ctx.PrimaryExpr()) })
+	} else {
+		result = v.eval(ctx.PrimaryExpr())
+	}
 	var lvaluePath []string
 	if id, ok := ctx.PrimaryExpr().(*parser.IdentifierExprContext); ok {
 		lvaluePath = append(lvaluePath, identOrFunctionText(id.IDENTIFIER(), id.FUNCTION()))
 	}
 
-	ops := v.postfixOps(ctx)
 	// receiver and member of the latest member access, so a failed call on it
 	// can name what was missing.
 	var memberOf Value
 	var member string
+	skipCall := false
 	for opIdx, op := range ops {
+		if skipCall {
+			skipCall = false
+			continue
+		}
 		opc := op.(*parser.PostfixOpContext)
+		if name := promiseCallAt(ops, opIdx); name != "" && !hasOwnMember(result, name) {
+			skipCall = true
+			result, rejected = v.settlePromiseCall(name, result, rejected, ops[opIdx+1].(*parser.PostfixOpContext))
+			memberOf, member, lvaluePath = nil, "", lvaluePath[:0]
+			continue
+		}
+		if rejected != nil {
+			panic(rejected)
+		}
 		isOptional := opc.OPTIONAL_CHAIN() != nil
 		if isOptional {
 			if _, isNull := result.(*NullVal); isNull {
@@ -1456,77 +1479,87 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 		current := result
 		prevMemberOf, prevMember := memberOf, member
 		memberOf, member = nil, ""
-		result = v.withLocation(opc, func() Value {
-			switch {
-			case opc.FieldName() != nil:
-				field := v.fieldNameText(opc.FieldName())
-				var nextOp *parser.PostfixOpContext
-				if opIdx+1 < len(ops) {
-					nextOp = ops[opIdx+1].(*parser.PostfixOpContext)
-				}
-				if arr, ok := current.(*ArrayVal); ok && nextOp != nil && nextOp.LPAREN() != nil &&
-					mutatingArrayMethods[field] && len(lvaluePath) > 0 {
-					return v.bindMutatingArrayMethod(arr, field, append([]string(nil), lvaluePath...))
-				}
-				lvaluePath = append(lvaluePath, field)
-				memberOf, member = current, field
-				val := v.accessMember(current, field)
-				// A call on the member reports a missing one itself (NotCallable).
-				if o, ok := current.(*ObjectVal); ok && !isOptional && (nextOp == nil || nextOp.LPAREN() == nil) {
-					v.warnMissingMember(o, field, opc)
-				}
-				return val
-			case opc.LBRACKET() != nil:
-				index := v.eval(opc.Expression())
-				if s, ok := index.(*StringVal); ok {
-					memberOf, member = current, s.V
-				}
-				if obj, ok := current.(*ObjectVal); ok {
-					_ = obj
+		apply := func() Value {
+			return v.withLocation(opc, func() Value {
+				switch {
+				case opc.FieldName() != nil:
+					field := v.fieldNameText(opc.FieldName())
+					var nextOp *parser.PostfixOpContext
+					if opIdx+1 < len(ops) {
+						nextOp = ops[opIdx+1].(*parser.PostfixOpContext)
+					}
+					if arr, ok := current.(*ArrayVal); ok && nextOp != nil && nextOp.LPAREN() != nil &&
+						mutatingArrayMethods[field] && len(lvaluePath) > 0 {
+						return v.bindMutatingArrayMethod(arr, field, append([]string(nil), lvaluePath...))
+					}
+					lvaluePath = append(lvaluePath, field)
+					memberOf, member = current, field
+					val := v.accessMember(current, field)
+					// A call on the member reports a missing one itself (NotCallable).
+					if o, ok := current.(*ObjectVal); ok && !isOptional && (nextOp == nil || nextOp.LPAREN() == nil) {
+						v.warnMissingMember(o, field, opc)
+					}
+					return val
+				case opc.LBRACKET() != nil:
+					index := v.eval(opc.Expression())
 					if s, ok := index.(*StringVal); ok {
-						lvaluePath = append(lvaluePath, s.V)
+						memberOf, member = current, s.V
+					}
+					if obj, ok := current.(*ObjectVal); ok {
+						_ = obj
+						if s, ok := index.(*StringVal); ok {
+							lvaluePath = append(lvaluePath, s.V)
+						} else {
+							lvaluePath = lvaluePath[:0]
+						}
 					} else {
 						lvaluePath = lvaluePath[:0]
 					}
-				} else {
-					lvaluePath = lvaluePath[:0]
-				}
-				return v.accessIndex(current, index)
-			case opc.LPAREN() != nil:
-				var ca callArgs
-				if al := opc.ArgumentList(); al != nil {
-					ca = v.evalCallArgs(al)
-				}
-				fn := asCallable(current)
-				if fn == nil {
-					if prevMemberOf != nil {
-						panic(NotCallable(receiverText(ctx, ops[:opIdx-1]), prevMemberOf, prevMember, current))
+					return v.accessIndex(current, index)
+				case opc.LPAREN() != nil:
+					var ca callArgs
+					if al := opc.ArgumentList(); al != nil {
+						ca = v.evalCallArgs(al)
 					}
-					panic(TypeMismatch("call", "function", current, ""))
-				}
-				args := v.resolveNamedArgs(fn, ca)
-				return v.callFunction(fn, args, opc)
-			case opc.INCREMENT() != nil || opc.DECREMENT() != nil:
-				oldValue := current
-				delta := &NumberVal{V: 1}
-				if opc.DECREMENT() != nil {
-					delta = &NumberVal{V: -1}
-				}
-				newValue := v.applyCompoundOp("+=", current, delta)
-				if len(lvaluePath) == 1 {
-					v.env.Set(lvaluePath[0], newValue)
-				} else {
-					sym := "++"
+					fn := asCallable(current)
+					if fn == nil {
+						if prevMemberOf != nil {
+							panic(NotCallable(receiverText(ctx, ops[:opIdx-1]), prevMemberOf, prevMember, current))
+						}
+						panic(TypeMismatch("call", "function", current, ""))
+					}
+					args := v.resolveNamedArgs(fn, ca)
+					return v.callFunction(fn, args, opc)
+				case opc.INCREMENT() != nil || opc.DECREMENT() != nil:
+					oldValue := current
+					delta := &NumberVal{V: 1}
 					if opc.DECREMENT() != nil {
-						sym = "--"
+						delta = &NumberVal{V: -1}
 					}
-					panic(Runtime("Postfix " + sym + " requires a simple variable"))
+					newValue := v.applyCompoundOp("+=", current, delta)
+					if len(lvaluePath) == 1 {
+						v.env.Set(lvaluePath[0], newValue)
+					} else {
+						sym := "++"
+						if opc.DECREMENT() != nil {
+							sym = "--"
+						}
+						panic(Runtime("Postfix " + sym + " requires a simple variable"))
+					}
+					return oldValue
+				default:
+					return current
 				}
-				return oldValue
-			default:
-				return current
-			}
-		})
+			})
+		}
+		if opIdx < lastPromise {
+			result, rejected = catchRejection(apply)
+		} else {
+			result = apply()
+		}
+	}
+	if rejected != nil {
+		panic(rejected)
 	}
 	return result
 }

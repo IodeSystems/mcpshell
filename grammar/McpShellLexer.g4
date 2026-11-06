@@ -26,6 +26,7 @@ THROW   : 'throw';
 TYPEOF  : 'typeof';
 DELETE  : 'delete';
 AWAIT   : 'await';
+ASYNC   : 'async';
 TRUE    : 'true';
 FALSE   : 'false';
 NULL    : 'null' | 'undefined';

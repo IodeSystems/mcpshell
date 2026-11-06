@@ -116,7 +116,7 @@ func TestEvalCore(t *testing.T) {
 		{"chain", `chain(() => 10, x => x + 5)`, "15"},
 		{"race single", `race(() => 1)`, "1"},
 		{"any", `any(() => null, () => 7)`, "7"},
-		{"allSettled", `allSettled(() => 1, () => { throw "boom" }, () => 3)`, `[{ok: true, value: 1}, {ok: false, error: "boom"}, {ok: true, value: 3}]`},
+		{"allSettled", `allSettled(() => 1, () => { throw "boom" }, () => 3)`, `[{ok: true, status: "fulfilled", value: 1}, {ok: false, status: "rejected", error: "boom", reason: "boom"}, {ok: true, status: "fulfilled", value: 3}]`},
 		{"allSettled empty", `allSettled()`, "[]"},
 		{"await is the identity", `let x = await 3; [x, await(4), await [5][0]]`, "[3, 4, 5]"},
 		{"await as a key", `{await: 1}.await`, "1"},

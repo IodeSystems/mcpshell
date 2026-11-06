@@ -30,7 +30,8 @@ exportStatement   : EXPORT (letDecl | fnDecl | assignStatement);
 
 letDecl           : LET letBinding (COMMA letBinding)* SEMI?;
 letBinding        : destructure (COLON typeAnnotation)? (ASSIGN expression)?;
-fnDecl            : FUNCTION (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN (COLON typeAnnotation)? block
+// async is accepted and ignored: calls return values directly (docs/design.md).
+fnDecl            : ASYNC? FUNCTION (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN (COLON typeAnnotation)? block
                   | LET (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN (COLON typeAnnotation)? block
                   | LET FUNCTION (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN (COLON typeAnnotation)? block
                   ;
@@ -60,7 +61,7 @@ whileStatement    : WHILE LPAREN expression RPAREN blockOrStatement
                   | WHILE expression block
                   ;
 doWhileStatement  : DO blockOrStatement WHILE LPAREN expression RPAREN SEMI?;
-forOfStatement    : FOR LPAREN LET destructure OF expression RPAREN blockOrStatement;
+forOfStatement    : FOR AWAIT? LPAREN LET destructure OF expression RPAREN blockOrStatement;
 forInStatement    : FOR LPAREN LET (IDENTIFIER | FUNCTION) IN expression RPAREN blockOrStatement;
 forStatement      : FOR LPAREN (forInitLet | forInitAssign)? SEMI expression? SEMI (forUpdateAssign | forUpdateIncrDecr)? RPAREN blockOrStatement;
 forInitLet        : LET (IDENTIFIER | FUNCTION) ASSIGN expression;
@@ -158,16 +159,16 @@ primaryExpr
   | LPAREN expression (COMMA expression)* RPAREN         # parenExpr
   ;
 
-functionExpr  : FUNCTION (IDENTIFIER | FUNCTION)? LPAREN paramList? RPAREN (COLON typeAnnotation)? block;
+functionExpr  : ASYNC? FUNCTION (IDENTIFIER | FUNCTION)? LPAREN paramList? RPAREN (COLON typeAnnotation)? block;
 
 // Arrow functions
 arrowFunction
-  : IDENTIFIER ARROW expression                         # singleParamArrow
-  | FUNCTION ARROW expression                           # singleParamArrow
-  | LPAREN paramList? RPAREN (COLON typeAnnotation)? ARROW expression  # multiParamArrow
-  | IDENTIFIER ARROW block                              # singleParamArrowBlock
-  | FUNCTION ARROW block                                # singleParamArrowBlock
-  | LPAREN paramList? RPAREN (COLON typeAnnotation)? ARROW block       # multiParamArrowBlock
+  : ASYNC? IDENTIFIER ARROW expression                         # singleParamArrow
+  | ASYNC? FUNCTION ARROW expression                           # singleParamArrow
+  | ASYNC? LPAREN paramList? RPAREN (COLON typeAnnotation)? ARROW expression  # multiParamArrow
+  | ASYNC? IDENTIFIER ARROW block                              # singleParamArrowBlock
+  | ASYNC? FUNCTION ARROW block                                # singleParamArrowBlock
+  | ASYNC? LPAREN paramList? RPAREN (COLON typeAnnotation)? ARROW block       # multiParamArrowBlock
   ;
 
 // Literals
@@ -175,7 +176,7 @@ arrayLiteral      : LBRACKET (spreadOrExpr (COMMA spreadOrExpr)* COMMA?)? RBRACK
 objectLiteral     : LBRACE (objectField (COMMA objectField)* COMMA?)? RBRACE;
 objectField
   : fieldName COLON expression                          # namedField
-  | (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN block  # methodField
+  | ASYNC? (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN block  # methodField
   | IDENTIFIER                                          # shorthandField
   | FUNCTION                                            # shorthandField
   | SPREAD expression                                   # spreadField
@@ -184,7 +185,7 @@ objectField
 
 fieldName
   : IDENTIFIER | STRING | NUMBER | LET | FUNCTION | IF | ELSE | WHILE | DO | FOR | OF | IN | RETURN
-  | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE | AWAIT
+  | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE | AWAIT | ASYNC
   | TRUE | FALSE | NULL
   ;
 

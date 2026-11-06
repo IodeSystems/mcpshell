@@ -286,7 +286,9 @@ try/catch/finally, throw, break, continue, labels on loops, destructuring (with 
 rest params, spread, ?., ??, ??=, ||=, &&=, ternary,
 template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwise. All work as expected.
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
-Not supported: class, new, this, import, yield, async functions, generators. await is allowed and does nothing — calls return values directly.
+Not supported: class, new, this, import, yield, generators.
+async/await are allowed and do nothing — calls return values directly, run in order. Promise.all/allSettled/race/any([...]),
+Promise.resolve/reject and .then/.catch/.finally work on these values; for parallel calls put functions in the array: Promise.all([() => a(), () => b()]).
 catch (e): e is the error message string (e.message also works).
 Last expression is the output. ` + "`let`" + ` returns null — end with the value you want.
 
@@ -305,7 +307,7 @@ profile(() => ...) // returns {result, steps, lines} to see which lines cost the
 
 ## Composition
 all(() => a(), () => b()) // parallel   race() // first success
-allSettled(() => a(), () => b()) // parallel, never throws: [{ok: true, value} | {ok: false, error}]
+allSettled(() => a(), () => b()) // parallel, never throws: [{ok: true, status: "fulfilled", value} | {ok: false, status: "rejected", error, reason}]
 chain(() => getData(), d => transform(d)) // sequential`
 
 // ToolDescription is the short tool-call schema description for LLM clients.
