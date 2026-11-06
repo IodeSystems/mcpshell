@@ -288,7 +288,8 @@ template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwis
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
 Not supported: class, new, this, import, yield, generators.
 async/await are allowed and do nothing — calls return values directly, run in order. Promise.all/allSettled/race/any([...]),
-Promise.resolve/reject and .then/.catch/.finally work on these values; for parallel calls put functions in the array: Promise.all([() => a(), () => b()]).
+Promise.resolve/reject and .then/.catch/.finally work on these values; a failed async call is a rejection for them to catch.
+For parallel calls put functions in the array: Promise.all([() => a(), () => b()]).
 catch (e): e is the error message string (e.message also works).
 Last expression is the output. ` + "`let`" + ` returns null — end with the value you want.
 

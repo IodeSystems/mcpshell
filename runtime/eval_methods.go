@@ -81,6 +81,10 @@ func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleCo
 	v.step(ctx)
 	if nb, ok := fn.Body.(*NativeBody); ok && nb.Cmd != nil {
 		args = v.dropExtraArgs(nb.Cmd, args, ctx)
+		// A command gets values, not a failed async call's rejection.
+		for _, a := range args {
+			settled(a)
+		}
 	}
 	return v.callFunctionInternal(fn, args)
 }
@@ -113,6 +117,9 @@ func (v *Visitor) dropExtraArgs(cmd *CommandDef, args []Value, ctx antlr.ParserR
 func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 	if nb, ok := fn.Body.(*NativeBody); ok {
 		return nb.Fn(args)
+	}
+	if fn.Async {
+		return v.callAsync(fn, args)
 	}
 	defer func() {
 		if r := recover(); r != nil {

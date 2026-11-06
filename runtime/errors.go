@@ -16,6 +16,18 @@ type ShellError struct {
 	// Stack is set for an internal error: a Go panic in mcpshell itself, not
 	// a mistake in the script. It is the Go stack at the panic.
 	Stack string
+	// Reason is Message without the "at line" location that withLocation
+	// adds: what the script threw, for catch (e) and promise handlers.
+	Reason string
+}
+
+// Thrown is the error as the script sees it in catch (e): the message
+// without its location.
+func (e *ShellError) Thrown() string {
+	if e.Reason != "" {
+		return e.Reason
+	}
+	return e.Message
 }
 
 // Internal reports whether the error is a Go panic in mcpshell (a bug).

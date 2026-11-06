@@ -1,6 +1,11 @@
 package runtime
 
-import "github.com/iodesystems/mcpshell/parser"
+import (
+	"sync"
+	"sync/atomic"
+
+	"github.com/iodesystems/mcpshell/parser"
+)
 
 // Promise methods on plain values. A call returns its value directly, so
 // every value is a promise that has already settled: fulfilled with the
@@ -89,9 +94,13 @@ func (v *Visitor) settlePromiseCall(name string, value Value, rejected *ShellErr
 			return v.withLocation(call, func() Value { return v.callFunction(fn, fnArgs, call) })
 		})
 	}
+	if rv, ok := value.(*RejectedVal); ok && rejected == nil {
+		rv.handled.Store(true)
+		value, rejected = Null, rv.Err
+	}
 	var reason []Value
 	if rejected != nil {
-		reason = []Value{&StringVal{V: rejected.Message}}
+		reason = []Value{&StringVal{V: rejected.Thrown()}}
 	}
 	switch name {
 	case "then":
@@ -121,4 +130,82 @@ func (v *Visitor) settlePromiseCall(name string, value Value, rejected *ShellErr
 		}
 		return value, rejected
 	}
+}
+
+// RejectedVal is the result of an async function that raised an error: a
+// rejected promise. await, .then/.catch/.finally and the Promise functions
+// handle it; any other use raises the error there (settled). One that nothing
+// handles fails the eval at its end.
+type RejectedVal struct {
+	Err     *ShellError
+	handled atomic.Bool
+}
+
+func (*RejectedVal) isValue()          {}
+func (*RejectedVal) TypeName() string  { return "object" }
+func (*RejectedVal) IsTruthy() bool    { return true }
+func (r *RejectedVal) Display() string { return "Promise {<rejected> " + r.Err.Thrown() + "}" }
+func (r *RejectedVal) Inspect() string { return r.Display() }
+
+// settled returns value, or raises the error of a rejected async call.
+func settled(value Value) Value {
+	if rv, ok := value.(*RejectedVal); ok {
+		rv.handled.Store(true)
+		panic(rv.Err)
+	}
+	return value
+}
+
+// rejectionList records an eval's rejections to find an unhandled one.
+type rejectionList struct {
+	mu   sync.Mutex
+	list []*RejectedVal
+}
+
+func (l *rejectionList) add(rv *RejectedVal) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.list = append(l.list, rv)
+}
+
+// unhandled returns the first rejection nothing handled, and clears the list.
+func (l *rejectionList) unhandled() *RejectedVal {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	list := l.list
+	l.list = nil
+	for _, rv := range list {
+		if !rv.handled.Load() {
+			return rv
+		}
+	}
+	return nil
+}
+
+// callAsync calls an async function: an error it raises is returned as a
+// rejection, as an async function returns a rejected promise in JS.
+func (v *Visitor) callAsync(fn *FuncVal, args []Value) (result Value) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e := strayLoopSignal(r); e != nil {
+				r = e
+			}
+			te, ok := r.(*ShellError)
+			if !ok || te.Internal() {
+				panic(r)
+			}
+			rv := &RejectedVal{Err: te}
+			v.itp.limits.rejections.add(rv)
+			result = rv
+		}
+	}()
+	plain := *fn
+	plain.Async = false
+	return v.callFunctionInternal(&plain, args)
 }

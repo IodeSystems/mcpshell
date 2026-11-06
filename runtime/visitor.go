@@ -146,7 +146,7 @@ func (v *Visitor) withLocation(ctx antlr.ParserRuleContext, block func() Value) 
 			}
 			if te, ok := r.(*ShellError); ok && !strings.Contains(te.Message, "at line") {
 				panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d",
-					te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack})
+					te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack, Reason: te.Thrown()})
 			}
 			panic(r)
 		}
@@ -489,6 +489,7 @@ func (v *Visitor) visitFnDecl(ctx *parser.FnDeclContext) Value {
 		},
 		ParamDefaults: defaults,
 		ParamNodes:    nodes,
+		Async:         ctx.ASYNC() != nil,
 	}
 	v.warnShadow(name, ctx)
 	v.env.DefineOrSet(name, fn)
@@ -589,6 +590,7 @@ func (v *Visitor) visitFuncExpr(ctx *parser.FuncExprContext) Value {
 		},
 		ParamDefaults: defaults,
 		ParamNodes:    nodes,
+		Async:         fc.ASYNC() != nil,
 	}
 	if name != "" {
 		closureEnv.Define(name, fn)
@@ -622,7 +624,7 @@ func (v *Visitor) visitTryCatchStatement(ctx *parser.TryCatchStatementContext) V
 				// An internal error is not caught: a script that handled it
 				// would hide the bug from the log.
 				if te, ok := r.(*ShellError); ok && !te.Internal() {
-					errMsg, threw = te.Message, true
+					errMsg, threw = te.Thrown(), true
 					return
 				}
 				runFinally()
@@ -1299,8 +1301,9 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 	case ctx.DELETE() != nil:
 		return v.evalDelete(ctx.UnaryExpr())
 	case ctx.AWAIT() != nil:
-		// Tool calls return their values directly, so await is the identity.
-		return v.eval(ctx.UnaryExpr())
+		// Tool calls return their values directly, so await is the identity,
+		// except that it raises a rejection from an async call.
+		return settled(v.eval(ctx.UnaryExpr()))
 	default:
 		return v.eval(ctx.PostfixExpr())
 	}
@@ -1470,6 +1473,7 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 		if rejected != nil {
 			panic(rejected)
 		}
+		result = settled(result)
 		isOptional := opc.OPTIONAL_CHAIN() != nil
 		if isOptional {
 			if _, isNull := result.(*NullVal); isNull {
@@ -1764,6 +1768,7 @@ func (v *Visitor) visitObjectLiteral(ctx *parser.ObjectLiteralContext) Value {
 				},
 				ParamDefaults: defaults,
 				ParamNodes:    nodes,
+				Async:         f.ASYNC() != nil,
 			})
 		}
 	}
@@ -1782,6 +1787,7 @@ func (v *Visitor) visitParenExpr(ctx *parser.ParenExprContext) Value {
 
 func (v *Visitor) visitSingleParamArrow(ctx *parser.SingleParamArrowContext) Value {
 	return &FuncVal{
+		Async:  ctx.ASYNC() != nil,
 		Params: []string{identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())},
 		Body: &ExpressionBody{
 			Node: ctx.Expression(), CapturedEnv: v.env,
@@ -1793,6 +1799,7 @@ func (v *Visitor) visitSingleParamArrow(ctx *parser.SingleParamArrowContext) Val
 func (v *Visitor) visitMultiParamArrow(ctx *parser.MultiParamArrowContext) Value {
 	params, defaults, nodes := v.extractParams(ctx.ParamList())
 	return &FuncVal{
+		Async:  ctx.ASYNC() != nil,
 		Params: params,
 		Body: &ExpressionBody{
 			Node: ctx.Expression(), CapturedEnv: v.env,
@@ -1805,6 +1812,7 @@ func (v *Visitor) visitMultiParamArrow(ctx *parser.MultiParamArrowContext) Value
 
 func (v *Visitor) visitSingleParamArrowBlock(ctx *parser.SingleParamArrowBlockContext) Value {
 	return &FuncVal{
+		Async:  ctx.ASYNC() != nil,
 		Params: []string{identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())},
 		Body: &BlockBody{
 			Node: ctx.Block(), CapturedEnv: v.env,
@@ -1816,6 +1824,7 @@ func (v *Visitor) visitSingleParamArrowBlock(ctx *parser.SingleParamArrowBlockCo
 func (v *Visitor) visitMultiParamArrowBlock(ctx *parser.MultiParamArrowBlockContext) Value {
 	params, defaults, nodes := v.extractParams(ctx.ParamList())
 	return &FuncVal{
+		Async:  ctx.ASYNC() != nil,
 		Params: params,
 		Body: &BlockBody{
 			Node: ctx.Block(), CapturedEnv: v.env,

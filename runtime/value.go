@@ -325,6 +325,9 @@ type FuncVal struct {
 	ParamDefaults []any
 	// ParamNodes holds the full param AST node per param, for destructured params.
 	ParamNodes []any
+	// Async marks a function declared async: an error it raises is returned
+	// as a *RejectedVal instead (see promise.go).
+	Async bool
 }
 
 func (*FuncVal) isValue()         {}

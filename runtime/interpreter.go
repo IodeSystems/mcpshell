@@ -65,13 +65,19 @@ func (itp *Interpreter) Eval(source string) EvalResult {
 		v.returning = false
 		v.returnValue = nil
 	}
+	// A failed async call nothing awaited or caught fails the eval, as an
+	// unhandled rejection ends a Node process.
+	if rv := itp.limits.rejections.unhandled(); rv != nil {
+		panic(&ShellError{Message: rv.Err.Message + "\n\n  An async call failed and nothing awaited it or caught it: " +
+			"await it in try/catch, or add .catch(e => ...).", Reason: rv.Err.Thrown()})
+	}
 	return EvalResult{Value: value, ExportedNames: v.exportedNames, Warnings: itp.Warnings()}
 }
 
 // executeInBranch runs a function in a fresh Visitor — used by parallel
 // branches and by composition functions.
 func (itp *Interpreter) executeInBranch(fn *FuncVal, args []Value) Value {
-	return newVisitor(itp, itp.globals).callFunctionInternal(fn, args)
+	return settled(newVisitor(itp, itp.globals).callFunctionInternal(fn, args))
 }
 
 func (itp *Interpreter) parse(source string) parser.IProgramContext {
@@ -240,7 +246,7 @@ func requireFnArgs(name string, args []Value) []*FuncVal {
 				if fn, ok := e.(*FuncVal); ok {
 					fns[i] = fn
 				} else {
-					fns[i] = nativeFn("value", func([]Value) Value { return e })
+					fns[i] = nativeFn("value", func([]Value) Value { return settled(e) })
 				}
 			}
 			return fns
@@ -263,7 +269,7 @@ func (itp *Interpreter) executeAll(args []Value) Value {
 	if len(fns) <= 1 {
 		out := make([]Value, len(fns))
 		for i, fn := range fns {
-			out[i] = Call(fn, nil)
+			out[i] = settled(Call(fn, nil))
 		}
 		return &ArrayVal{Elements: out}
 	}
@@ -296,8 +302,8 @@ func (itp *Interpreter) executeAllSettled(args []Value) Value {
 		if failed != nil {
 			out.Set("ok", &BoolVal{V: false})
 			out.Set("status", &StringVal{V: "rejected"})
-			out.Set("error", &StringVal{V: failed.Message})
-			out.Set("reason", &StringVal{V: failed.Message})
+			out.Set("error", &StringVal{V: failed.Thrown()})
+			out.Set("reason", &StringVal{V: failed.Thrown()})
 		} else {
 			out.Set("ok", &BoolVal{V: true})
 			out.Set("status", &StringVal{V: "fulfilled"})
@@ -330,7 +336,7 @@ func (itp *Interpreter) executeRace(args []Value) Value {
 		if arr, ok := args[0].(*ArrayVal); ok {
 			for _, e := range arr.Elements {
 				if _, isFn := e.(*FuncVal); !isFn {
-					return e
+					return settled(e)
 				}
 			}
 		}
@@ -457,7 +463,7 @@ func callRecovering(fn *FuncVal) (result Value, failed any) {
 			failed = r
 		}
 	}()
-	return Call(fn, nil), nil
+	return settled(Call(fn, nil)), nil
 }
 
 // runParallel runs work over each branch index concurrently and returns the

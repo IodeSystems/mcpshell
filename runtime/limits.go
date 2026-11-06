@@ -28,6 +28,10 @@ type ExecutionLimits struct {
 	warnMu   sync.Mutex
 	warnings []string
 
+	// rejections are the async calls of this eval that failed, shared with
+	// forked branch limits; an unhandled one fails the eval at its end.
+	rejections *rejectionList
+
 	stepCount   atomic.Int64
 	callDepth   atomic.Int64
 	startTimeMs atomic.Int64
@@ -58,6 +62,7 @@ func NewExecutionLimits() *ExecutionLimits {
 		defaultTimeoutMs:      30_000,
 		defaultMaxOutputBytes: 64_000,
 		ResetOnEval:           true,
+		rejections:            &rejectionList{},
 	}
 	l.MaxSteps = l.defaultMaxSteps
 	l.MaxCallDepth = l.defaultMaxCallDepth
@@ -232,6 +237,7 @@ func (l *ExecutionLimits) Fork() *ExecutionLimits {
 		defaultTimeoutMs:      l.TimeoutMs,
 		defaultMaxOutputBytes: l.MaxOutputBytes,
 		ResetOnEval:           false,
+		rejections:            l.rejections,
 	}
 	child.MaxSteps = l.MaxSteps
 	child.MaxCallDepth = l.MaxCallDepth
@@ -262,4 +268,5 @@ func (l *ExecutionLimits) ClearWarnings() {
 	l.warnMu.Lock()
 	defer l.warnMu.Unlock()
 	l.warnings = nil
+	l.rejections = &rejectionList{}
 }
