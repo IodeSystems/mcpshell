@@ -1049,7 +1049,7 @@ func (v *Visitor) visitNullCoalesceExpr(ctx *parser.NullCoalesceExprContext) Val
 	ors := ctx.AllOrExpr()
 	result := v.eval(ors[0])
 	for i := 1; i < len(ors); i++ {
-		if _, isNull := result.(*NullVal); !isNull {
+		if _, isNull := settled(result).(*NullVal); !isNull {
 			return result
 		}
 		result = v.eval(ors[i])
@@ -1291,13 +1291,13 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 	case ctx.NOT() != nil:
 		return &BoolVal{V: !v.eval(ctx.UnaryExpr()).IsTruthy()}
 	case ctx.MINUS() != nil:
-		val := v.eval(ctx.UnaryExpr())
+		val := settled(v.eval(ctx.UnaryExpr()))
 		if _, ok := val.(*NumberVal); !ok {
 			return v.withLocation(ctx, func() Value { panic(TypeMismatch("unary -", "number", val, "")) })
 		}
 		return sub(numInt(0), val) // exact: -(2 ** 70) keeps every digit
 	case ctx.TILDE() != nil:
-		val := v.eval(ctx.UnaryExpr())
+		val := settled(v.eval(ctx.UnaryExpr()))
 		n, ok := val.(*NumberVal)
 		if !ok {
 			panic(TypeMismatch("unary ~", "number", val, ""))
@@ -1309,7 +1309,7 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 			// error: typeof eval === "function" is how code detects a feature.
 			return &StringVal{V: "undefined"}
 		}
-		return &StringVal{V: v.eval(ctx.UnaryExpr()).TypeName()}
+		return &StringVal{V: settled(v.eval(ctx.UnaryExpr())).TypeName()}
 	case ctx.DELETE() != nil:
 		return v.evalDelete(ctx.UnaryExpr())
 	case ctx.AWAIT() != nil:

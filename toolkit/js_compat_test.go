@@ -201,6 +201,14 @@ func TestJsCompatProbe(t *testing.T) {
 		{"177 rejection in compound assign", `async function f() { throw "boom" }; let s = "a"; const p = f(); try { s += p } catch (e) { e }`, ok, "boom"},
 		{"178 rejection inside a command argument", `async function f() { throw "boom" }; const p = f(); try { upper([p]) } catch (e) { e }`, ok, "boom"},
 		{"179 handled rejection, then other work", `async function f() { throw "boom" }; const p = f(); p.catch(e => 0); "ok"`, ok, "ok"},
+		{"180 rejection in a condition", `async function f() { throw "boom" }; const p = f(); try { if (p) { 1 } } catch (e) { e }`, ok, "boom"},
+		{"181 rejection in not", `async function f() { throw "boom" }; const p = f(); try { !p } catch (e) { e }`, ok, "boom"},
+		{"182 rejection in a ternary", `async function f() { throw "boom" }; const p = f(); try { p ? 1 : 2 } catch (e) { e }`, ok, "boom"},
+		{"183 rejection in logical or", `async function f() { throw "boom" }; const p = f(); try { p || 1 } catch (e) { e }`, ok, "boom"},
+		{"184 rejection in nullish", `async function f() { throw "boom" }; const p = f(); try { p ?? 1 } catch (e) { e }`, ok, "boom"},
+		{"185 rejection in typeof", `async function f() { throw "boom" }; const p = f(); try { typeof p } catch (e) { e }`, ok, "boom"},
+		{"186 rejection in unary minus", `async function f() { throw "boom" }; const p = f(); try { -p } catch (e) { e }`, ok, "boom"},
+		{"187 rejection from a filter callback", `const f = async (x) => { throw "boom" }; try { [1].filter(f) } catch (e) { e }`, ok, "boom"},
 		{"169 finally keeps async rejection", `async function f() { throw "boom" }; f().finally(() => 0).catch(e => "after " + e)`, ok, "after boom"},
 	}
 	for _, c := range cases {

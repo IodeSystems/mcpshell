@@ -135,16 +135,20 @@ func (v *Visitor) settlePromiseCall(name string, value Value, rejected *ShellErr
 
 // RejectedVal is the result of an async function that raised an error: a
 // rejected promise. await, .then/.catch/.finally and the Promise functions
-// handle it; any other use raises the error there (settled). One that nothing
+// handle it; any other use raises the error there (settled), also a
+// condition, typeof and ??. One that nothing
 // handles fails the eval at its end.
 type RejectedVal struct {
 	Err     *ShellError
 	handled atomic.Bool
 }
 
-func (*RejectedVal) isValue()          {}
-func (*RejectedVal) TypeName() string  { return "object" }
-func (*RejectedVal) IsTruthy() bool    { return true }
+func (*RejectedVal) isValue()         {}
+func (*RejectedVal) TypeName() string { return "object" }
+
+// IsTruthy raises the error: JS treats a promise as true, but a condition
+// on one is a missing await, and the value it needed failed.
+func (r *RejectedVal) IsTruthy() bool  { settled(r); return true }
 func (r *RejectedVal) Display() string { return "Promise {<rejected> " + r.Err.Thrown() + "}" }
 func (r *RejectedVal) Inspect() string { return r.Display() }
 
