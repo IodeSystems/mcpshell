@@ -35,14 +35,16 @@ Usage:
 
 For direct evaluation and the REPL, the core, math, web, file, and graph
 toolkits are all installed; file operations are confined to the current
-working directory. In mcp mode only core, math, and graph load by default —
-web, file, sql, and browser are opt-in via the flags below.
+working directory. In mcp mode only core and math are installed at start.
+graph is loadable with load("graph"). web, file, and browser need a flag
+below, and the agent then installs them with load("web"), load("files"),
+load("browser"). sql is installed at start when its flag is given.
 
 mcp flags:
-  --files-dir <dir>    enable the file toolkit rooted at <dir>
+  --files-dir <dir>    permit load("files"): the file toolkit rooted at <dir>
   --files-read-only    file toolkit is read-only
-  --web                enable the web toolkit (Web.*, Html.*)
-  --browser            enable the browser toolkit (Browser.*, needs a Chrome binary)
+  --web                permit load("web"): the web toolkit (Web.*, Html.*)
+  --browser            permit load("browser"): Browser.* (needs a Chrome binary)
   --no-load <a,b>      hide and deny these loadable toolkits (load("name") refuses them)
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
@@ -58,7 +60,8 @@ mcp flags:
 env:
   MCPSHELL_TMP_OVERFLOW_DIR  save eval output over --max-output to a new file in
                        this dir; the truncated response names the file, and
-                       read()/grep() accept its absolute path. Scope it per
+                       read()/grep() accept its absolute path (a read-only file
+                       toolkit on this dir is installed at start). Scope it per
                        session — mcpshell only makes file names unique.
 
   --connect/--mcp are repeatable. An upstream server that identifies as mcpshell
@@ -193,6 +196,10 @@ func repl() {
 	}
 }
 
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
+
 // stringSlice collects a repeatable string flag.
 type stringSlice []string
 
@@ -225,13 +232,16 @@ func runMCP(args []string) {
 	}
 	toolkit.InstallCore(sh)
 	toolkit.InstallMath(sh)
-	toolkit.InstallGraph(sh)
+	// graph is agent tier (no I/O): always loadable. web, files, and browser
+	// reach outside the process: a flag enables them, and the agent then
+	// installs them with load().
+	sh.AddLoadable(toolkit.GraphLoadable())
 	if *noLoad != "" {
 		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
 	}
+	sh.AddLoadable(toolkit.WebLoadable(*web))
 	if *web {
-		toolkit.InstallWeb(sh)
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled")
+		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled (load(\"web\") installs it)")
 	}
 	overflowDir := os.Getenv("MCPSHELL_TMP_OVERFLOW_DIR")
 	if overflowDir != "" {
@@ -240,21 +250,30 @@ func runMCP(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "mcpshell mcp: over-limit output is saved to %s\n", overflowDir)
 	}
+	// The agent must be able to page over-limit output without an extra turn,
+	// so a read-only file toolkit on the overflow dir is installed at start,
+	// whatever --files-dir says. Its file loader is cleared: load("x.mcpshell")
+	// needs the real files toolkit.
+	overflowReader := func(sh *runtime.Shell) {
+		toolkit.InstallFile(sh, overflowDir, true)
+		sh.SetFileLoader(nil)
+	}
+	var restore func(sh *runtime.Shell)
+	if overflowDir != "" {
+		overflowReader(sh)
+		restore = overflowReader
+	}
+	var readRoots []string
+	if overflowDir != "" {
+		readRoots = append(readRoots, overflowDir)
+	}
+	sh.AddLoadable(toolkit.FilesLoadable(*filesDir, *filesReadOnly, readRoots, restore))
 	if *filesDir != "" {
-		var readRoots []string
-		if overflowDir != "" {
-			readRoots = append(readRoots, overflowDir)
-		}
-		toolkit.InstallFile(sh, *filesDir, *filesReadOnly, readRoots...)
 		mode := "read-write"
 		if *filesReadOnly {
 			mode = "read-only"
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s)\n", mode, *filesDir)
-	} else if overflowDir != "" {
-		// Without --files-dir, a read-only file toolkit on the overflow dir is
-		// what lets read()/grep() page through saved output.
-		toolkit.InstallFile(sh, overflowDir, true)
+		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s; load(\"files\") installs it)\n", mode, *filesDir)
 	}
 
 	var closers []io.Closer
@@ -271,9 +290,11 @@ func runMCP(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "mcpshell mcp: SQL database %q enabled (%s)\n", ns, mode)
 	}
+	sh.AddLoadable(toolkit.BrowserLoadable(*browser))
+	// A loaded browser holds a Chrome process; unload closes it at exit.
+	closers = append(closers, closerFunc(func() error { _, err := sh.Unload("browser"); return err }))
 	if *browser {
-		closers = append(closers, toolkit.InstallBrowser(sh, true))
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (Browser.*)")
+		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (load(\"browser\") installs it)")
 	}
 
 	if *printPrompt {

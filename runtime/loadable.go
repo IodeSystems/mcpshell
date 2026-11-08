@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 )
 
-// Loadable is an in-process toolkit that load("name") installs on demand.
-// Operator flags stay the gate for toolkits that reach outside the process
-// (files, network, databases); a script cannot load those.
+// Loadable is a toolkit that load("name") installs on demand. A toolkit that
+// reaches outside the process (files, network) is operator tier: the operator
+// flag registers it enabled, and without the flag it is registered with
+// Disabled set, so load() names the flag instead of installing it.
 type Loadable struct {
 	Name    string // bare: no "/" and no "."
 	Summary string // one line, shown in the Available list
@@ -19,6 +20,13 @@ type Loadable struct {
 	// Namespaces are the globals Install defines. Calling one before load
 	// fails with "call load first". Default: Name with the first letter upper-cased.
 	Namespaces []string
+	// Commands are the global (non-namespaced) command names Install defines.
+	// Calling one before load gives the same "call load first" hint.
+	Commands []string
+	// Disabled, if not empty, is the operator flag that enables this toolkit
+	// (for example "--web"). The toolkit is then not advertised, and load
+	// fails naming the flag.
+	Disabled string
 	// Install registers the toolkit's commands on sh. The closer, if not nil,
 	// is closed by unload.
 	Install func(sh *Shell) (io.Closer, error)
@@ -66,7 +74,7 @@ func (r *CommandRegistry) LoadableNames() []string {
 func (r *CommandRegistry) loadableNames(keep func(*loadable) bool) []string {
 	var out []string
 	for n, l := range r.loadables {
-		if !r.denied[n] && keep(l) {
+		if !r.denied[n] && l.def.Disabled == "" && keep(l) {
 			out = append(out, n)
 		}
 	}
@@ -106,13 +114,29 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		if l.loaded != nil || r.denied[n] {
 			continue
 		}
-		for _, ns := range l.def.namespaces() {
-			if ns == name {
-				return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded: call load(%q) first. help(%q) shows its usage", name, n, n, n)
-			}
+		if !l.def.owns(name) {
+			continue
 		}
+		if l.def.Disabled != "" {
+			return fmt.Sprintf("'%s' is part of the %q toolkit, which the operator did not enable (%s)", name, n, l.def.Disabled)
+		}
+		return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded: call load(%q) first. help(%q) shows its usage", name, n, n, n)
 	}
 	return ""
+}
+
+func (d *Loadable) owns(name string) bool {
+	for _, ns := range d.namespaces() {
+		if ns == name {
+			return true
+		}
+	}
+	for _, c := range d.Commands {
+		if c == name {
+			return true
+		}
+	}
+	return false
 }
 
 // remove drops commands, their emptied namespaces and guides. It returns the
@@ -168,13 +192,14 @@ func removeString(list []string, s string) []string {
 // hook is set only while an Install runs.
 type loaders struct {
 	loadMu     sync.Mutex
+	fileMu     sync.Mutex // guards fileLoader; separate from loadMu because Install and unload set it while loadMu is held
 	hook       *loadHook
 	fileLoader func(path string) Value
 }
 
 // AddLoadable registers a toolkit for load(). It is not installed.
 func (t *Shell) AddLoadable(l Loadable) *Shell {
-	if l.Name == "" || strings.ContainsAny(l.Name, "/.") || l.Install == nil {
+	if l.Name == "" || strings.ContainsAny(l.Name, "/.") || (l.Install == nil && l.Disabled == "") {
 		panic("AddLoadable: name must be bare (no / or .) and Install set: " + l.Name)
 	}
 	r := t.commands
@@ -207,18 +232,45 @@ func (t *Shell) IsLoadableName(name string) bool {
 // SetFileLoader sets how load("path") evaluates a file; the file toolkit
 // sets it, confined to its root. Without it the path form of load errors.
 func (t *Shell) SetFileLoader(fn func(path string) Value) {
-	t.loadMu.Lock()
-	defer t.loadMu.Unlock()
+	t.fileMu.Lock()
+	defer t.fileMu.Unlock()
 	t.fileLoader = fn
 }
 
-// LoadFile evaluates a .mcpshell file through the file toolkit.
+func (t *Shell) getFileLoader() func(path string) Value {
+	t.fileMu.Lock()
+	defer t.fileMu.Unlock()
+	return t.fileLoader
+}
+
+// FilesToolkit is the loadable that provides the file loader.
+const FilesToolkit = "files"
+
+// LoadFile evaluates a .mcpshell file through the file toolkit. If the
+// operator permitted that toolkit but it is not loaded, LoadFile loads it.
 func (t *Shell) LoadFile(path string) Value {
-	t.loadMu.Lock()
-	fn := t.fileLoader
-	t.loadMu.Unlock()
+	fn := t.getFileLoader()
+	if fn == nil {
+		r := t.commands
+		r.mu.RLock()
+		l := r.loadables[FilesToolkit]
+		denied := r.denied[FilesToolkit]
+		r.mu.RUnlock()
+		if l != nil && !denied && l.def.Disabled == "" {
+			if _, err := t.Load(FilesToolkit); err != nil {
+				panic(Runtime(err.Error()))
+			}
+			fn = t.getFileLoader()
+		}
+	}
 	if fn == nil {
 		msg := "load: '" + path + "' is not a loadable toolkit, and no file toolkit is installed to load it as a file"
+		t.commands.mu.RLock()
+		l := t.commands.loadables[FilesToolkit]
+		t.commands.mu.RUnlock()
+		if l != nil && l.def.Disabled != "" {
+			msg = "load: '" + path + "' is a file path, and the operator did not enable the file toolkit (" + l.def.Disabled + ")"
+		}
 		if names := t.commands.LoadableNames(); len(names) > 0 {
 			msg += ". Toolkits: " + strings.Join(names, ", ")
 		}
@@ -243,6 +295,8 @@ func (t *Shell) Load(name string) (string, error) {
 	switch {
 	case l == nil:
 		return "", fmt.Errorf("load: no toolkit named %q", name)
+	case l.def.Disabled != "":
+		return "", fmt.Errorf("load: toolkit %q is not enabled: the operator did not pass %s", name, l.def.Disabled)
 	case denied:
 		return "", fmt.Errorf("load: toolkit %q is disabled by the operator", name)
 	case done != nil:

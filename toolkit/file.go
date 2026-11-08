@@ -48,6 +48,32 @@ func (c fileCfg) confineRead(path string) string {
 	return c.confine(path)
 }
 
+// fileGuide is the help("files") text.
+func fileGuide(readOnly bool) string {
+	mode := "read, write, search, and edit files"
+	if readOnly {
+		mode = "read and search files (read-only mode)"
+	}
+	return "File Toolkit — " + mode + `
+
+TYPICAL: Read and inspect files
+  read("config.json")             // full file with line numbers
+  read("big.log", 100, 20)        // 20 lines starting at line 100
+  readLines("data.csv") |> len()  // count lines
+  exists("output.txt")
+  ls("src") |> filter(f => f.type == "file") |> map(f => f.name)
+
+TYPICAL: Search files and content
+  glob("src/**/*.go")             // find files by pattern
+  glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}]
+  grep("app.go", {match: "TODO", context: 2})
+
+TYPICAL: Write and edit files
+  write("output.txt", "hello world")
+  append("log.txt", "new entry\n")
+  edit("app.go", "const x = 1", "const x = 42")`
+}
+
 // InstallFile registers the file toolkit, confining all operations to root.
 // When readOnly is true, the mutating commands are not registered. readRoots
 // are extra directories the read-only commands (read, readLines, exists, ls,
@@ -71,28 +97,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
 	}
 
-	mode := "read, write, search, and edit files"
-	if readOnly {
-		mode = "read and search files (read-only mode)"
-	}
-	sh.RegisterGuide("files", "File Toolkit — "+mode+`
-
-TYPICAL: Read and inspect files
-  read("config.json")             // full file with line numbers
-  read("big.log", 100, 20)        // 20 lines starting at line 100
-  readLines("data.csv") |> len()  // count lines
-  exists("output.txt")
-  ls("src") |> filter(f => f.type == "file") |> map(f => f.name)
-
-TYPICAL: Search files and content
-  glob("src/**/*.go")             // find files by pattern
-  glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}]
-  grep("app.go", {match: "TODO", context: 2})
-
-TYPICAL: Write and edit files
-  write("output.txt", "hello world")
-  append("log.txt", "new entry\n")
-  edit("app.go", "const x = 1", "const x = 42")`)
+	sh.RegisterGuide("files", fileGuide(readOnly))
 
 	reg("glob", "pattern: string, opts?: {grep?: string, depth?: number, dirs?: boolean, hidden?: boolean}",
 		"finds files matching glob pattern. Skips hidden and build dirs by default. "+

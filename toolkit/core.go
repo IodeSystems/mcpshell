@@ -1143,11 +1143,6 @@ func InstallCore(sh *Shell) *Shell {
 			return Num(math.Pow(requireNumber("pow", args, 0), requireNumber("pow", args, 1)))
 		})
 
-	reg("xor", "a: number, b: number", "bitwise XOR", []string{`xor(5, 3)`},
-		func(args []Value) Value {
-			return Bitwise("^", arg(args, 0), arg(args, 1))
-		})
-
 	// --- Execution limits ---
 
 	reg("profile", "fn: () => any",
@@ -1260,6 +1255,11 @@ func InstallCore(sh *Shell) *Shell {
 		func(args []Value) Value { return Str(toJSONString(arg(args, 0))) })
 
 	// --- JS compat (hidden) ---
+
+	regH("xor", "a: number, b: number", "bitwise XOR (alias of the ^ operator)",
+		func(args []Value) Value {
+			return Bitwise("^", arg(args, 0), arg(args, 1))
+		})
 
 	regH("jsonStringify", "value: any, replacer?: null, space?: number|string",
 		"JSON.stringify: space indents (a number of spaces, at most 10, or a string)",

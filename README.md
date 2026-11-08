@@ -139,21 +139,24 @@ limit names the hot lines instead of just a number.
 
 ## Toolkits
 
-Toolkits register namespaced commands into the shell. `core`, `math`, and
-`graph` are always on; the rest are opt-in via `mcpshell mcp` flags so the
-LLM only sees the capabilities you grant.
+Toolkits register commands into the shell. `core` and `math` are always on.
+In `mcpshell mcp`, `graph` is loadable by the agent; `web`, `file`, and
+`browser` need an operator flag, and the agent then installs them with
+`load("name")`. The LLM only sees the capabilities you grant. One-shot and
+REPL modes install core, math, web, graph, and file (rooted at the current
+directory) at start.
 
 | Toolkit | Enable with | Commands |
 |---------|-------------|----------|
 | **core** | always on | strings, arrays, objects, JSON, regex, pipes, control flow |
 | **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
-| **graph** | always on | in-memory node/edge graph: `addNode`, `link`, `nodes`, `setProps`, … |
-| **web** | `--web` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
-| **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
+| **graph** | `load("graph")` | in-memory node/edge graph: `addNode`, `link`, `nodes`, `setProps`, … |
+| **web** | `--web`, then `load("web")` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
+| **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
-| **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
+| **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
-Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. In-process toolkits can instead be *loadable*: `help()` and the prompt list them on one line (`Available (load first): load("name") — summary`), `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` still evaluates a file when the file toolkit is on.
+Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file; it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
 
 ### Large output
 
@@ -171,7 +174,8 @@ next eval can query it without running the tools again:
 Set `MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
 there; the truncated response names it. Arrays are saved as JSON Lines, so
 `read(path, start, lines)` and `grep(path, {match})` page through them —
-both accept the file's absolute path. Scope the directory per session (e.g.
+both accept the file's absolute path. A read-only file toolkit on that
+directory is installed at start, so paging needs no `load("files")`. Scope the directory per session (e.g.
 `…/overflow/<session-id>`); mcpshell only makes file names unique.
 
 To save a tool's output without parsing it, use `ns.raw("tool", {args})`:
