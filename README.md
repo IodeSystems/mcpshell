@@ -169,7 +169,8 @@ directory) at start.
 | **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **db** | `load("db")`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions |
-| **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries |
+| **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries; `sensitivity: true` adds shadow prices, reduced costs and ranges; `explain: true` names the conflicting constraints of an infeasible model |
+| **cp** | `load("cp")` | constraint programming over integers: `Cp.solve({vars, intervals, constraints, minimize})` with linear rows, allDifferent, element, table, count, max/min, noOverlap, cumulative, before, circuit; schedules out as rows; `status` is `optimal` only when proven |
 | **route** | `load("route")` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
 | **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
