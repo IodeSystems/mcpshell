@@ -242,6 +242,24 @@ func installGraph(sh *Shell) *graphToolkit {
 			return &ArrayVal{Elements: out}
 		})
 
+	reg("edges", "type?: string", "gets all edges as rows {id, from, to, type, ...props}, optionally filtered by type; the input of Graph.* algorithms",
+		[]string{`edges("knows")`, `Graph.components({nodes: nodes("person"), edges: edges("knows")})`},
+		func(args []Value) Value {
+			gt.traversalCount = 0
+			typ := optStringPtr(args, 0)
+			out := make([]Value, 0)
+			for _, id := range gt.store.edgeOrder {
+				if e := gt.store.edgeMap[id]; typ == nil || e.typ == *typ {
+					out = append(out, edgeToObj(e))
+				}
+			}
+			return &ArrayVal{Elements: out}
+		})
+
+	for _, c := range graphAlgoCommands(sh) {
+		sh.Register(c)
+	}
+
 	// --- CRUD ---
 
 	reg("addNode", "parent: node|string, type: string, props?: object",
@@ -514,10 +532,11 @@ func optStringPtr(args []Value, i int) *string {
 	return nil
 }
 
-const graphGuide = `Graph Toolkit — nodes, edges, and traversal
-Commands are bare: addNode(...), out(...). Graph.addNode(...) also works.
+const graphGuide = `Graph Toolkit — a property graph store, and graph algorithms on rows
+Store commands are bare: addNode(...), out(...). Graph.addNode(...) also works.
+Algorithms are Graph.*: path, reach, components, cycle, topo, cpm, flow, match, mst.
 
-All nodes connect to root. Traversal steps (out, inbound, both) work as pipes:
+STORE. All nodes connect to root. Traversal steps (out, inbound, both) work as pipes:
 they accept a single node or an array and return an array, so filter(), map(),
 reduce(), sort() all compose naturally.
 
@@ -530,18 +549,73 @@ TYPICAL: Traverse and query
   root() |> out("person")                            // all people
   root() |> out("person") |> filter(n => n.age > 28)  // filtered
   root() |> out("person") |> out("worksAt") |> map(c => c.name)
-
-  // Reverse: who works at Acme?
   nodes("company") |> filter(c => c.name == "Acme") |> inbound("worksAt") |> map(n => n.name)
 
-TYPICAL: Edge inspection
+TYPICAL: Edge inspection and CRUD
   node(alice.id) |> outE("knows")
-  node(alice.id) |> outE() |> filter(e => e.type == "worksAt")
+  setProps(alice, {age: 31}); removeNode(bob); unlink("e3")
 
-TYPICAL: CRUD
-  setProps(alice, {age: 31})   // update node properties
-  removeNode(bob)              // removes node + all edges
-  unlink("e3")                 // remove single edge
+ALGORITHMS take one spec object. Input is rows, so query results go straight in:
+  edges: [{from, to, ...columns}]   from Db.query, Route.matrix(..., {format: "rows"}),
+                                    or the store: edges("knows") (pass a type: root's
+                                    edges join every node)
+  nodes: [{id, ...}]                optional: nodes with no edges, task durations,
+                                    supplies. The store: nodes("person")
+  directed: edges are TWO-WAY unless directed: true (as in Route). topo and cpm are
+            always directed (from before to); mst and match are undirected.
+  Columns: weight (path, mst; else dist, time or cost), cap and cost (flow), cost (match),
+  duration and lag (cpm). Name another column with weight: "km", cap: "max", ...
+  Output rows are the input rows (copied), plus a result column: flow rows get flow.
+  Exact: integer, decimal and fraction inputs give exact results (0.1 + 0.2 is 0.3).
+  flow and match refuse float-only numbers (sqrt): their costs are exact like Solver.lp.
+  status "optimal" is proven: every algorithm here is exact.
 
-ADVANCED: Degree count
-  nodes("person") |> map(p => {name: p.name, connections: (node(p.id) |> outE() |> len())})`
+TYPICAL: Shortest path (Dijkstra; negative weights with directed: true use Bellman-Ford)
+  Graph.path({edges: roads, from: "a", to: "d", weight: "km"})
+  // {found, km, path: ["a", "c", "d"], edges: [rows], method, directed}
+  // without to: rows [{to, km, path}] to every reachable node. weight: 1 counts hops.
+  // longest: true, directed: true = longest path in a DAG
+TYPICAL: Reachability, components, cycles, order
+  Graph.reach({edges: deps, from: "lib", directed: true, reverse: true}) // who depends on lib
+  // rows [{id, depth, parent}], BFS order; order: "dfs", maxDepth: n
+  Graph.components({edges: links})             // {count, components: [[ids]] largest first,
+                                               //  nodes: [{id, component}]}
+  Graph.components({edges: calls, directed: true})  // strongly connected (kind: "strong")
+  Graph.cycle({edges: deps, directed: true})    // {found, cycle: ["a", "b", "a"], edges}
+  Graph.topo({edges: deps})                     // ["a", "b", ...]; a cycle is an error naming it
+TYPICAL: Project schedule, critical path (CPM)
+  let r = Graph.cpm({nodes: [{id: "dig", duration: 3}, {id: "frame", duration: 5, after: ["dig"]},
+    {id: "wire", duration: 2, after: ["frame"]}, {id: "paint", duration: 4, after: ["frame"]}]})
+  r.makespan   // 12
+  r.critical   // ["dig", "frame", "paint"]
+  r.tasks      // [{id, duration, earlyStart, earlyFinish, lateStart, lateFinish, slack, critical}]
+  // Precedences: after on node rows and/or edges [{from, to, lag?}] (from finishes, lag, to
+  // starts). No resource limits: for crews or machines use Cp.solve (cumulative, noOverlap).
+TYPICAL: Max flow / min cut, min-cost flow, transport
+  Graph.flow({edges: pipes, from: "s", to: "t", directed: true})
+  // {status, value, flows: [rows + flow], cut: [rows of a minimum cut]}; cap null = no limit
+  // With a cost column: the cheapest maximum flow (amount: n ships n instead).
+  Graph.flow({nodes: [{id: "w1", supply: 30}, {id: "c1", supply: -30}], edges: lanes, directed: true})
+  // supply > 0 ships out, < 0 takes in; they must sum to 0. status "infeasible": value = most
+  // that ships. Two-way edges carry flow either way: a negative flow runs to -> from.
+TYPICAL: Assignment, matching (bipartite: from = left, to = right)
+  Graph.match({edges: [{from: "ann", to: "t1", cost: 3}, {from: "ann", to: "t2", cost: 1},
+    {from: "bob", to: "t1", cost: 2}]})
+  // {status, size: 2, cost: 3, pairs: [rows], unmatched: {from: [], to: []}}
+  // Most pairs first, then the lowest cost (maximize: true: the highest). No cost: size only.
+TYPICAL: Minimum spanning tree
+  Graph.mst({edges: cables, weight: "m"})      // {status, m, edges, trees}; trees > 1: a forest
+
+GRAPH TO Solver.lp / Cp.solve (side constraints the commands above do not take)
+  One variable per edge, one balance row per node: out - in = supply.
+  let id = e => e.from + ">" + e.to
+  Solver.lp({sense: "min",
+    vars: edges |> map(e => ({id: id(e), obj: e.cost, hi: e.cap})),
+    coefs: edges |> flatMap(e => [{con: e.from, var: id(e), coef: 1}, {con: e.to, var: id(e), coef: -1}]),
+    rhs: nodes |> map(n => ({con: n.id, eq: n.supply}))})
+  // add rows to coefs/rhs for the extra rule; int: true on vars for integer flows.
+  // Cp.solve: the same rows as {terms: {...}, eq} constraints with 0/1 or integer vars.
+
+LIMITS
+  1,000,000 nodes, 2,000,000 edges. General (non-bipartite) matching, min-cost arborescence,
+  k shortest paths (Route.paths has k), multi-commodity flow: not supported.`

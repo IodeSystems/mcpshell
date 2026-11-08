@@ -13,7 +13,7 @@ func GraphLoadable() runtime.Loadable {
 	names := globalNames(InstallGraph)
 	return runtime.Loadable{
 		Name:       "graph",
-		Summary:    "in-memory property graph (addNode, link, nodes, out, in, …)",
+		Summary:    "property graph store (addNode, link, nodes, out, …) and algorithms on edge rows: paths, components, topo, critical path, max/min-cost flow, matching, MST (Graph.*)",
 		Guide:      graphGuide,
 		Namespaces: []string{"Graph"},
 		Commands:   names,
