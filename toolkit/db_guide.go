@@ -28,6 +28,7 @@ NOTES:
   - CSV: empty cell = null; "00123" and dates stay text; a column of numbers is a number column. Names keep their case and spaces: quote them, "Unit Price"
   - Numbers read out are exact. A REAL column holds float64, so 0.1+0.2 inside SQL arithmetic is 0.30000000000000004. sum, avg and the statistics here add exactly
   - exact columns store decimals as text: they compare, sort, group and sum by value, with no rounding. +, -, * and / in SQL on them are float64: use dmul(a, b) or compute outside SQL
+  - Spatial index: Db.exec("CREATE VIRTUAL TABLE idx USING rtree(id, minLon, maxLon, minLat, maxLat)"), then WHERE minLon <= ? AND maxLon >= ? AND ... (Geo.bbox gives the box). rtree and rtree_i32 are the only virtual tables
   - Functions: sum avg median quantile(x,p) stdev stdev_pop variance var_pop corr covar covar_pop mode dmul; they also work as window functions
   - The database is %d MB at most (operator flag --db-max-mb). When full: Db.drop(name) or Db.reset(). It lasts for the session; unload("db") deletes it
   - Db.parseCsv(text) and Db.toCsv(rows) convert text without a database`, maxMB)

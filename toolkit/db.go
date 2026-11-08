@@ -79,19 +79,48 @@ type dbState struct {
 	sh     *Shell
 }
 
+// dbVirtualModules are the virtual table modules CREATE VIRTUAL TABLE may
+// use in Db: the R-tree index. Every other module (fts5, geopoly, dbstat,
+// sqlite_dbpage, ...) is denied. See docs/design.md, Db.
+var dbVirtualModules = map[string]bool{"rtree": true, "rtree_i32": true}
+
 // dbAuthorizer is the policy of the scratch database: sqliteAuthorizer with
-// writes and DDL allowed (readOnly false) or denied (query), and no temp
-// objects, which live outside the size cap.
+// writes and DDL allowed (readOnly false) or denied (query), no temp
+// objects, which live outside the size cap, and virtual tables of the
+// dbVirtualModules only, in main. The connection is also in SQLite's
+// defensive mode (dbDSN), so the R-tree shadow tables are read-only to SQL.
 func dbAuthorizer(readOnly bool) sqlite.AuthorizerFn {
 	base := sqliteAuthorizer(readOnly)
 	return func(action sqlite.AuthorizerActionCode, a1, a2, a3, a4 string) sqlite.AuthorizerReturnCode {
 		switch action {
 		case sqlite.AuthCreateTempIndex, sqlite.AuthCreateTempTable, sqlite.AuthCreateTempTrigger, sqlite.AuthCreateTempView:
 			return sqlite.AuthorizerDeny
+		case sqlite.AuthCreateTable, sqlite.AuthCreateIndex:
+			// A virtual table in temp creates its shadow tables with these codes, not the temp ones.
+			if !strings.EqualFold(a3, "main") {
+				return sqlite.AuthorizerDeny
+			}
+		case sqlite.AuthCreateVTable:
+			// a1 = table, a2 = module, a3 = database.
+			if !dbVirtualModules[strings.ToLower(a2)] || !strings.EqualFold(a3, "main") {
+				return sqlite.AuthorizerDeny
+			}
+		case sqlite.AuthPragma:
+			// The R-tree module reads page_size when it creates a table. Reading it
+			// only reports; setting it (a2 != "") stays denied.
+			if strings.EqualFold(a1, "page_size") && a2 == "" {
+				return sqlite.AuthorizerOK
+			}
 		}
 		return base(action, a1, a2, a3, a4)
 	}
 }
+
+// dbDSN opens the private in-memory database in SQLite's defensive mode:
+// writes to the shadow tables of a virtual table and to sqlite_dbpage fail,
+// and writable_schema is ignored. An R-tree reports a corrupt node as an
+// error, and with this no SQL statement can write one.
+const dbDSN = ":memory:?_defensive=1"
 
 func (st *dbState) open() error {
 	drv := &sqlite.Driver{}
@@ -113,7 +142,7 @@ func (st *dbState) open() error {
 		}
 		return nil
 	})
-	db := openSQLiteOn(drv, ":memory:", false, dbAuthorizer)
+	db := openSQLiteOn(drv, dbDSN, false, dbAuthorizer)
 	// One connection: every pooled :memory: connection is a separate database.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -235,10 +264,13 @@ func (st *dbState) errorOf(cmd string, err error) *ShellError {
 			"  Hint: free space with Db.drop(\"table\") or Db.reset(), load fewer rows or columns, or ask the operator to raise --db-max-mb", cmd, st.maxMB))
 	case strings.Contains(low, "context deadline") || strings.Contains(low, "interrupted") || strings.Contains(low, "context canceled"):
 		return Runtime(fmt.Sprintf("%s: timed out (limit %ds)\n\n  Hint: simplify the query, add LIMIT or an index", cmd, int(sqlQueryTimeout.Seconds())))
-	case strings.Contains(low, "readonly database") || strings.Contains(low, "read-only"):
+	case strings.Contains(low, "may not be modified") || strings.Contains(low, "may not be dropped") ||
+		strings.Contains(low, "may not be altered") || strings.Contains(low, "on shadow tables"):
+		return Runtime(cmd + ": statement not allowed\n\n  " + first + "\n\n  Hint: the _node, _rowid and _parent tables belong to an R-tree and only it writes them: insert into, delete from or drop the R-tree table itself")
+	case cmd == "Db.query" && (strings.Contains(low, "readonly database") || strings.Contains(low, "read-only")):
 		return Runtime(cmd + ": Db.query is read-only\n\n  Hint: use Db.exec for INSERT, UPDATE, DELETE and CREATE")
 	case strings.Contains(low, "not authorized"):
-		hint := "ATTACH, DETACH, load_extension, temp tables and PRAGMAs that change settings are denied"
+		hint := "ATTACH, DETACH, load_extension, temp tables, virtual tables other than rtree and PRAGMAs that change settings are denied"
 		if cmd == "Db.query" {
 			hint = "Db.query is read-only: use Db.exec for INSERT, UPDATE, DELETE and CREATE. " + hint
 		}
@@ -264,7 +296,7 @@ func (st *dbState) tableList() string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := c.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	rows, err := c.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' AND `+dbNotShadow+` ORDER BY name`)
 	if err != nil {
 		return "(unknown)"
 	}
@@ -468,8 +500,13 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 
 type dbTable struct{ name, typ string }
 
+// dbNotShadow is a WHERE term on sqlite_master that leaves out the shadow
+// tables of an R-tree (name_node, name_rowid, name_parent): they belong to
+// the virtual table, cannot be written, and dropping the R-tree drops them.
+const dbNotShadow = `NOT EXISTS (SELECT 1 FROM sqlite_master v WHERE v.type = 'table' AND v.sql LIKE 'CREATE VIRTUAL TABLE%' AND sqlite_master.name IN (v.name || '_node', v.name || '_rowid', v.name || '_parent'))`
+
 func (st *dbState) tableNames(ctx context.Context, c *sql.Conn) []dbTable {
-	rows, err := c.QueryContext(ctx, `SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	rows, err := c.QueryContext(ctx, `SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' AND `+dbNotShadow+` ORDER BY name`)
 	if err != nil {
 		panic(st.errorOf("Db", err))
 	}
