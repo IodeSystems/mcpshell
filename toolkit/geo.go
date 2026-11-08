@@ -61,7 +61,7 @@ TRAPS
   bbox across the antimeridian has west > east: query it as two boxes.
   Projected GeoJSON (UTM, web mercator meters): pass {planar: true}.
   Not supported: polygon intersection, union and difference; buffers of lines and polygons
-  (Geo.circle buffers a point); ellipsoidal distance (haversine is within 0.5% of it).`
+  (Geo.circle buffers a point); ellipsoidal distance (haversine is within 0.6% of it).`
 
 // --- values in ------------------------------------------------------------------
 
