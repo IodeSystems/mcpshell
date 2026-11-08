@@ -13,7 +13,7 @@ type Shell struct {
 	commands *CommandRegistry
 	limits   *ExecutionLimits
 	globals  *Environment
-	warnings []string // from the last eval
+	diag     Diagnostics // from the last eval
 
 	resultSeq int      // last $rN handed out
 	kept      []string // $rN names still bound, oldest first
@@ -72,15 +72,103 @@ func (t *Shell) KeptResultNames() []string { return slices.Clone(t.kept) }
 
 // Warnings returns the last eval's warnings, after success or error. Each
 // starts with "line N:".
-func (t *Shell) Warnings() []string { return t.warnings }
+func (t *Shell) Warnings() []string { return t.diag.Warnings }
+
+// Note records a toolkit notice for the running eval. It reaches the agent in
+// the result's diagnostics block as "note: …"; a repeated text is kept once.
+// Toolkits call it for facts the agent should act on, such as a resource near
+// its cap.
+func (t *Shell) Note(msg string) { t.limits.Note(msg) }
+
+// Diagnostics returns the last eval's diagnostics, after success or error.
+func (t *Shell) Diagnostics() Diagnostics { return t.diag }
+
+// EvalOptions are the per-eval settings of the eval tool and the CLI.
+type EvalOptions struct {
+	Profile bool      // attribute whole-eval steps to source lines
+	Limits  LimitSpec // limits for this eval only, checked against the caps
+}
+
+// Diagnostics is everything an eval reports besides its value: one block at
+// the end of the result, one typed line per fact.
+type Diagnostics struct {
+	Warnings []string
+	Notes    []string
+	Profile  []LineCost // highest first; nil unless profiling was asked for
+	Steps    int64      // total steps while profiling
+	Usage    []string   // limits hit or at 80% or more
+}
+
+// profileLines is how many lines of the profile the block shows.
+const profileLines = 5
+
+// Format renders the block to append to a tool result, or "" when empty:
+// "warning:", "note:", "profile:" and "limits:" lines after a blank line.
+func (d Diagnostics) Format() string {
+	var lines []string
+	for _, w := range d.Warnings {
+		lines = append(lines, "warning: "+w)
+	}
+	for _, n := range d.Notes {
+		lines = append(lines, "note: "+n)
+	}
+	if d.Profile != nil || d.Steps > 0 {
+		lines = append(lines, fmt.Sprintf("profile: %d steps", d.Steps))
+		for i, lc := range d.Profile {
+			if i == profileLines {
+				break
+			}
+			pct := lc.Steps * 100 / max(d.Steps, 1)
+			if pct == 0 {
+				break // sorted: the rest cost less than 1%
+			}
+			lines = append(lines, fmt.Sprintf("profile: line %d: %d steps (%d%%)", lc.Line, lc.Steps, pct))
+		}
+	}
+	if len(d.Usage) > 0 {
+		lines = append(lines, "limits: "+strings.Join(d.Usage, ", "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n" + strings.Join(lines, "\n")
+}
+
+// beginEval resets the limits, clears the last eval's reports and applies the
+// options. A limit over an operator maximum is an error before the code runs.
+func (t *Shell) beginEval(opts EvalOptions) error {
+	if t.limits.ResetOnEval {
+		t.limits.Reset()
+	}
+	t.limits.ClearWarnings()
+	t.diag = Diagnostics{}
+	if !opts.Limits.Empty() {
+		if err := t.limits.Set("limits", opts.Limits); err != nil {
+			return err
+		}
+	}
+	if opts.Profile {
+		t.limits.StartProfile()
+	}
+	return nil
+}
+
+// endEval collects the eval's diagnostics.
+func (t *Shell) endEval(itp *Interpreter, opts EvalOptions) {
+	d := Diagnostics{Warnings: itp.Warnings(), Notes: t.limits.Notes(), Usage: t.limits.Usage()}
+	if opts.Profile {
+		d.Profile, d.Steps = t.limits.StopProfile()
+		if d.Profile == nil {
+			d.Profile = []LineCost{}
+		}
+	}
+	t.diag = d
+}
 
 // FormatWarnings renders warnings as a block to append to a tool result, or
 // "" when there are none.
 func FormatWarnings(warnings []string) string {
-	if len(warnings) == 0 {
-		return ""
-	}
-	return "\n\nwarning: " + strings.Join(warnings, "\nwarning: ")
+	return Diagnostics{Warnings: warnings}.Format()
 }
 
 // NewShell builds a shell with default limits and the builtin `help` command.
@@ -165,14 +253,16 @@ func (t *Shell) RegisterGuide(name, content string) *Shell {
 
 // Eval parses and evaluates source. A mcpshell error is returned as err; bugs
 // (non-ShellError panics) propagate.
-func (t *Shell) Eval(source string) (result Value, err error) {
-	if t.limits.ResetOnEval {
-		t.limits.Reset()
+func (t *Shell) Eval(source string) (Value, error) { return t.EvalWith(source, EvalOptions{}) }
+
+// EvalWith is Eval with per-eval options.
+func (t *Shell) EvalWith(source string, opts EvalOptions) (result Value, err error) {
+	if err := t.beginEval(opts); err != nil {
+		return Null, err
 	}
-	t.limits.ClearWarnings()
 	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {
-		t.warnings = itp.Warnings()
+		t.endEval(itp, opts)
 		if r := recover(); r != nil {
 			result, err = Null, AsShellError(r)
 		}
@@ -182,11 +272,15 @@ func (t *Shell) Eval(source string) (result Value, err error) {
 
 // EvalExported evaluates source in an isolated child scope, promoting only
 // names marked with `export` into globals. On error nothing is promoted.
-func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value, err error) {
-	if t.limits.ResetOnEval {
-		t.limits.Reset()
+func (t *Shell) EvalExported(source string, vars map[string]Value) (Value, error) {
+	return t.EvalExportedWith(source, vars, EvalOptions{})
+}
+
+// EvalExportedWith is EvalExported with per-eval options.
+func (t *Shell) EvalExportedWith(source string, vars map[string]Value, opts EvalOptions) (result Value, err error) {
+	if err := t.beginEval(opts); err != nil {
+		return Null, err
 	}
-	t.limits.ClearWarnings()
 	childEnv := t.globals.Child()
 	itp := NewInterpreter(t.commands, childEnv, t.limits)
 	itp.evalScoped, itp.earlierLets = true, t.earlierLets
@@ -197,7 +291,7 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 	}
 	var exported map[string]struct{}
 	defer func() {
-		t.warnings = itp.Warnings()
+		t.endEval(itp, opts)
 		if t.earlierLets == nil {
 			t.earlierLets = map[string]bool{}
 		}
@@ -225,14 +319,13 @@ func (t *Shell) EvalExported(source string, vars map[string]Value) (result Value
 
 // EvalTransactional evaluates source, restoring global state on error.
 func (t *Shell) EvalTransactional(source string) (result Value, err error) {
-	if t.limits.ResetOnEval {
-		t.limits.Reset()
+	if err := t.beginEval(EvalOptions{}); err != nil {
+		return Null, err
 	}
-	t.limits.ClearWarnings()
 	snapshot := t.globals.Snapshot()
 	itp := NewInterpreter(t.commands, t.globals, t.limits)
 	defer func() {
-		t.warnings = itp.Warnings()
+		t.endEval(itp, EvalOptions{})
 		if r := recover(); r != nil {
 			t.globals.Restore(snapshot)
 			result, err = Null, AsShellError(r)
@@ -319,7 +412,6 @@ fn(name: "Alice", age: 30)  // named args
 Bitwise ops (& | ^ ~ << >> >>>) follow JS ToInt32 within ±2^53 and are exact above it, so 64-bit values XOR correctly.
 BigInt(s), 123n, 0xff, 0b101 work; BigInt.asUintN(64, x) wraps to 64 bits.
 Only sqrt/sin/log/non-integer powers are floating-point. So compute exactly — don't hedge about precision.
-profile(() => ...) // returns {result, steps, lines} to see which lines cost the most
 
 ## Composition
 all(() => a(), () => b()) // parallel   race() // first success

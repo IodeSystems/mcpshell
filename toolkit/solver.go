@@ -113,7 +113,7 @@ OUTPUT
   terminate (1/3 shows 0.3333...). Compare with ==, or read fractions for p/q text.
 
 LIMITS
-  The eval timeout bounds the solve: extendLimit({timeout: ms}) before a big model.
+  The eval timeout bounds the solve. For a big model raise it before the run (eval argument limits: {timeout: ms}, or extendLimit({timeout: ms}) in code).
   Max 1000 variables and 1000 constraints (limits.vars, limits.constraints raise them).`
 
 // solverLP implements Solver.lp.
@@ -131,7 +131,7 @@ func solverLP(sh *Shell, args []Value) Value {
 	lm := sh.Limits()
 	remaining := lm.Remaining()
 	if remaining <= 0 {
-		panic(Runtime(cmd + ": no time left in this eval's time limit (" + fmt.Sprint(lm.TimeoutMs) + "ms). Call extendLimit({timeout: ms}) first"))
+		panic(Runtime(cmd + ": no time left in this eval's time limit (" + fmt.Sprint(lm.TimeoutMs) + "ms). Raise it first: " + lm.RaiseHint("timeout", lm.TimeoutMs*2)))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), remaining)
 	defer cancel()
@@ -162,7 +162,7 @@ func solverLP(sh *Shell, args []Value) Value {
 			opt := map[string]string{"variables": "vars", "constraints": "constraints", "pivots": "pivots"}[le.Limit]
 			panic(Runtime(fmt.Sprintf("%s: limit hit: more than %d %s. Shrink the model or raise limits.%s", cmd, le.Max, le.Limit, opt)))
 		case errors.Is(err, context.DeadlineExceeded):
-			panic(Runtime(fmt.Sprintf("%s: stopped at the execution time limit (%dms). Shrink the model, set limits.nodes to get the best answer so far, or call extendLimit({timeout: %d}) first", cmd, lm.TimeoutMs, lm.TimeoutMs*2)))
+			panic(Runtime(fmt.Sprintf("%s: stopped at the execution time limit (%dms). Shrink the model, set limits.nodes to get the best answer so far, or raise the limit first (%s)", cmd, lm.TimeoutMs, lm.RaiseHint("timeout", lm.TimeoutMs*2))))
 		case errors.Is(err, context.Canceled):
 			panic(Runtime(cmd + ": Execution cancelled"))
 		}

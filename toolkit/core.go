@@ -1145,12 +1145,21 @@ func InstallCore(sh *Shell) *Shell {
 
 	// --- Execution limits ---
 
-	reg("profile", "fn: () => any",
+	// Hidden: the eval tool's profile and limits arguments (and the CLI's
+	// --profile and --limits) replace them in the prompt; they stay callable.
+	regH("profile", "fn: () => any",
 		"runs fn with cost tracing; returns {result, steps, lines: [{line, steps}]} sorted by cost",
-		[]string{`profile(() => range(1, 1000) |> map(x => x * x) |> sum())`},
 		func(args []Value) Value {
 			fn := requireFn("profile", args, 0)
 			lim := sh.Limits()
+			if lim.Profiling() {
+				// the whole eval is being profiled: its block has the lines
+				out := NewObject()
+				out.Set("result", Call(fn, nil))
+				out.Set("steps", Num(0))
+				out.Set("lines", &ArrayVal{})
+				return out
+			}
 			lim.StartProfile()
 			defer func() {
 				if lim.Profiling() {
@@ -1173,9 +1182,8 @@ func InstallCore(sh *Shell) *Shell {
 			return out
 		})
 
-	reg("extendLimit", "opts: {steps?: number, timeout?: number, callDepth?: number, outputBytes?: number}",
+	regH("extendLimit", "opts: {steps?: number, timeout?: number, callDepth?: number, outputBytes?: number}",
 		"increases execution limits for this eval. Call before heavy computation",
-		[]string{`extendLimit({steps: 5000000})`},
 		func(args []Value) Value {
 			opts, ok := arg(args, 0).(*ObjectVal)
 			if !ok {
@@ -1190,7 +1198,7 @@ func InstallCore(sh *Shell) *Shell {
 					panic(Runtime(fmt.Sprintf("extendLimit: steps (%d) must be greater than current (%d)", *n, lim.MaxSteps)))
 				}
 				if *n > lim.CapSteps {
-					panic(Runtime(fmt.Sprintf("extendLimit: steps (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits steps=N", *n, lim.CapSteps)))
+					panic(CapError("extendLimit", "steps", int64(*n), int64(lim.CapSteps)))
 				}
 				lim.MaxSteps = *n
 				result.Set("maxSteps", Num(float64(*n)))
@@ -1200,7 +1208,7 @@ func InstallCore(sh *Shell) *Shell {
 					panic(Runtime(fmt.Sprintf("extendLimit: timeout (%d) must be greater than current (%d)", *n, lim.TimeoutMs)))
 				}
 				if int64(*n) > lim.CapTimeoutMs {
-					panic(Runtime(fmt.Sprintf("extendLimit: timeout (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits timeout=N", *n, lim.CapTimeoutMs)))
+					panic(CapError("extendLimit", "timeout", int64(*n), int64(lim.CapTimeoutMs)))
 				}
 				lim.TimeoutMs = int64(*n)
 				result.Set("timeoutMs", Num(float64(*n)))
@@ -1210,7 +1218,7 @@ func InstallCore(sh *Shell) *Shell {
 					panic(Runtime(fmt.Sprintf("extendLimit: callDepth (%d) must be greater than current (%d)", *n, lim.MaxCallDepth)))
 				}
 				if *n > lim.CapCallDepth {
-					panic(Runtime(fmt.Sprintf("extendLimit: callDepth (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits callDepth=N", *n, lim.CapCallDepth)))
+					panic(CapError("extendLimit", "callDepth", int64(*n), int64(lim.CapCallDepth)))
 				}
 				lim.MaxCallDepth = *n
 				result.Set("maxCallDepth", Num(float64(*n)))
@@ -1220,7 +1228,7 @@ func InstallCore(sh *Shell) *Shell {
 					panic(Runtime(fmt.Sprintf("extendLimit: outputBytes (%d) must be greater than current (%d)", *n, lim.MaxOutputBytes)))
 				}
 				if *n > lim.CapOutputBytes {
-					panic(Runtime(fmt.Sprintf("extendLimit: outputBytes (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits outputBytes=N", *n, lim.CapOutputBytes)))
+					panic(CapError("extendLimit", "outputBytes", int64(*n), int64(lim.CapOutputBytes)))
 				}
 				lim.MaxOutputBytes = *n
 				result.Set("maxOutputBytes", Num(float64(*n)))
@@ -1231,7 +1239,7 @@ func InstallCore(sh *Shell) *Shell {
 			return result
 		})
 
-	reg("limits", "", "shows current execution limits", []string{`limits()`},
+	regH("limits", "", "shows current execution limits",
 		func(args []Value) Value {
 			lim := sh.Limits()
 			result := NewObject()

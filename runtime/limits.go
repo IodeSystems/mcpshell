@@ -33,8 +33,13 @@ type ExecutionLimits struct {
 	MaxOutputBytes int
 	ResetOnEval    bool
 
+	// Hint is how limit-hit errors say to raise a limit. The default names
+	// extendLimit; the MCP server and the CLI set the form they accept.
+	Hint HintMode
+
 	warnMu   sync.Mutex
 	warnings []string
+	notes    []string
 
 	// rejections are the async calls of this eval that failed, shared with
 	// forked branch limits; an unhandled one fails the eval at its end.
@@ -45,6 +50,7 @@ type ExecutionLimits struct {
 	startTimeMs atomic.Int64
 	outputBytes atomic.Int64
 	cancelled   atomic.Bool
+	peakDepth   atomic.Int64
 
 	// Opt-in cost tracing: when profiling, Step attributes each step to its
 	// source line. Off by default (one atomic load per step, negligible).
@@ -88,13 +94,44 @@ func (l *ExecutionLimits) SetCaps(steps, callDepth int, timeoutMs int64, outputB
 	}
 }
 
+// HintMode selects how a limit-hit error tells the agent to raise the limit.
+type HintMode int
+
+const (
+	HintExtend  HintMode = iota // extendLimit({steps: N}): REPL, embedding hosts
+	HintEvalArg                 // the eval tool argument limits: {steps: N} (MCP server)
+	HintFlag                    // --limits steps=N (CLI one-shot)
+)
+
+// RaiseHint renders the way to set limit name to n in the current HintMode.
+func (l *ExecutionLimits) RaiseHint(name string, n int64) string {
+	switch l.Hint {
+	case HintEvalArg:
+		return fmt.Sprintf("re-run with the eval argument limits: {%s: %d}", name, n)
+	case HintFlag:
+		return fmt.Sprintf("re-run with --limits %s=%d", name, n)
+	}
+	return fmt.Sprintf("use extendLimit({%s: %d})", name, n)
+}
+
+// profileHint is the error-text line that points at per-line costs.
+func (l *ExecutionLimits) profileHint() string {
+	switch l.Hint {
+	case HintEvalArg:
+		return "run with the eval argument profile: true to see which lines burn the steps"
+	case HintFlag:
+		return "run with --profile to see which lines burn the steps"
+	}
+	return "profile(() => ...) to see which lines burn the steps"
+}
+
 // extendHint is the last line of a limit-hit message: a suggested value
 // (want, clamped to the cap), or a statement that the cap is reached.
-func extendHint(name string, cur, want, cap int64, what string) string {
+func (l *ExecutionLimits) extendHint(name string, cur, want, cap int64, what string) string {
 	if cur >= cap {
-		return fmt.Sprintf("    - %s is at the operator maximum (%d); extendLimit cannot raise it. Reduce the work", name, cap)
+		return fmt.Sprintf("    - %s is at the operator maximum (%d); it cannot be raised. Reduce the work", name, cap)
 	}
-	return fmt.Sprintf("    - If %s, use extendLimit({%s: %d}) (operator maximum: %d)", what, name, min(want, cap), cap)
+	return fmt.Sprintf("    - If %s, %s (operator maximum: %d)", what, l.RaiseHint(name, min(want, cap)), cap)
 }
 
 // NewExecutionLimits builds limits with the standard defaults.
@@ -152,9 +189,9 @@ func (l *ExecutionLimits) Step(line int) {
 				"    - Recursive algorithms (e.g. fib(n-1)+fib(n-2)) are O(2^n) — rewrite with a loop\n"+
 				"    - Check while/for conditions for infinite loops\n"+
 				"    - Filter or limit() data earlier to reduce iterations\n"+
-				"    - profile(() => ...) to see which lines burn the steps\n%s",
-			l.MaxSteps, line, l.hotLinesHint(),
-			extendHint("steps", int64(l.MaxSteps), int64(l.MaxSteps)*5, int64(l.CapSteps),
+				"    - %s\n%s",
+			l.MaxSteps, line, l.hotLinesHint(), l.profileHint(),
+			l.extendHint("steps", int64(l.MaxSteps), int64(l.MaxSteps)*5, int64(l.CapSteps),
 				"your algorithm is correct but data is large"))))
 	}
 	if count%timeoutCheckInterval == 0 {
@@ -172,14 +209,18 @@ func (l *ExecutionLimits) checkTimeout(line int) {
 				"    - Process less data: use limit() or filter early\n"+
 				"    - Restructure to avoid redundant computation\n%s",
 			l.TimeoutMs, float64(elapsed)/1000.0, line,
-			extendHint("timeout", l.TimeoutMs, l.TimeoutMs*2, l.CapTimeoutMs,
+			l.extendHint("timeout", l.TimeoutMs, l.TimeoutMs*2, l.CapTimeoutMs,
 				"your algorithm is correct but data is large"))))
 	}
 }
 
 // PushCall enters a call frame, checking the call-depth limit.
 func (l *ExecutionLimits) PushCall(line int) {
-	if l.callDepth.Add(1) > int64(l.MaxCallDepth) {
+	d := l.callDepth.Add(1)
+	if d > l.peakDepth.Load() {
+		l.peakDepth.Store(d)
+	}
+	if d > int64(l.MaxCallDepth) {
 		panic(Runtime(fmt.Sprintf(
 			"Call stack depth exceeded (%d) at line %d\n\n"+
 				"  Common fixes:\n"+
@@ -187,7 +228,7 @@ func (l *ExecutionLimits) PushCall(line int) {
 				"    - Convert to an iterative approach using while/for\n"+
 				"    - Use reduce() instead of manual recursion\n%s",
 			l.MaxCallDepth, line,
-			extendHint("callDepth", int64(l.MaxCallDepth), int64(l.MaxCallDepth)*2, int64(l.CapCallDepth),
+			l.extendHint("callDepth", int64(l.MaxCallDepth), int64(l.MaxCallDepth)*2, int64(l.CapCallDepth),
 				"recursion depth is expected"))))
 	}
 }
@@ -259,7 +300,7 @@ func (l *ExecutionLimits) TrackOutput(bytes int, source string) {
 				"    - Use read(path, startLine, lineCount) for partial file reads\n"+
 				"    - Filter or map to extract only the fields you need\n%s",
 			total, l.MaxOutputBytes, source,
-			extendHint("outputBytes", int64(l.MaxOutputBytes), int64(l.MaxOutputBytes)*4, int64(l.CapOutputBytes),
+			l.extendHint("outputBytes", int64(l.MaxOutputBytes), int64(l.MaxOutputBytes)*4, int64(l.CapOutputBytes),
 				"you need all of it"))))
 	}
 }
@@ -287,6 +328,7 @@ func (l *ExecutionLimits) Reset() {
 	l.MaxOutputBytes = l.defaultMaxOutputBytes
 	l.stepCount.Store(0)
 	l.callDepth.Store(0)
+	l.peakDepth.Store(0)
 	l.startTimeMs.Store(nowMs())
 	l.outputBytes.Store(0)
 	l.cancelled.Store(false)
@@ -324,6 +366,23 @@ func (l *ExecutionLimits) warn(msg string) {
 	}
 }
 
+// Note records a toolkit notice for the current eval; a repeated one is kept
+// once.
+func (l *ExecutionLimits) Note(msg string) {
+	l.warnMu.Lock()
+	defer l.warnMu.Unlock()
+	if !slices.Contains(l.notes, msg) {
+		l.notes = append(l.notes, msg)
+	}
+}
+
+// Notes returns the notes recorded since ClearWarnings.
+func (l *ExecutionLimits) Notes() []string {
+	l.warnMu.Lock()
+	defer l.warnMu.Unlock()
+	return slices.Clone(l.notes)
+}
+
 // Warnings returns the warnings recorded since ClearWarnings.
 func (l *ExecutionLimits) Warnings() []string {
 	l.warnMu.Lock()
@@ -336,15 +395,43 @@ func (l *ExecutionLimits) ClearWarnings() {
 	l.warnMu.Lock()
 	defer l.warnMu.Unlock()
 	l.warnings = nil
+	l.notes = nil
 	l.rejections = &rejectionList{}
 }
 
-// ParseCaps applies a "steps=N,timeout=60s,callDepth=N,outputBytes=N" spec (the
-// --max-limits flag) to the operator maximums. Unlisted keys keep their cap.
-// timeout takes a Go duration ("60s", "5m") or plain milliseconds.
-func (l *ExecutionLimits) ParseCaps(spec string) error {
-	var steps, depth, out int
-	var timeoutMs int64
+// LimitSpec is a set of limit values; nil fields are not set.
+type LimitSpec struct {
+	Steps       *int
+	TimeoutMs   *int64
+	CallDepth   *int
+	OutputBytes *int
+}
+
+// Empty reports whether no field is set.
+func (s LimitSpec) Empty() bool {
+	return s.Steps == nil && s.TimeoutMs == nil && s.CallDepth == nil && s.OutputBytes == nil
+}
+
+// ParseDurationMs reads a Go duration ("60s", "5m") or plain milliseconds.
+func ParseDurationMs(val string) (int64, error) {
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		n, nerr := strconv.ParseInt(val, 10, 64)
+		if nerr != nil {
+			return 0, fmt.Errorf("timeout %q is not a duration (60s) or milliseconds", val)
+		}
+		d = time.Duration(n) * time.Millisecond
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("timeout must be positive")
+	}
+	return d.Milliseconds(), nil
+}
+
+// ParseLimitSpec parses "steps=N,timeout=60s,callDepth=N,outputBytes=N". who
+// prefixes errors (the flag name).
+func ParseLimitSpec(who, spec string) (LimitSpec, error) {
+	var out LimitSpec
 	for _, part := range strings.Split(spec, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -352,39 +439,133 @@ func (l *ExecutionLimits) ParseCaps(spec string) error {
 		}
 		key, val, ok := strings.Cut(part, "=")
 		if !ok {
-			return fmt.Errorf("max-limits: %q is not key=value", part)
+			return out, fmt.Errorf("%s: %q is not key=value", who, part)
 		}
 		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
 		if key == "timeout" {
-			d, err := time.ParseDuration(val)
+			ms, err := ParseDurationMs(val)
 			if err != nil {
-				n, nerr := strconv.ParseInt(val, 10, 64)
-				if nerr != nil {
-					return fmt.Errorf("max-limits: timeout %q is not a duration (60s) or milliseconds", val)
-				}
-				d = time.Duration(n) * time.Millisecond
+				return out, fmt.Errorf("%s: %v", who, err)
 			}
-			if d <= 0 {
-				return fmt.Errorf("max-limits: timeout must be positive")
-			}
-			timeoutMs = d.Milliseconds()
+			out.TimeoutMs = &ms
 			continue
 		}
 		n, err := strconv.Atoi(val)
 		if err != nil || n <= 0 {
-			return fmt.Errorf("max-limits: %s %q is not a positive integer", key, val)
+			return out, fmt.Errorf("%s: %s %q is not a positive integer", who, key, val)
 		}
 		switch key {
 		case "steps":
-			steps = n
+			out.Steps = &n
 		case "callDepth":
-			depth = n
+			out.CallDepth = &n
 		case "outputBytes":
-			out = n
+			out.OutputBytes = &n
 		default:
-			return fmt.Errorf("max-limits: unknown key %q (use steps, timeout, callDepth, outputBytes)", key)
+			return out, fmt.Errorf("%s: unknown key %q (use steps, timeout, callDepth, outputBytes)", who, key)
 		}
+	}
+	return out, nil
+}
+
+// ParseCaps applies a "steps=N,timeout=60s,callDepth=N,outputBytes=N" spec (the
+// --max-limits flag) to the operator maximums. Unlisted keys keep their cap.
+// timeout takes a Go duration ("60s", "5m") or plain milliseconds.
+func (l *ExecutionLimits) ParseCaps(spec string) error {
+	s, err := ParseLimitSpec("max-limits", spec)
+	if err != nil {
+		return err
+	}
+	var steps, depth, out int
+	var timeoutMs int64
+	if s.Steps != nil {
+		steps = *s.Steps
+	}
+	if s.CallDepth != nil {
+		depth = *s.CallDepth
+	}
+	if s.OutputBytes != nil {
+		out = *s.OutputBytes
+	}
+	if s.TimeoutMs != nil {
+		timeoutMs = *s.TimeoutMs
 	}
 	l.SetCaps(steps, depth, timeoutMs, out)
 	return nil
+}
+
+// CapError is the error for a limit value over its operator maximum.
+func CapError(who, name string, n, cap int64) *ShellError {
+	return Runtime(fmt.Sprintf("%s: %s (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits %s=N", who, name, n, cap, name))
+}
+
+// Set applies spec to this eval's limits, as the eval arguments do: a value
+// may be lower or higher than the current one, and over an operator maximum it
+// is an error (not clamped). Nothing is applied when any value is over.
+func (l *ExecutionLimits) Set(who string, s LimitSpec) error {
+	check := func(name string, n, cap int64) error {
+		if n <= 0 {
+			return Runtime(fmt.Sprintf("%s: %s (%d) must be positive", who, name, n))
+		}
+		if n > cap {
+			return CapError(who, name, n, cap)
+		}
+		return nil
+	}
+	var errs []error
+	if s.Steps != nil {
+		errs = append(errs, check("steps", int64(*s.Steps), int64(l.CapSteps)))
+	}
+	if s.TimeoutMs != nil {
+		errs = append(errs, check("timeout", *s.TimeoutMs, l.CapTimeoutMs))
+	}
+	if s.CallDepth != nil {
+		errs = append(errs, check("callDepth", int64(*s.CallDepth), int64(l.CapCallDepth)))
+	}
+	if s.OutputBytes != nil {
+		errs = append(errs, check("outputBytes", int64(*s.OutputBytes), int64(l.CapOutputBytes)))
+	}
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	if s.Steps != nil {
+		l.MaxSteps = *s.Steps
+	}
+	if s.TimeoutMs != nil {
+		l.TimeoutMs = *s.TimeoutMs
+	}
+	if s.CallDepth != nil {
+		l.MaxCallDepth = *s.CallDepth
+	}
+	if s.OutputBytes != nil {
+		l.MaxOutputBytes = *s.OutputBytes
+	}
+	return nil
+}
+
+// nearLimit is the share of a limit from which Usage reports it.
+const nearLimit = 0.8
+
+// Usage reports the limits that this eval hit or used at least 80% of, as
+// "steps 850000/1000000 (85%)" parts, or nil. A hit one reads "(hit)".
+func (l *ExecutionLimits) Usage() []string {
+	var parts []string
+	add := func(name string, used, limit int64, unit string) {
+		if limit <= 0 {
+			return
+		}
+		switch {
+		case used > limit:
+			parts = append(parts, fmt.Sprintf("%s %d%s/%d%s (hit)", name, limit, unit, limit, unit))
+		case float64(used) >= nearLimit*float64(limit):
+			parts = append(parts, fmt.Sprintf("%s %d%s/%d%s (%d%%)", name, used, unit, limit, unit, used*100/limit))
+		}
+	}
+	add("steps", l.stepCount.Load(), int64(l.MaxSteps), "")
+	add("time", nowMs()-l.startTimeMs.Load(), l.TimeoutMs, "ms")
+	add("callDepth", l.peakDepth.Load(), int64(l.MaxCallDepth), "")
+	add("outputBytes", l.outputBytes.Load(), int64(l.MaxOutputBytes), "")
+	return parts
 }
