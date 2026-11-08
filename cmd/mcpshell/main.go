@@ -74,6 +74,7 @@ func newShell() *runtime.Shell {
 	toolkit.InstallMath(sh)
 	toolkit.InstallWeb(sh)
 	toolkit.InstallGraph(sh)
+	toolkit.AddSolver(sh)
 	if wd, err := os.Getwd(); err == nil {
 		toolkit.InstallFile(sh, wd, false)
 	}
@@ -236,6 +237,7 @@ func runMCP(args []string) {
 	// reach outside the process: a flag enables them, and the agent then
 	// installs them with load().
 	sh.AddLoadable(toolkit.GraphLoadable())
+	toolkit.AddSolver(sh)
 	if *noLoad != "" {
 		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
 	}
