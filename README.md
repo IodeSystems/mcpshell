@@ -154,7 +154,7 @@ argument raises it.
 ## Toolkits
 
 Toolkits register commands into the shell. `core` and `math` are always on.
-In `mcpshell mcp`, `graph`, `db` and `solver` are loadable by the agent; `web`, `file`, and
+In `mcpshell mcp`, `graph`, `db`, `solver` and `route` are loadable by the agent; `web`, `file`, and
 `browser` need an operator flag, and the agent then installs them with
 `load("name")`. The LLM only sees the capabilities you grant. One-shot and
 REPL modes install core, math, web, graph, and file (rooted at the current
@@ -170,6 +170,7 @@ directory) at start.
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **db** | `load("db")`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions |
 | **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries |
+| **route** | `load("route")` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
 | **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
 Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file; it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
@@ -254,7 +255,9 @@ auto-builds the same way `bin/mcpshell` does.
 grammar/   ANTLR4 grammar (.g4)
 parser/    Generated Go parser + hand-written lexer base (committed)
 runtime/   Value types, environment, interpreter, the Shell facade
-toolkit/   Built-in command toolkits — core, math, web, file, graph, sql, db, browser
+toolkit/   Built-in command toolkits — core, math, web, file, graph, sql, db, solver, route, browser
+solver/    Exact LP/MILP solver (math/big.Rat), no runtime dependency
+routing/   Distances, shortest paths, TSP, VRP (float64), no runtime dependency
 mcp/       MCP server + upstream-MCP client/composition
 bench/     LLM benchmark harness (OpenAI-compatible agent loop)
 cmd/       Binaries: cmd/mcpshell (the CLI), cmd/bench (the benchmark)
