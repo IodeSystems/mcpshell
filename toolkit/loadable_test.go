@@ -177,7 +177,7 @@ func TestLoadPathForm(t *testing.T) {
 	bare := loadShell(&closed)
 	msg := failEval(t, bare, `load("lib.mcpshell")`)
 	mustContain(t, "path without file toolkit", msg, "no file toolkit", "Toolkits: demo")
-	mustContain(t, "unknown bare name", failEval(t, bare, `load("nothing")`), "no file toolkit")
+	mustContain(t, "unknown bare name", failEval(t, bare, `load("nothing")`), "no toolkit named 'nothing'", "Toolkits: demo")
 }
 
 func TestNoLoad(t *testing.T) {

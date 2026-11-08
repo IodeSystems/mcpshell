@@ -657,6 +657,18 @@ func InstallCore(sh *Shell) *Shell {
 					}
 					return Str(summary)
 				}
+				if msg := installedToolkit(sh, name); msg != "" {
+					return Str(msg)
+				}
+				if !strings.ContainsAny(name, "./\\") {
+					// A bare name is a toolkit name, not a file: "file not
+					// found './nope'" pointed at the wrong mistake.
+					msg := "load: no toolkit named '" + name + "'"
+					if names := sh.Commands().LoadableNames(); len(names) > 0 {
+						msg += ". Toolkits: " + strings.Join(names, ", ")
+					}
+					panic(Runtime(msg + `. A script file is loaded by its path: load("lib/helpers.mcpshell")`))
+				}
 				return sh.LoadFile(name)
 			})
 		})
@@ -1680,4 +1692,20 @@ func tryOne(fn func() Value) (v Value, err *ShellError) {
 		}
 	}()
 	return fn(), nil
+}
+
+// installedToolkit is the answer to load(name) for a toolkit the host
+// installed at start instead of as a loadable (the CLI installs web, graph
+// and files): it is there already. "" when name is not one of them.
+func installedToolkit(sh *Shell, name string) string {
+	probe := map[string]func() bool{
+		"files": func() bool { return sh.Commands().Get("readLines") != nil },
+		"file":  func() bool { return sh.Commands().Get("readLines") != nil },
+		"graph": func() bool { return sh.Commands().Get("addNode") != nil },
+		"web":   func() bool { return len(sh.Commands().NamespaceCommands("Web")) > 0 },
+	}
+	if p, ok := probe[name]; ok && p() {
+		return name + " is installed already here (help(\"" + name + "\") lists its commands)"
+	}
+	return ""
 }
