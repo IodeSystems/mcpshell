@@ -288,13 +288,32 @@ const (
 	sizeIface  = 16
 	sizeNumber = int64(unsafe.Sizeof(NumberVal{}))
 	sizeString = int64(unsafe.Sizeof(StringVal{}))
-	sizeEntry  = 96 // object: key header, map slot, ordered key slot
 	sizeOther  = 128
 	// NumberElem is the estimate for one number in an array.
 	NumberElem = sizeIface + 64
 	// SlotElem is the estimate for one array slot that holds a shared value.
 	SlotElem = sizeIface
 )
+
+// arraySample is how many elements of a large array the estimate walks.
+const arraySample = 1024
+
+// objectSize is the bytes of an object with n keys, without the keys' text
+// and the values. Measured with go1.27 on amd64 (100k objects, heap after
+// GC): {} 107 B; 1, 2, 4, 8 keys 416, 432, 472, 552 B; 9 keys 1016 B. A map
+// allocates a group of 8 slots (~300 B) for its first key, and doubles its
+// groups past 8.
+func objectSize(n int) int64 {
+	size := int64(107)
+	if n > 0 {
+		groups := int64(1)
+		for groups*8 < int64(n) {
+			groups *= 2
+		}
+		size += 300*groups + 20*int64(n)
+	}
+	return size
+}
 
 // sizeWalk is the state of one size estimate: shared values count once, and
 // the walk stops after max values.
@@ -356,6 +375,21 @@ func (w *sizeWalk) size(v Value) int64 {
 		}
 		w.seen[v] = struct{}{}
 		n := int64(unsafe.Sizeof(ArrayVal{})) + int64(cap(x.Elements))*sizeIface
+		if len(x.Elements) > arraySample*2 {
+			// A large array is sampled, so one array does not use the walk
+			// budget and the other holders still get an estimate.
+			step := len(x.Elements) / arraySample
+			var sum int64
+			k := 0
+			for i := 0; i < len(x.Elements) && !w.cut; i += step {
+				sum += w.size(x.Elements[i])
+				k++
+			}
+			if k > 0 {
+				n += sum * int64(len(x.Elements)) / int64(k)
+			}
+			return n
+		}
 		for _, e := range x.Elements {
 			n += w.size(e)
 			if w.cut {
@@ -368,9 +402,9 @@ func (w *sizeWalk) size(v Value) int64 {
 			return 0
 		}
 		w.seen[v] = struct{}{}
-		n := int64(unsafe.Sizeof(ObjectVal{}))
+		n := objectSize(len(x.keys))
 		for _, k := range x.keys {
-			n += sizeEntry + int64(len(k)) + w.size(x.m[k])
+			n += int64(len(k)) + w.size(x.m[k])
 			if w.cut {
 				break
 			}
