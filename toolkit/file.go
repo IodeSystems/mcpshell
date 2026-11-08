@@ -19,6 +19,18 @@ type fileCfg struct {
 	readOnly     bool
 	maxReadLines int
 	readRoots    []string // extra directories readable by absolute path
+	// notFound is added to a "file not found" error: for the overflow
+	// reader, that it reads only saved results and how to reach other files.
+	notFound string
+}
+
+// notFoundErr is the error for a path that does not exist.
+func (c fileCfg) notFoundErr(cmd, path, resolved string) *ShellError {
+	msg := cmd + ": file not found '" + path + "'\n\n  Resolved to: " + resolved
+	if c.notFound != "" {
+		msg += "\n\n  " + c.notFound
+	}
+	return Runtime(msg)
 }
 
 // confine resolves path against the root and rejects anything escaping it.
@@ -82,6 +94,20 @@ TYPICAL: Write and edit files
 // are extra directories the read-only commands (read, readLines, exists, ls,
 // grep) accept by absolute path.
 func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Shell {
+	return installFile(sh, root, readOnly, "", readRoots...)
+}
+
+// InstallOverflowReader installs the read-only file commands on the
+// over-limit output directory, so the agent can page a saved result ($rN)
+// without load("files"). notFound tells an agent that reads one of its own
+// files here what to do instead (load("files"), or that the operator has not
+// enabled file access); without it, read("data.csv") said only "file not
+// found" with a path under the overflow directory.
+func InstallOverflowReader(sh *Shell, dir, notFound string) *Shell {
+	return installFile(sh, dir, true, notFound)
+}
+
+func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoots ...string) *Shell {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		panic("FileToolkit: cannot resolve root: " + err.Error())
@@ -89,7 +115,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 		panic("FileToolkit root does not exist or is not a directory: " + abs)
 	}
-	cfg := fileCfg{root: abs, readOnly: readOnly, maxReadLines: 200}
+	cfg := fileCfg{root: abs, readOnly: readOnly, maxReadLines: 200, notFound: notFound}
 	for _, r := range readRoots {
 		if a, err := filepath.Abs(r); err == nil {
 			cfg.readRoots = append(cfg.readRoots, a)
@@ -154,7 +180,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 			count := optInt(args, 2)
 			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
-				panic(Runtime("read: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+				panic(cfg.notFoundErr("read", path, resolved))
 			}
 			lines := readLinesOf(resolved)
 			total := len(lines)
@@ -184,7 +210,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 			path := requireStringArg("readLines", args, 0)
 			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
-				panic(Runtime("readLines: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+				panic(cfg.notFoundErr("readLines", path, resolved))
 			}
 			return strArr(readLinesOf(resolved))
 		})
@@ -287,7 +313,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 
 			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
-				panic(Runtime("grep: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+				panic(cfg.notFoundErr("grep", path, resolved))
 			}
 			lines := readLinesOf(resolved)
 			re := compileRegex(match)
@@ -379,7 +405,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 			all := optObjBool(asObject(argOpt(args, 3)), "all")
 			resolved := cfg.confine(path)
 			if !pathExists(resolved) {
-				panic(Runtime("edit: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+				panic(cfg.notFoundErr("edit", path, resolved))
 			}
 			data, err := os.ReadFile(resolved)
 			if err != nil {
@@ -414,7 +440,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 			path := requireStringArg("deletePath", args, 0)
 			resolved := cfg.confine(path)
 			if !pathExists(resolved) {
-				panic(Runtime("deletePath: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+				panic(cfg.notFoundErr("deletePath", path, resolved))
 			}
 			if err := os.Remove(resolved); err != nil {
 				panic(Runtime("deletePath: " + err.Error()))
@@ -452,7 +478,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 	sh.SetFileLoader(func(path string) Value {
 		resolved := cfg.confine(path)
 		if !pathExists(resolved) {
-			panic(Runtime("load: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+			panic(cfg.notFoundErr("load", path, resolved))
 		}
 		data, err := os.ReadFile(resolved)
 		if err != nil {
