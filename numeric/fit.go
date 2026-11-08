@@ -17,7 +17,7 @@ type FitProblem struct {
 	W  []float64
 	P0 []float64
 	// Lo, Hi bound each parameter (nil or +-Inf = none). A step that leaves
-	// the box is projected onto it.
+	// the box is cut where it meets the boundary.
 	Lo, Hi []float64
 	// MaxIter defaults to 200; FTol and XTol to 1.5e-8 (scipy's defaults);
 	// GTol to 1e-10.
@@ -181,9 +181,16 @@ func Fit(ctx context.Context, pr FitProblem) (*FitResult, error) {
 		jacobian(p, false)
 		normal()
 		// Gradient test: max |cos angle| between r and the columns of J.
+		// A parameter at a bound whose descent direction points out of the
+		// box is held for this step (a simple active set). Projection alone
+		// lets damped steps creep toward the bound without reaching it.
+		held := make([]bool, np)
+		for j := range np {
+			held[j] = (hi != nil && p[j] >= hi[j] && g[j] > 0) || (lo != nil && p[j] <= lo[j] && g[j] < 0)
+		}
 		gmax := 0.0
 		for j := range np {
-			if A[j*np+j] > 0 {
+			if A[j*np+j] > 0 && !held[j] {
 				gmax = math.Max(gmax, math.Abs(g[j])/math.Sqrt(A[j*np+j]*ssr))
 			}
 		}
@@ -217,6 +224,12 @@ func Fit(ctx context.Context, pr FitProblem) (*FitResult, error) {
 			rhs := make([][]float64, np)
 			for a := range np {
 				rhs[a] = []float64{g[a]}
+				if held[a] {
+					for b := range np {
+						M[a][b], M[b][a] = 0, 0
+					}
+					M[a][a], rhs[a][0] = 1, 0
+				}
 			}
 			lu := FactorLU(M)
 			sol, err := lu.Solve(rhs)
@@ -225,18 +238,42 @@ func Fit(ctx context.Context, pr FitProblem) (*FitResult, error) {
 				nu *= 2
 				continue
 			}
+			// Truncate the step at the box: the parameter that limits it
+			// lands on its bound (and is held next time if it pushes out).
+			// Projecting the full step instead would keep its other
+			// components at full length, and one overshooting step can
+			// send a width to its lower bound, where the model degenerates.
+			t := 1.0
 			for j := range np {
-				trial[j] = p[j] + sol[j][0]
+				dj := sol[j][0]
+				if dj > 0 && hi != nil && p[j]+dj > hi[j] {
+					t = math.Min(t, (hi[j]-p[j])/dj)
+				}
+				if dj < 0 && lo != nil && p[j]+dj < lo[j] {
+					t = math.Min(t, (lo[j]-p[j])/dj)
+				}
+			}
+			for j := range np {
+				trial[j] = p[j] + t*sol[j][0]
+				if hi != nil && p[j]+sol[j][0] > hi[j] && t == (hi[j]-p[j])/sol[j][0] {
+					trial[j] = hi[j]
+				}
+				if lo != nil && p[j]+sol[j][0] < lo[j] && t == (lo[j]-p[j])/sol[j][0] {
+					trial[j] = lo[j]
+				}
 			}
 			project(trial)
 			delta := make([]float64, np)
-			dnorm, pnorm := 0.0, 0.0
+			// small: every component of the step is within xtol of its
+			// parameter (per parameter, so a large one does not hide a
+			// relatively large step in a small one).
+			small := true
 			for j := range np {
 				delta[j] = trial[j] - p[j]
-				dnorm += delta[j] * delta[j]
-				pnorm += p[j] * p[j]
+				if math.Abs(delta[j]) > pr.XTol*(math.Abs(p[j])+pr.XTol) {
+					small = false
+				}
 			}
-			dnorm, pnorm = math.Sqrt(dnorm), math.Sqrt(pnorm)
 			snew := resid(trial, rtrial)
 			// Predicted reduction of the linear model: 2 d.g - d.A.d.
 			pred := 0.0
@@ -248,8 +285,13 @@ func Fit(ctx context.Context, pr FitProblem) (*FitResult, error) {
 				pred += 2*delta[a]*g[a] - delta[a]*s
 			}
 			actual := ssr - snew
-			if snew < ssr && pred > 0 {
-				rho := actual / pred
+			// A projected step can lower the SSR although the linear model
+			// predicts no gain for it: accept it, but damp more (rho 0).
+			if snew < ssr {
+				rho := 0.0
+				if pred > 0 {
+					rho = actual / pred
+				}
 				accepted = true
 				copy(p, trial)
 				copy(r, rtrial)
@@ -257,16 +299,17 @@ func Fit(ctx context.Context, pr FitProblem) (*FitResult, error) {
 				ssr = snew
 				lambda *= math.Max(1.0/3, 1-math.Pow(2*rho-1, 3))
 				nu = 2
-				if actual <= pr.FTol*old && pred <= pr.FTol*old && rho <= 2 {
+				switch {
+				case pred > 0 && actual <= pr.FTol*old && pred <= pr.FTol*old && rho <= 2:
 					res.Status, res.Reason = Converged, "ftol"
+				case small:
+					// Only an accepted step counts: after rejections the
+					// damping alone makes the step small.
+					res.Status, res.Reason = Converged, "xtol"
 				}
 			} else {
 				lambda *= nu
 				nu *= 2
-			}
-			if res.Status != Converged && dnorm <= pr.XTol*(pnorm+pr.XTol) {
-				res.Status, res.Reason = Converged, "xtol"
-				break
 			}
 			if !finite(lambda) || lambda > 1e300 {
 				break

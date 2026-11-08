@@ -328,6 +328,51 @@ func TestFitRamanPeaks(t *testing.T) {
 	t.Logf("raman: %d iterations, %d evaluations, reason %s", res.Iterations, res.Evals, res.Reason)
 }
 
+// TestFitBoundedMatchesLeastSquares: the center bound keeps a pseudo-Voigt
+// off the true peak; compare with scipy least_squares (trf, bounds).
+func TestFitBoundedMatchesLeastSquares(t *testing.T) {
+	b, err := os.ReadFile("testdata/scipy_refs.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all struct {
+		Bounded struct {
+			P0, P []float64
+			SSR   float64
+		} `json:"bounded"`
+	}
+	if err := json.Unmarshal(b, &all); err != nil {
+		t.Fatal(err)
+	}
+	ref := all.Bounded
+	var x, y []float64
+	for i := 0; i <= 200; i++ {
+		xi := 400 + float64(i)
+		x = append(x, xi)
+		y = append(y, 100/(1+4*math.Pow((xi-520)/8, 2))+5)
+	}
+	pv, _ := FindPeakShape("pseudovoigt")
+	res, err := Fit(context.Background(), FitProblem{
+		Model: fitModel(x, func(xi float64, p []float64) float64 { return pv.At(xi, p[:4]) + p[4] }),
+		Y:     y, P0: ref.P0,
+		Lo: []float64{500, math.Inf(-1), 1e-10, 0, math.Inf(-1)}, Hi: []float64{505, math.Inf(1), math.Inf(1), 1, math.Inf(1)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != Converged || !near(res.SSR, ref.SSR, 1e-8, 0) {
+		t.Errorf("status %v ssr %.12g, scipy %.12g", res.Status, res.SSR, ref.SSR)
+	}
+	for j := range ref.P {
+		if !near(res.P[j], ref.P[j], 1e-4, 1e-9) {
+			t.Errorf("p[%d] = %.10g, scipy %.10g", j, res.P[j], ref.P[j])
+		}
+	}
+	if res.P[0] != 505 || !res.AtBound[0] || !res.AtBound[3] {
+		t.Errorf("bounds: p %v atBound %v", res.P, res.AtBound)
+	}
+}
+
 func TestFitStatuses(t *testing.T) {
 	x := []float64{0, 1, 2, 3, 4}
 	y := []float64{1, 3, 5, 7, 9}

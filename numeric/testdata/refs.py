@@ -160,4 +160,16 @@ from statsmodels.stats.proportion import proportion_confint
 lo, hi = proportion_confint(17, 60, alpha=0.05, method="wilson")
 out["wilson"] = {"k": 17, "n": 60, "lo": r(lo), "hi": r(hi)}
 
+# Bounded fit: a pseudo-Voigt whose center bound [500, 505] keeps it off the true
+# Lorentzian at 520 (scipy least_squares, trust-region reflective).
+xb = np.arange(400, 601.)
+yb = 100 / (1 + 4 * ((xb - 520) / 8) ** 2) + 5
+def pv(x, c, h, w, e):
+    d = (x - c) / w
+    return e * h / (1 + 4 * d * d) + (1 - e) * h * np.exp(-4 * np.log(2) * d * d)
+lsq = optimize.least_squares(lambda p: pv(xb, *p[:4]) + p[4] - yb, [503, 0.25, 6, 0.5, 5],
+                             bounds=([500, -np.inf, 1e-10, 0, -np.inf], [505, np.inf, np.inf, 1, np.inf]),
+                             xtol=1e-15, ftol=1e-15, gtol=1e-15, max_nfev=100000)
+out["bounded"] = {"p0": [503, 0.25, 6, 0.5, 5], "p": [r(v) for v in lsq.x], "ssr": r(2 * lsq.cost)}
+
 json.dump(out, sys.stdout, indent=1)
