@@ -1533,6 +1533,10 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 					}
 					lvaluePath = append(lvaluePath, field)
 					memberOf, member = current, field
+					if _, isNull := current.(*NullVal); isNull && !isOptional {
+						panic(TypeMismatch("member access ."+field, "object, array, or string", current,
+							"`"+receiverText(ctx, ops[:opIdx])+"` is null: a key or variable that was never set (a missing object key reads as null). Check it first, or use ?."))
+					}
 					val := v.accessMember(current, field)
 					// A call on the member reports a missing one itself (NotCallable).
 					if o, ok := current.(*ObjectVal); ok && !isOptional && (nextOp == nil || nextOp.LPAREN() == nil) {
@@ -1722,7 +1726,7 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 		panic(Runtime(msg))
 	}
 	if v.itp.earlierLets[name] {
-		panic(&ShellError{Message: fmt.Sprintf("'%s' was declared with let in an earlier eval, and a let lasts one eval. Declare it with export (export let %s = …) to keep it for later evals\n\n  at line %d:%d", name, name, startLine(ctx), startCol(ctx))})
+		panic(&ShellError{Message: fmt.Sprintf("'%s' was declared in an earlier eval, and only export lasts beyond one eval (let, const and function do not). Declare it again in this eval, or use export (export let %s = …) to keep it for later evals\n\n  at line %d:%d", name, name, startLine(ctx), startCol(ctx))})
 	}
 	for _, d := range v.declaring {
 		if d.name == name {

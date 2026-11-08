@@ -511,13 +511,13 @@ func (v *Visitor) mutateInPlace(parent Value, step any, value Value) {
 			case *NumberVal:
 				key = idx.Display()
 			default:
-				panic(TypeMismatch("index assignment", "string key", s.value, ""))
+				panic(TypeMismatch("index assignment", "string key", s.value, nullIndexHint(s.value)))
 			}
 			p.Set(key, value)
 		case *ArrayVal:
 			num, ok := s.value.(*NumberVal)
 			if !ok {
-				panic(TypeMismatch("index assignment", "number", s.value, ""))
+				panic(TypeMismatch("index assignment", "number", s.value, nullIndexHint(s.value)))
 			}
 			idx := int(num.V)
 			if idx < 0 {
@@ -733,12 +733,21 @@ func (v *Visitor) bindMethodOrHint(receiver Value, typ, field string) Value {
 	return Null
 }
 
+// nullIndexHint names the usual cause of a null index: a key that is absent,
+// or an element past the end (`xs[xs.length - 1]` of an empty array).
+func nullIndexHint(index Value) string {
+	if _, ok := index.(*NullVal); !ok {
+		return ""
+	}
+	return "the index is null: a missing key, or an element past the end of an array (`xs[xs.length - 1]` of an empty array)"
+}
+
 func (v *Visitor) accessIndex(obj, index Value) Value {
 	switch o := obj.(type) {
 	case *ArrayVal:
 		num, ok := index.(*NumberVal)
 		if !ok {
-			panic(TypeMismatch("index", "number", index, ""))
+			panic(TypeMismatch("index", "number", index, nullIndexHint(index)))
 		}
 		idx := int(num.V)
 		if idx >= 0 && idx < len(o.Elements) {
@@ -753,7 +762,7 @@ func (v *Visitor) accessIndex(obj, index Value) Value {
 		case *NumberVal:
 			key = k.Display()
 		default:
-			panic(TypeMismatch("index", "string", index, ""))
+			panic(TypeMismatch("index", "string", index, nullIndexHint(index)))
 		}
 		if val, ok := o.Get(key); ok {
 			return val
@@ -762,7 +771,7 @@ func (v *Visitor) accessIndex(obj, index Value) Value {
 	case *StringVal:
 		num, ok := index.(*NumberVal)
 		if !ok {
-			panic(TypeMismatch("index", "number", index, ""))
+			panic(TypeMismatch("index", "number", index, nullIndexHint(index)))
 		}
 		runes := []rune(o.V)
 		idx := int(num.V)

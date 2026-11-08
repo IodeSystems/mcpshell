@@ -603,7 +603,12 @@ func translateError(msg, sourceLine string, col int, offendingSymbol any) string
 	case has("expecting") && has("']'"):
 		return "Expected ']' to close the array\n\n  Example: [1, 2, 3]"
 	case has("expecting") && has("'}'"):
+		if got == "=" {
+			return "An object entry is key: value, not key = value\n\n  Example: {expected: \"\"}"
+		}
 		return "Expected '}' to close the block or object"
+	case has("expecting") && has("'while'") && has("'for'") && has("'do'"):
+		return "A 'name:' before this is a label, and a label must be followed by a loop (while, for, do)\n\n  If the line before is a note and not code, start it with //"
 	case has("mismatched input") && has("'{'") && has("')'"):
 		return "Expected ')' before '{'\n\n  Check that function parameters are properly closed\n  Example: fn name(param1, param2) { ... }"
 	case has("extraneous input"):

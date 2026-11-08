@@ -47,6 +47,34 @@ func TestErrorQualityParseErrors(t *testing.T) {
 	})
 }
 
+// TestSyntaxErrorCauses: the message names the likely cause, not only the
+// token the parser stopped at (dun Terminal-Bench dna-assembly, 2026-11-07).
+func TestSyntaxErrorCauses(t *testing.T) {
+	for _, c := range []struct{ src, want string }{
+		{"let o = {\n  a: 1,\n  b = 2,\n}", "key: value, not key = value"},
+		{"// notes\nThe plan:\n b1 = end of body\nlet x = 1", "is a label"},
+	} {
+		if msg := evalErr(t, c.src); !strings.Contains(msg, c.want) {
+			t.Errorf("%q error = %q, want %q", c.src, msg, c.want)
+		}
+	}
+}
+
+// TestNullReceiverAndIndexHints: a member access on null names the receiver,
+// and a null index names its usual cause.
+func TestNullReceiverAndIndexHints(t *testing.T) {
+	for _, c := range []struct{ src, want string }{
+		{`let S = {}; S.egfp.indexOf("a")`, "`S.egfp` is null"},
+		{`let eg = null; eg.indexOf("a")`, "`eg` is null"},
+		{`let S = {}; let k = Object.keys(S); S[k[k.length - 1]] += "x"`, "the index is null"},
+		{`let k = []; let S = {a: 1}; S[k[0]]`, "the index is null"},
+	} {
+		if msg := evalErr(t, c.src); !strings.Contains(msg, c.want) {
+			t.Errorf("%q error = %q, want %q", c.src, msg, c.want)
+		}
+	}
+}
+
 func TestErrorQualityHelp(t *testing.T) {
 	sh := toolkit.InstallCore(runtime.NewShell())
 	t.Run("specific command shows full docs", func(t *testing.T) {
@@ -476,8 +504,12 @@ func TestLetLastsOneEval(t *testing.T) {
 	sh := toolkit.InstallCore(runtime.NewShell())
 	steps := []struct{ src, want, warn string }{
 		{`let x = [1]; let all = []; export let y = 2`, "2", "in this eval only"},
-		{`x`, "ERR:'x' was declared with let in an earlier eval", ""},
+		{`x`, "ERR:'x' was declared in an earlier eval", ""},
 		{`1`, "1", ""},
+		{`const k = 1; function g() { return 2 }; 3`, "3", ""},
+		{`k`, "ERR:'k' was declared in an earlier eval", ""},
+		{`g()`, "ERR:Declare it again in this eval", ""},
+		{`const k = 4; k`, "4", ""},
 		{`x`, "ERR:export let x", ""},
 		{`y`, "2", ""},
 		{`all`, "function all()", ""},
