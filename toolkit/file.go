@@ -56,6 +56,8 @@ func fileGuide(readOnly bool) string {
 	}
 	return "File Toolkit — " + mode + `
 Commands are bare: read("a.txt"), ls("."). Files.read("a.txt") also works.
+read() is for looking: it numbers lines (" 1: …") and stops at 200 lines.
+To parse a file use readLines(path) (raw lines) or readLines(path).join("\n").
 
 TYPICAL: Read and inspect files
   read("config.json")             // full file with line numbers
@@ -144,7 +146,7 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 
 	reg("read", "path: string, start?: number, lines?: number",
 		fmt.Sprintf("reads file with line numbers (1: content). Optional start line and count for partial reads. "+
-			"Large files truncated to %d lines", cfg.maxReadLines),
+			"Large files truncated to %d lines. For viewing; to parse, use readLines(path)", cfg.maxReadLines),
 		[]string{`read("config.json")`, `read("big.log", 100, 20)`},
 		func(args []Value) Value {
 			path := requireStringArg("read", args, 0)
