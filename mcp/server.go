@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/iodesystems/mcpshell/runtime"
 	"github.com/iodesystems/mcpshell/toolkit"
@@ -29,6 +30,8 @@ type Server struct {
 	maxOutputBytes int
 	overflowDir    string // where over-limit eval output is saved; "" disables
 	hosted         []HostedServer
+	descOnce       sync.Once
+	toolDesc       string
 }
 
 // NewServer builds an MCP server. maxOutputBytes caps the eval tool's textual
@@ -144,7 +147,7 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 	case "ping":
 		return result(req.ID, struct{}{})
 	case "tools/list":
-		return result(req.ID, map[string]any{"tools": toolDefs()})
+		return result(req.ID, map[string]any{"tools": s.toolDefs()})
 	case "tools/call":
 		return result(req.ID, s.callTool(req.Params))
 	default:
@@ -178,11 +181,25 @@ type toolDef struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-func toolDefs() []toolDef {
+// evalDescription is the eval tool description: ToolDescription plus the
+// Available line (the allowed loadable toolkits, loaded or not). It is fixed
+// at the first tools/list, so a load never changes it. Clients that show the
+// model only this description learn from it which toolkits load() offers.
+func (s *Server) evalDescription() string {
+	s.descOnce.Do(func() {
+		s.toolDesc = runtime.ToolDescription
+		if line := s.shell.Commands().AvailableLine(); line != "" {
+			s.toolDesc += "\n" + line
+		}
+	})
+	return s.toolDesc
+}
+
+func (s *Server) toolDefs() []toolDef {
 	return []toolDef{
 		{
 			Name:        "eval",
-			Description: runtime.ToolDescription,
+			Description: s.evalDescription(),
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"code":{"type":"string","description":"mcpshell source code"},` +
 				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true}` +
