@@ -234,3 +234,24 @@ func TestHiddenCommandsStayCallable(t *testing.T) {
 		t.Errorf("hidden commands must work: %q %q %q %q", texts[1], texts[2], texts[3], texts[4])
 	}
 }
+
+// Clients send integers as floats (Python json gives 9000.0 and 1e12).
+func TestLimitsArgAcceptsIntegralFloats(t *testing.T) {
+	texts, errs := evalCalls(t, smallShell(),
+		codeArgs(loopCode("5000"), `"limits":{"steps":9000.0}`),
+		codeArgs("1", `"limits":{"steps":1e12}`),
+		codeArgs("1", `"limits":{"steps":1e400}`),
+		codeArgs("1", `"limits":{"timeout":5000.0}`),
+	)
+	if errs[0] || !strings.HasPrefix(texts[0], "5000") {
+		t.Errorf("steps 9000.0 must apply: %s", texts[0])
+	}
+	for i := 1; i <= 2; i++ {
+		if !errs[i] || !strings.Contains(texts[i], "exceeds the operator maximum") {
+			t.Errorf("call %d: a huge value must name the operator maximum: %s", i, texts[i])
+		}
+	}
+	if errs[3] {
+		t.Errorf("timeout 5000.0: %s", texts[3])
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"os"
 	"strings"
 	"sync"
@@ -292,32 +294,67 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 func parseLimitsArg(raw json.RawMessage) (runtime.LimitSpec, error) {
 	var spec runtime.LimitSpec
 	var a struct {
-		Steps       *int            `json:"steps"`
+		Steps       *json.Number    `json:"steps"`
 		Timeout     json.RawMessage `json:"timeout"`
-		CallDepth   *int            `json:"callDepth"`
-		OutputBytes *int            `json:"outputBytes"`
+		CallDepth   *json.Number    `json:"callDepth"`
+		OutputBytes *json.Number    `json:"outputBytes"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
+	dec.UseNumber()
 	if err := dec.Decode(&a); err != nil {
 		return spec, fmt.Errorf("limits: %v (use {steps?, timeout?, callDepth?, outputBytes?} with integers)", err)
 	}
-	spec.Steps, spec.CallDepth, spec.OutputBytes = a.Steps, a.CallDepth, a.OutputBytes
+	var err error
+	if spec.Steps, err = limitInt("steps", a.Steps); err != nil {
+		return spec, err
+	}
+	if spec.CallDepth, err = limitInt("callDepth", a.CallDepth); err != nil {
+		return spec, err
+	}
+	if spec.OutputBytes, err = limitInt("outputBytes", a.OutputBytes); err != nil {
+		return spec, err
+	}
 	if len(a.Timeout) > 0 && string(a.Timeout) != "null" {
 		var str string
 		var ms int64
+		var num json.Number
 		if json.Unmarshal(a.Timeout, &str) == nil {
 			n, err := runtime.ParseDurationMs(str)
 			if err != nil {
 				return spec, fmt.Errorf("limits: %v", err)
 			}
 			ms = n
-		} else if err := json.Unmarshal(a.Timeout, &ms); err != nil {
+		} else if json.Unmarshal(a.Timeout, &num) == nil {
+			n, err := limitInt("timeout", &num)
+			if err != nil {
+				return spec, errors.New("limits: timeout must be an integer (ms) or a duration string like \"60s\"")
+			}
+			ms = int64(*n)
+		} else {
 			return spec, errors.New("limits: timeout must be an integer (ms) or a duration string like \"60s\"")
 		}
 		spec.TimeoutMs = &ms
 	}
 	return spec, nil
+}
+
+// limitInt converts a JSON number to an int limit. Clients send integers as
+// floats (1e12, 5000000.0), so an integral value is accepted. A value above
+// the int range becomes MaxInt, so the operator-maximum check reports it.
+func limitInt(name string, n *json.Number) (*int, error) {
+	if n == nil {
+		return nil, nil
+	}
+	r, ok := new(big.Rat).SetString(n.String())
+	if !ok || !r.IsInt() || r.Sign() < 0 {
+		return nil, fmt.Errorf("limits: %s must be a non-negative integer, got %s", name, n.String())
+	}
+	v := math.MaxInt
+	if r.Num().IsInt64() && r.Num().Int64() <= math.MaxInt {
+		v = int(r.Num().Int64())
+	}
+	return &v, nil
 }
 
 // overflowContent renders an over-limit value for its overflow file so that
