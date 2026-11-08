@@ -15,6 +15,8 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"time"
+	_ "time/tzdata" // IANA zone data for --tz, so it works without system zoneinfo
 
 	"github.com/iodesystems/mcpshell/mcp"
 	"github.com/iodesystems/mcpshell/runtime"
@@ -51,6 +53,7 @@ mcp flags:
   --no-load <a,b>      hide and deny these loadable toolkits (load("name") refuses them)
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
+  --tz <zone>          local time zone of Date, an IANA name (default UTC; env MCPSHELL_TZ)
   --prompt             print the system prompt for these flags and exit (no upstream tools)
   --db-max-mb <n>      size cap of the load("db") in-memory database (default 256)
   --max-output <n>     cap eval output bytes (default 16000)
@@ -263,6 +266,7 @@ func runMCP(args []string) {
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
 	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=2GB")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
+	tz := fs.String("tz", os.Getenv("MCPSHELL_TZ"), "local time zone of Date, an IANA name (default UTC)")
 	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the load(\"db\") in-memory database")
 	var connect, mcpConfigs, sqlSpecs stringSlice
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
@@ -278,6 +282,13 @@ func runMCP(args []string) {
 	}
 	toolkit.InstallCore(sh)
 	toolkit.InstallMath(sh)
+	if *tz != "" {
+		loc, err := time.LoadLocation(*tz)
+		if err != nil {
+			fail("--tz: %v", err)
+		}
+		toolkit.SetTimeZone(sh, loc)
+	}
 	// graph is agent tier (no I/O): always loadable. web, files, and browser
 	// reach outside the process: a flag enables them, and the agent then
 	// installs them with load().

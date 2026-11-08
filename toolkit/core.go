@@ -19,6 +19,8 @@ import (
 // math, JSON, and utility commands — on the shell.
 func InstallCore(sh *Shell) *Shell {
 	sh.RegisterGuide("core", coreGuide)
+	sh.RegisterGuide("format", formatGuide)
+	InstallDates(sh, nil)
 	// Results print ±Infinity and NaN as JS does, so the names read back.
 	sh.SetBuiltin("Infinity", Num(math.Inf(1)))
 	sh.SetBuiltin("NaN", Num(math.NaN()))
@@ -625,8 +627,10 @@ func InstallCore(sh *Shell) *Shell {
 					return Num(1)
 				}
 				return Num(0)
+			case *DateVal:
+				return DateMs(v)
 			default:
-				panic(TypeMismatch("num", "string, number, or boolean", v, ""))
+				panic(TypeMismatch("num", "string, number, boolean, or Date", v, ""))
 			}
 		})
 
@@ -1375,6 +1379,11 @@ func InstallCore(sh *Shell) *Shell {
 
 	reg("toJson", "input: any", "value → JSON string", []string{`toJson({a: 1, b: [2, 3]})`},
 		func(args []Value) Value { return Str(toJSONString(arg(args, 0))) })
+
+	reg("toMarkdown", "rows: object[]|array[], opts?: {columns?, header?}",
+		"rows → GitHub markdown table; help(\"format\")",
+		[]string{`[{a: 1, b: "x"}] |> toMarkdown()`},
+		toMarkdown)
 
 	// --- JS compat (hidden) ---
 

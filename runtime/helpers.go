@@ -68,6 +68,13 @@ func startCol(ctx antlr.ParserRuleContext) int {
 // numericOp applies fn to two numbers, raising a type mismatch otherwise.
 // binNums type-checks both operands of a binary numeric operator.
 func binNums(left, right Value, op string) (*NumberVal, *NumberVal) {
+	// A Date is its time value in arithmetic, as valueOf gives in JS.
+	if d, ok := left.(*DateVal); ok {
+		left = d.msNumber()
+	}
+	if d, ok := right.(*DateVal); ok {
+		right = d.msNumber()
+	}
 	l, ok := left.(*NumberVal)
 	if !ok {
 		panic(TypeMismatch("'"+op+"'", "number", left, ""))
@@ -257,7 +264,9 @@ func numbersEqual(x, y *NumberVal) bool { return numbersCmp(x, y) == 0 }
 func add(left, right Value) Value {
 	_, ls := left.(*StringVal)
 	_, rs := right.(*StringVal)
-	if ls || rs {
+	_, ld := left.(*DateVal)
+	_, rd := right.(*DateVal)
+	if ls || rs || ld || rd { // Date + x is a string concatenation, as in JS
 		return &StringVal{V: left.Display() + right.Display()}
 	}
 	l, r := binNums(left, right, "+")
@@ -296,6 +305,9 @@ func valueEquals(a, b Value) bool {
 	case *StringVal:
 		y, ok := b.(*StringVal)
 		return ok && x.V == y.V
+	case *DateVal:
+		y, ok := b.(*DateVal)
+		return ok && x.valid == y.valid && x.ms == y.ms
 	case *BoolVal:
 		y, ok := b.(*BoolVal)
 		return ok && x.V == y.V
@@ -333,6 +345,12 @@ func valueEquals(a, b Value) bool {
 
 // compareValues orders two numbers or two strings; anything else raises.
 func compareValues(a, b Value) int {
+	if d, ok := a.(*DateVal); ok {
+		a = d.msNumber()
+	}
+	if d, ok := b.(*DateVal); ok {
+		b = d.msNumber()
+	}
 	switch x := a.(type) {
 	case *NumberVal:
 		if y, ok := b.(*NumberVal); ok {

@@ -242,6 +242,11 @@ func (r *CommandRegistry) visible() []*CommandDef {
 	return out
 }
 
+// guideAliases lets help("Date") and the like reach a guide whose name differs.
+var guideAliases = map[string]string{
+	"date": "dates", "dates": "dates", "intl": "format", "numberformat": "format", "tolocalestring": "format", "markdown": "format",
+}
+
 // Help renders help text. An empty search lists everything; otherwise it
 // resolves a guide, an exact command, a namespace, or a fuzzy match.
 func (r *CommandRegistry) Help(search string) string {
@@ -251,6 +256,9 @@ func (r *CommandRegistry) Help(search string) string {
 		return r.helpAll()
 	}
 	if g, ok := r.guides[search]; ok {
+		return g
+	}
+	if g, ok := r.guides[guideAliases[strings.ToLower(search)]]; ok {
 		return g
 	}
 	if l := r.loadables[search]; l != nil && !r.denied[search] {

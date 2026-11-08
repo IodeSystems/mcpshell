@@ -226,6 +226,21 @@ func compareShellValues(a, b Value) int {
 		if y, ok := b.(*BoolVal); ok {
 			return cmpBool(x.V, y.V)
 		}
+	case *DateVal:
+		if y, ok := b.(*DateVal); ok {
+			xm, xv := x.Ms()
+			ym, yv := y.Ms()
+			switch {
+			case xv && yv:
+				return cmpFloat(float64(xm), float64(ym))
+			case xv != yv: // an invalid Date sorts last
+				if xv {
+					return -1
+				}
+				return 1
+			}
+			return 0
+		}
 	}
 	return strings.Compare(a.Display(), b.Display())
 }
@@ -945,6 +960,11 @@ func toJSONString(v Value) string {
 		return "{" + strings.Join(parts, ",") + "}"
 	case *RegexVal:
 		return "\"" + escapeJSONString("/"+x.Pattern+"/"+x.Flags) + "\""
+	case *DateVal:
+		if !x.Valid() {
+			return "null"
+		}
+		return "\"" + x.ISO() + "\"" // toJSON, as JSON.stringify
 	default:
 		return "null"
 	}

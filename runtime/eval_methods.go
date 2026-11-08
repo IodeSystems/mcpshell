@@ -631,6 +631,8 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		panic(Runtime("a string has no member '" + field + "' — it has .length, and any command works as a method: s.upper(), s.split(\",\")"))
 	case *NumberVal:
 		switch field {
+		case "toLocaleString":
+			return numberToLocaleString(o)
 		case "toString":
 			return &FuncVal{Name: "toString", Params: []string{"radix"}, Body: &NativeBody{Fn: func(args []Value) Value {
 				radix := argInt(args, 0, 10)
@@ -662,6 +664,8 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		}
 	case *RegexVal:
 		return v.regexMember(o, field)
+	case *DateVal:
+		return dateMemberOrPanic(o, field)
 	case *BoolVal:
 		if field == "toString" {
 			return &FuncVal{Name: "toString", Body: &NativeBody{Fn: func(_ []Value) Value {

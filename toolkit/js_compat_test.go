@@ -34,7 +34,7 @@ func TestJsCompatProbe(t *testing.T) {
 		{"13 Object keys", `Object.keys({a: 1})`, ok, `["a"]`},
 		{"14 typeof undefined ref", `typeof x === "number"`, ok, "false"},
 		{"15 instanceof", `let x = 1; x instanceof Array`, err, "instanceof"},
-		{"16 new Date", `new Date()`, err, "new"},
+		{"16 new Date", `new Date(0).getTime()`, ok, "0"},
 		{"17 class Foo", `class Foo {}`, err, "classes"},
 		{"18 import", `import x from 'y'`, err, "imports"},
 		{"19 async function", `async function f(x) { return x + 1 } await f(1)`, ok, "2"},

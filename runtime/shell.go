@@ -397,7 +397,7 @@ try/catch/finally, throw, break, continue, labels on loops, destructuring (with 
 rest params, spread, ?., ??, ??=, ||=, &&=, ternary,
 template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwise. All work as expected.
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
-Not supported: class, new, this, import, yield, generators.
+Not supported: class, this, import, yield, generators; new works only for Date and Intl.
 async/await are allowed and do nothing — calls return values directly, run in order. Promise.all/allSettled/race/any([...]),
 Promise.resolve/reject and .then/.catch/.finally work on these values; a failed async call is a rejection for them to catch.
 For parallel calls put functions in the array: Promise.all([() => a(), () => b()]).
@@ -417,6 +417,7 @@ fn(name: "Alice", age: 30)  // named args
 Bitwise ops (& | ^ ~ << >> >>>) follow JS ToInt32 within ±2^53 and are exact above it, so 64-bit values XOR correctly.
 BigInt(s), 123n, 0xff, 0b101 work; BigInt.asUintN(64, x) wraps to 64 bits.
 Only sqrt/sin/log/non-integer powers are floating-point. So compute exactly — don't hedge about precision.
+Date as in JS (local = UTC); Dates.add/diff/startOf/range/format/parse/businessDays; n.toLocaleString(), Intl.NumberFormat: help("dates"), help("format").
 
 ## Composition
 all(() => a(), () => b()) // parallel   race() // first success

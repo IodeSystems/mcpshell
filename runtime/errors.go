@@ -116,8 +116,6 @@ func jsGlobalHint(name string) string {
 	switch name {
 	case "class":
 		return "mcpshell does not support classes — use objects and functions\n\n  Example: let obj = {name: \"Alice\", greet: () => \"hi\"}"
-	case "new":
-		return "mcpshell does not support 'new' — there are no constructors or classes"
 	case "import", "require":
 		return "mcpshell does not support imports — all commands are built-in or registered via toolkits"
 	case "void":

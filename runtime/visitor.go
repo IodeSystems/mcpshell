@@ -352,6 +352,8 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		return v.visitIdentifierExpr(ctx)
 	case *parser.RegexExprContext:
 		return v.visitRegexExpr(ctx)
+	case *parser.NewExprContext:
+		return v.visitNewExpr(ctx)
 	case *parser.ArrayExprContext:
 		return v.eval(ctx.ArrayLiteral())
 	case *parser.ObjectExprContext:
@@ -1178,7 +1180,15 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 			continue
 		}
 		var cmp int
-		if bothNumbers(result, right) || bothStrings(result, right) {
+		if isDateOperand(result, right) {
+			// A Date compares by time value; an invalid one (NaN) makes every
+			// comparison false, as in JS.
+			if !dateCompared(result) || !dateCompared(right) {
+				result = &BoolVal{V: false}
+				continue
+			}
+			cmp = compareValues(result, right)
+		} else if bothNumbers(result, right) || bothStrings(result, right) {
 			cmp = compareValues(result, right)
 		} else { // a mismatch panics; give it the location, off the hot path
 			left := result
