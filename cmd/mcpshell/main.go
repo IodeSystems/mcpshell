@@ -87,6 +87,7 @@ func newShell() *runtime.Shell {
 	toolkit.AddRoute(sh)
 	toolkit.AddCP(sh)
 	toolkit.AddGeo(sh)
+	toolkit.AddNum(sh)
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	if wd, err := os.Getwd(); err == nil {
 		toolkit.InstallFile(sh, wd, false)
@@ -300,6 +301,7 @@ func runMCP(args []string) {
 	toolkit.AddRoute(sh)
 	toolkit.AddCP(sh)
 	toolkit.AddGeo(sh)
+	toolkit.AddNum(sh)
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{MaxMB: *dbMaxMB}))
 	if *noLoad != "" {
 		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
