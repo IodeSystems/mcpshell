@@ -515,6 +515,7 @@ func optStringPtr(args []Value, i int) *string {
 }
 
 const graphGuide = `Graph Toolkit — nodes, edges, and traversal
+Commands are bare: addNode(...), out(...). Graph.addNode(...) also works.
 
 All nodes connect to root. Traversal steps (out, inbound, both) work as pipes:
 they accept a single node or an array and return an array, so filter(), map(),

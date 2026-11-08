@@ -10,13 +10,17 @@ import (
 // GraphLoadable is the graph toolkit as load("graph"): in-memory, no I/O, so
 // an agent may load it freely.
 func GraphLoadable() runtime.Loadable {
+	names := globalNames(InstallGraph)
 	return runtime.Loadable{
-		Name:     "graph",
-		Summary:  "in-memory property graph (addNode, link, nodes, out, in, …)",
-		Guide:    graphGuide,
-		Commands: globalNames(InstallGraph),
+		Name:       "graph",
+		Summary:    "in-memory property graph (addNode, link, nodes, out, in, …)",
+		Guide:      graphGuide,
+		Namespaces: []string{"Graph"},
+		Commands:   names,
 		Install: func(sh *runtime.Shell) (io.Closer, error) {
-			return graphCloser{installGraph(sh)}, nil
+			c := graphCloser{installGraph(sh)}
+			aliasNamespace(sh, "Graph", names)
+			return c, nil
 		},
 	}
 }
@@ -71,10 +75,11 @@ func FilesLoadable(root string, readOnly bool, readRoots []string, restore func(
 		summary = "read and search files under the operator's directory (read, ls, glob, grep, …)"
 	}
 	l := runtime.Loadable{
-		Name:     runtime.FilesToolkit,
-		Summary:  summary,
-		Guide:    fileGuide(readOnly),
-		Commands: globalNames(func(sh *runtime.Shell) *runtime.Shell { return InstallFile(sh, ".", false) }),
+		Name:       runtime.FilesToolkit,
+		Summary:    summary,
+		Guide:      fileGuide(readOnly),
+		Namespaces: []string{"Files"},
+		Commands:   globalNames(func(sh *runtime.Shell) *runtime.Shell { return InstallFile(sh, ".", readOnly) }),
 	}
 	if root == "" {
 		l.Disabled = "--files-dir"
@@ -82,6 +87,7 @@ func FilesLoadable(root string, readOnly bool, readRoots []string, restore func(
 	}
 	l.Install = func(sh *runtime.Shell) (io.Closer, error) {
 		InstallFile(sh, root, readOnly, readRoots...)
+		aliasNamespace(sh, "Files", l.Commands)
 		return closeFunc(func() error {
 			sh.SetFileLoader(nil)
 			if restore != nil {
@@ -100,13 +106,33 @@ func (f closeFunc) Close() error { return f() }
 // globalNames lists the non-namespaced commands install registers, by
 // installing into a scratch shell.
 func globalNames(install func(*runtime.Shell) *runtime.Shell) []string {
+	base := map[string]bool{}
+	for _, n := range runtime.NewShell().Commands().Names() {
+		base[n] = true
+	}
 	scratch := runtime.NewShell()
 	install(scratch)
 	var out []string
 	for _, n := range scratch.Commands().Names() {
-		if !strings.Contains(n, ".") {
+		if !strings.Contains(n, ".") && !base[n] {
 			out = append(out, n)
 		}
 	}
 	return out
+}
+
+// aliasNamespace registers ns.name for each bare command name, hidden from
+// help. Models copy the Db.query pattern and write Files.read or
+// Graph.addNode; the alias runs what they meant instead of costing a turn.
+func aliasNamespace(sh *runtime.Shell, ns string, names []string) {
+	for _, n := range names {
+		def := sh.Commands().Get(n)
+		if def == nil {
+			continue
+		}
+		alias := *def
+		alias.Namespace = ns
+		alias.Hidden = true
+		sh.Register(&alias)
+	}
 }

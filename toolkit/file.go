@@ -55,6 +55,7 @@ func fileGuide(readOnly bool) string {
 		mode = "read and search files (read-only mode)"
 	}
 	return "File Toolkit — " + mode + `
+Commands are bare: read("a.txt"), ls("."). Files.read("a.txt") also works.
 
 TYPICAL: Read and inspect files
   read("config.json")             // full file with line numbers

@@ -211,3 +211,44 @@ func TestLoadedCommandErrorHasUsage(t *testing.T) {
 		}
 	}
 }
+
+// Models copy the Db.query pattern: Files.read, files.ls, Graph.addNode.
+// The capitalized namespace is an alias; a wrong-case one errors with the
+// right form.
+func TestToolkitNamespaceGuesses(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sh := mcpLikeShell(false, ws, "")
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	if _, err := sh.Eval(`Files.read("a.txt")`); err == nil || !strings.Contains(err.Error(), `load("files")`) {
+		t.Errorf("Files.read before load: want the load hint, got %v", err)
+	}
+	if v, err := sh.Eval(`load("files"); Files.read("a.txt")`); err != nil || !strings.Contains(v.Display(), "hi") {
+		t.Fatalf("Files.read after load = %v, %v", v, err)
+	}
+	if v, err := sh.Eval(`len(Files.ls("."))`); err != nil || v.Display() != "1" {
+		t.Errorf("Files.ls = %v, %v", v, err)
+	}
+	_, err := sh.Eval(`files.ls(".")`)
+	if err == nil || !strings.Contains(err.Error(), "commands are bare: glob(), read()") || strings.Contains(err.Error(), "help()") {
+		t.Errorf("files.ls: want the bare-commands hint, got %v", err)
+	}
+	_, err = sh.Eval(`db.query("select 1")`)
+	if err == nil || !strings.Contains(err.Error(), "namespace is Db") || !strings.Contains(err.Error(), `load("db")`) {
+		t.Errorf("db.query: want the Db namespace hint, got %v", err)
+	}
+	if v, err := sh.Eval(`load("graph"); Graph.addNode(root(), "x"); len(nodes("x"))`); err != nil || v.Display() != "1" {
+		t.Errorf("Graph.addNode = %v, %v", v, err)
+	}
+	if v, err := sh.Eval(`help()`); err != nil || strings.Contains(v.Display(), "Files.read") {
+		t.Errorf("aliases must be hidden from help()")
+	}
+	if _, err := sh.Eval(`let files = ["x"]; files.length`); err != nil {
+		t.Errorf("a variable named files must still work: %v", err)
+	}
+	if _, err := sh.Eval(`unload("files"); Files.read("a.txt")`); err == nil {
+		t.Errorf("Files.read after unload must fail")
+	}
+}

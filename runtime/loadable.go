@@ -123,6 +123,40 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		}
 		return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded: call load(%q) first. help(%q) shows its usage", name, n, n, n)
 	}
+	// A wrong-case guess at a toolkit's namespace: files.ls after
+	// load("files"), db.query for Db.query. Models copy the Db.query
+	// pattern to toolkits whose commands are bare.
+	for n, l := range r.loadables {
+		if r.denied[n] || l.def.Disabled != "" {
+			continue
+		}
+		nss := l.def.namespaces()
+		match := strings.EqualFold(name, n)
+		for _, ns := range nss {
+			match = match || strings.EqualFold(name, ns)
+		}
+		if !match {
+			continue
+		}
+		var msg string
+		if len(l.def.Commands) > 0 {
+			shown := l.def.Commands
+			if len(shown) > 8 {
+				shown = shown[:8]
+			}
+			calls := make([]string, len(shown))
+			for i, c := range shown {
+				calls[i] = c + "()"
+			}
+			msg = fmt.Sprintf("'%s' is not defined. The %q toolkit's commands are bare: %s, … (%s.%s also works)", name, n, strings.Join(calls, ", "), nss[0], shown[0])
+		} else {
+			msg = fmt.Sprintf("'%s' is not defined. The %q toolkit's namespace is %s: %s.<command>", name, n, strings.Join(nss, ", "), nss[0])
+		}
+		if l.loaded == nil {
+			msg += fmt.Sprintf(". Call load(%q) first", n)
+		}
+		return msg + fmt.Sprintf(". help(%q) shows its usage", n)
+	}
 	return ""
 }
 
