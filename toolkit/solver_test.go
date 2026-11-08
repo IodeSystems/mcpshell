@@ -185,3 +185,47 @@ func TestSolverTimeLimit(t *testing.T) {
 		t.Errorf("raw context error leaked: %s", msg)
 	}
 }
+
+func TestSolverSensitivity(t *testing.T) {
+	sh := solverShell(t)
+	got := okEval(t, sh, `let r = Solver.lp({maximize: {chair: 3, table: 5},
+	  subjectTo: [{chair: 1, table: 2, le: 14, name: "wood"}, {chair: 3, table: -1, ge: 0, name: "ratio"}, {chair: 1, le: 6}],
+	  sensitivity: true});
+	[r.constraints |> map(c => [c.name, c.shadowPrice, c.rhsRange]), r.vars |> map(v => [v.id, v.reducedCost, v.objRange])]`)
+	if want := `[[["wood", 2.5, [6, 42]], ["ratio", 0, [null, 14]], ["c3", 0.5, [2, 14]]], [["chair", 0, [2.5, null]], ["table", 0, [0, 6]]]]`; got != want {
+		t.Errorf("got %s\nwant %s", got, want)
+	}
+	// Without the flag, no sensitivity keys.
+	mustContain(t, "plain keys", okEval(t, sh, `Solver.lp({maximize: {x: 1}, subjectTo: [{x: 1, le: 2}]}).constraints[0] |> keys`), `["name", "slack", "active"]`)
+	mustContain(t, "integer refused", failEval(t, sh, `Solver.lp({maximize: {x: 1}, subjectTo: [{x: 2, le: 3}], int: true, sensitivity: true})`),
+		"sensitivity needs an LP", `{x: [v, v]}`, "Usage:")
+	mustContain(t, "flag type", failEval(t, sh, `Solver.lp({maximize: {x: 1}, sensitivity: 1})`), "sensitivity must be true or false")
+}
+
+func TestSolverExplain(t *testing.T) {
+	sh := solverShell(t)
+	got := okEval(t, sh, `Solver.lp({minimize: {a: 1, b: 1}, subjectTo: [{c: 1, le: 100, name: "budget"}, {a: 1, b: 1, ge: 10, name: "demand"},
+	  {a: 1, le: 4, name: "capA"}, {b: 1, le: 5, name: "capB"}], explain: true}).conflict`)
+	if want := `{constraints: ["demand", "capA", "capB"], bounds: [], irreducible: true, integerOnly: false}`; got != want {
+		t.Errorf("got %s", got)
+	}
+	got = okEval(t, sh, `Solver.lp({minimize: {a: 1}, subjectTo: [{a: 1, le: -3}], explain: true}).conflict.bounds`)
+	if want := `[{var: "a", lo: 0, default: true}]`; got != want {
+		t.Errorf("default bound: got %s", got)
+	}
+	got = okEval(t, sh, `Solver.lp({minimize: {a: 1}, subjectTo: [{a: 2, eq: 3}], int: true, explain: true}).conflict.integerOnly`)
+	if got != "true" {
+		t.Errorf("integerOnly: got %s", got)
+	}
+	// A feasible model with explain: no conflict key.
+	mustContain(t, "feasible", okEval(t, sh, `Solver.lp({minimize: {a: 1}, explain: true}) |> keys`), `"status"`)
+	if strings.Contains(okEval(t, sh, `Solver.lp({minimize: {a: 1}, explain: true}) |> keys`), "conflict") {
+		t.Error("conflict on a feasible model")
+	}
+}
+
+func TestSolverInfeasibleNote(t *testing.T) {
+	sh := solverShell(t)
+	okEval(t, sh, `Solver.lp({minimize: {a: 1}, subjectTo: [{a: 1, ge: 10}, {a: 1, le: 4}]}).status`)
+	mustContain(t, "note", strings.Join(sh.Limits().Notes(), "\n"), "explain: true")
+}

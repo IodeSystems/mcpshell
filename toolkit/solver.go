@@ -23,7 +23,7 @@ func AddSolver(sh *Shell) *Shell {
 		Install: func(sh *Shell) (io.Closer, error) {
 			sh.Register(&CommandDef{
 				Namespace: "Solver", Name: "lp",
-				Signature: "model: {maximize|minimize, subjectTo, bounds?, int?, limits?} | {sense, vars, coefs, rhs}",
+				Signature: "model: {maximize|minimize, subjectTo, bounds?, int?, limits?, sensitivity?, explain?} | {sense, vars, coefs, rhs, ...}",
 				Description: "solves a linear or mixed-integer program exactly (rationals, no floats). " +
 					"Returns {status, objective, values, vars, constraints, nodes}",
 				Examples: []string{
@@ -112,6 +112,31 @@ OUTPUT
   Numbers are exact; their display rounds to 34 digits when a fraction does not
   terminate (1/3 shows 0.3333...). Compare with ==, or read fractions for p/q text.
 
+WHAT-IF (LP only): sensitivity: true
+  Adds to each constraints row: shadowPrice = objective change per unit of rhs, valid
+  while the rhs stays in rhsRange: [lo, hi]. Adds to each vars row: reducedCost =
+  objective change per unit a variable at a bound is pushed off it (0 when it is
+  between its bounds), and objRange: [lo, hi] = the objective coefficients for which
+  this solution stays optimal. null in a range = no limit.
+  r = Solver.lp({...product mix above..., sensitivity: true})
+  r.constraints[0]   // {name: "wood", slack: 0, active: true, shadowPrice: 2.5, rhsRange: [6, 42]}
+                     // one more unit of wood is worth 2.5, up to 42 units
+  r.vars[1]          // {id: "table", value: 4, reducedCost: 0, objRange: [0, 6]}
+  Integer models have no shadow prices: sensitivity with int is an error.
+  Ranges hold for the current solution's basis; at a degenerate corner a range end can
+  equal the current value although a larger move gives the same answer.
+
+WHY INFEASIBLE: explain: true
+  When status is infeasible, adds conflict: {constraints: [name], bounds: [{var, lo|hi,
+  default?}], irreducible, integerOnly}: constraints and bounds that cannot all hold.
+  Remove or relax any one of them and the rest is feasible (irreducible: true).
+  default: true marks the implicit lower bound 0. integerOnly: true means the set is
+  feasible without int; it fails only because the variables must be whole.
+  Cost: one solve per constraint and bound, so it is not on by default.
+  Solver.lp({minimize: {a: 1, b: 1}, subjectTo: [{a: 1, b: 1, ge: 10, name: "demand"},
+    {a: 1, le: 4, name: "capA"}, {b: 1, le: 5, name: "capB"}], explain: true}).conflict
+  // {constraints: ["demand", "capA", "capB"], bounds: [], irreducible: true, integerOnly: false}
+
 LIMITS
   The eval timeout bounds the solve. For a big model raise it before the run (eval argument limits: {timeout: ms}, or extendLimit({timeout: ms}) in code).
   Max 1000 variables and 1000 constraints (limits.vars, limits.constraints raise them).`
@@ -127,6 +152,15 @@ func solverLP(sh *Shell, args []Value) Value {
 		panic(WrongArguments(cmd, "model: object", args, solverExample))
 	}
 	m, names, lim := parseSolverModel(in)
+	wantSens := solverFlag(in, "sensitivity")
+	wantExplain := solverFlag(in, "explain")
+	if wantSens {
+		for _, v := range m.Vars {
+			if v.Integer {
+				panic(Runtime(fmt.Sprintf("%s: sensitivity needs an LP, and %q is an integer variable. Shadow prices and ranges do not exist for integer models. To see them for one integer solution, solve, fix the integers with bounds: {%s: [v, v]}, drop int, and solve again with sensitivity: true", cmd, v.Name, v.Name)))
+			}
+		}
+	}
 
 	lm := sh.Limits()
 	remaining := lm.Remaining()
@@ -154,7 +188,30 @@ func solverLP(sh *Shell, args []Value) Value {
 		}
 	}()
 
-	res, err := solver.Solve(ctx, m, lim)
+	var res *solver.Result
+	var sens *solver.Sensitivity
+	var err error
+	if wantSens {
+		res, sens, err = solver.SolveSensitivity(ctx, m, lim)
+	} else {
+		res, err = solver.Solve(ctx, m, lim)
+	}
+	if err == nil && res.Status == solver.Infeasible {
+		if wantExplain {
+			conflict, cerr := solver.ExplainInfeasible(ctx, m, lim)
+			if cerr == nil {
+				out := solverResult(m, names, res, nil).(*ObjectVal)
+				out.Set("conflict", conflictValue(m, names, conflict))
+				if !conflict.Irreducible {
+					sh.Note(cmd + ": the conflict search stopped early (time limit, or limits.nodes on an integer check); the conflict is infeasible but may not be the smallest. Raise the timeout or limits.nodes for a smaller one")
+				}
+				return out
+			}
+			err = cerr
+		} else {
+			sh.Note(cmd + ": infeasible. Add explain: true to the model to get the constraints and bounds that conflict (conflict: {constraints, bounds})")
+		}
+	}
 	if err != nil {
 		var le *solver.LimitError
 		switch {
@@ -168,12 +225,68 @@ func solverLP(sh *Shell, args []Value) Value {
 		}
 		panic(Runtime(cmd + ": " + strings.TrimPrefix(err.Error(), "solver: invalid model: ")))
 	}
-	return solverResult(m, names, res)
+	return solverResult(m, names, res, sens)
+}
+
+// solverFlag reads an optional boolean model key.
+func solverFlag(in *ObjectVal, key string) bool {
+	v, ok := in.Get(key)
+	if !ok || v == Null {
+		return false
+	}
+	b, isBool := v.(*BoolVal)
+	if !isBool {
+		panic(Runtime(fmt.Sprintf("Solver.lp: %s must be true or false, got %s", key, describe(v))))
+	}
+	return b.V
+}
+
+// conflictValue is {constraints: [name], bounds: [{var, lo|hi, default?}],
+// irreducible, integerOnly}.
+func conflictValue(m *solver.Model, names []string, c *solver.Conflict) Value {
+	cons := make([]Value, 0, len(c.Cons))
+	for _, i := range c.Cons {
+		cons = append(cons, Str(names[i]))
+	}
+	bounds := []Value{}
+	for _, j := range c.Lo {
+		b := NewObject()
+		b.Set("var", Str(m.Vars[j].Name))
+		if m.Vars[j].Lo == nil {
+			b.Set("lo", numInt0())
+			b.Set("default", Bln(true))
+		} else {
+			b.Set("lo", NumRat(new(big.Rat).Set(m.Vars[j].Lo)))
+		}
+		bounds = append(bounds, b)
+	}
+	for _, j := range c.Hi {
+		b := NewObject()
+		b.Set("var", Str(m.Vars[j].Name))
+		b.Set("hi", NumRat(new(big.Rat).Set(m.Vars[j].Hi)))
+		bounds = append(bounds, b)
+	}
+	out := NewObject()
+	out.Set("constraints", &ArrayVal{Elements: cons})
+	out.Set("bounds", &ArrayVal{Elements: bounds})
+	out.Set("irreducible", Bln(c.Irreducible))
+	out.Set("integerOnly", Bln(c.Integer))
+	return out
+}
+
+func numInt0() Value { return NumRat(new(big.Rat)) }
+
+// ratOrNull is an exact number, or null for an unlimited range end.
+func ratOrNull(r *big.Rat) Value {
+	if r == nil {
+		return Null
+	}
+	return NumRat(new(big.Rat).Set(r))
 }
 
 const solverExample = `Solver.lp({maximize: {x: 3, y: 5}, subjectTo: [{x: 1, le: 4}, {y: 2, le: 12}, {x: 3, y: 2, le: 18}]})`
 
-var solverKeys = []string{"maximize", "minimize", "sense", "subjectTo", "bounds", "int", "limits", "vars", "coefs", "rhs"}
+var solverKeys = []string{"maximize", "minimize", "sense", "subjectTo", "bounds", "int", "limits", "vars", "coefs", "rhs", "sensitivity", "explain"}
 
 // parseSolverModel turns the language model into a solver.Model.
 func parseSolverModel(in *ObjectVal) (*solver.Model, []string, solver.Limits) {
@@ -595,7 +708,7 @@ func ratOf(what string, v Value, fail func(string, ...any)) *big.Rat {
 	return new(big.Rat).Set(r)
 }
 
-func solverResult(m *solver.Model, names []string, res *solver.Result) Value {
+func solverResult(m *solver.Model, names []string, res *solver.Result, sens *solver.Sensitivity) Value {
 	status := map[solver.Status]string{
 		solver.Optimal: "optimal", solver.Infeasible: "infeasible",
 		solver.Unbounded: "unbounded", solver.NodeLimit: "node_limit",
@@ -625,6 +738,10 @@ func solverResult(m *solver.Model, names []string, res *solver.Result) Value {
 			row := NewObject()
 			row.Set("id", Str(v.Name))
 			row.Set("value", x)
+			if sens != nil {
+				row.Set("reducedCost", NumRat(new(big.Rat).Set(sens.ReducedCost[i])))
+				row.Set("objRange", &ArrayVal{Elements: []Value{ratOrNull(sens.ObjLo[i]), ratOrNull(sens.ObjHi[i])}})
+			}
 			vars = append(vars, row)
 		}
 		out.Set("values", values)
@@ -639,6 +756,10 @@ func solverResult(m *solver.Model, names []string, res *solver.Result) Value {
 			row.Set("name", Str(names[i]))
 			row.Set("slack", NumRat(new(big.Rat).Set(s)))
 			row.Set("active", Bln(s.Sign() == 0))
+			if sens != nil {
+				row.Set("shadowPrice", NumRat(new(big.Rat).Set(sens.ShadowPrice[i])))
+				row.Set("rhsRange", &ArrayVal{Elements: []Value{ratOrNull(sens.RHSLo[i]), ratOrNull(sens.RHSHi[i])}})
+			}
 			cons = append(cons, row)
 		}
 	}
