@@ -124,6 +124,15 @@ func nowMs() int64 { return time.Now().UnixMilli() }
 // Cancel requests cooperative cancellation; the next step() will raise.
 func (l *ExecutionLimits) Cancel() { l.cancelled.Store(true) }
 
+// Cancelled reports whether Cancel was called.
+func (l *ExecutionLimits) Cancelled() bool { return l.cancelled.Load() }
+
+// Remaining is the wall-clock time left before the eval timeout. It is zero
+// or negative when the time is used up.
+func (l *ExecutionLimits) Remaining() time.Duration {
+	return time.Duration(l.TimeoutMs-(nowMs()-l.startTimeMs.Load())) * time.Millisecond
+}
+
 // Step counts one execution step, checking cancellation, the step limit, and
 // (periodically) the wall-clock timeout. Panics *ShellError when a limit trips.
 func (l *ExecutionLimits) Step(line int) {

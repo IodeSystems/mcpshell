@@ -404,6 +404,10 @@ func numRat(r *big.Rat) *NumberVal {
 	return &NumberVal{V: f, kind: kRat, rat: r}
 }
 
+// NumRat builds an exact number from a rational; integers collapse to the
+// int64/big.Int tiers. The caller must not modify r afterwards.
+func NumRat(r *big.Rat) *NumberVal { return numRat(r) }
+
 // ParseNumber parses a numeric literal exactly (integers, decimals, and
 // scientific notation), so number-producing sites (parseJson, num()) get the
 // same auto-promotion as source literals. Falls back to float64 if not exact.
