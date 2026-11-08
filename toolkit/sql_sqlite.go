@@ -17,7 +17,7 @@ var sqlitePragmaReadOnly = map[string]bool{
 	"index_list": true, "index_info": true, "index_xinfo": true,
 	"foreign_key_list": true, "database_list": true, "collation_list": true,
 	"function_list": true, "module_list": true, "pragma_list": true,
-	"compile_options": true,
+	"compile_options": true, "page_count": true, "freelist_count": true,
 }
 
 // sqliteAuthorizer returns the policy for one SQLite connection. It always
@@ -56,7 +56,15 @@ func sqliteAuthorizer(readOnly bool) sqlite.AuthorizerFn {
 // openSQLite opens dsn on a private driver whose every pooled connection gets
 // sqliteAuthorizer(readOnly), and PRAGMA query_only=1 when readOnly.
 func openSQLite(dsn string, readOnly bool) *sql.DB {
-	drv := &sqlite.Driver{}
+	return openSQLiteOn(&sqlite.Driver{}, dsn, readOnly, nil)
+}
+
+// openSQLiteOn is openSQLite on a caller-built private driver (the Db toolkit
+// registers functions on it). policy replaces sqliteAuthorizer when not nil.
+func openSQLiteOn(drv *sqlite.Driver, dsn string, readOnly bool, policy func(readOnly bool) sqlite.AuthorizerFn) *sql.DB {
+	if policy == nil {
+		policy = sqliteAuthorizer
+	}
 	drv.RegisterConnectionHook(func(c sqlite.ExecQuerierContext, _ string) error {
 		if readOnly {
 			if _, err := c.ExecContext(context.Background(), "PRAGMA query_only = 1", nil); err != nil {
@@ -67,7 +75,7 @@ func openSQLite(dsn string, readOnly bool) *sql.DB {
 		if !ok {
 			return fmt.Errorf("sqlite driver does not support an authorizer")
 		}
-		return reg.RegisterAuthorizer(sqliteAuthorizer(readOnly))
+		return reg.RegisterAuthorizer(policy(readOnly))
 	})
 	return sql.OpenDB(sqliteConnector{drv, dsn})
 }
