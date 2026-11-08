@@ -30,6 +30,9 @@ Usage:
   mcpshell               start an interactive REPL (no args, a TTY)
   mcpshell --prompt      print the LLM system prompt
   mcpshell mcp [flags]   run as an MCP server over stdio
+  mcpshell [--profile] [--limits steps=N,timeout=60s,callDepth=N,outputBytes=N] '<code>'
+                         with per-line step costs, and/or limits for this run
+                         (up to the maximums; also before -f <file>)
   mcpshell -h            show this help
   mcpshell --version     print the version
 
@@ -103,7 +106,7 @@ func version() string {
 
 func main() {
 	mcp.Version = version()
-	args := os.Args[1:]
+	args := takeEvalFlags(os.Args[1:])
 
 	switch {
 	case len(args) > 0 && (args[0] == "-h" || args[0] == "--help"):
@@ -144,7 +147,8 @@ func main() {
 
 // evalAndPrint evaluates src, printing the result or exiting on error.
 func evalAndPrint(sh *runtime.Shell, src string) {
-	v, err := sh.Eval(src)
+	sh.Limits().Hint = runtime.HintFlag
+	v, err := sh.EvalWith(src, evalOpts)
 	printWarnings(sh)
 	if err != nil {
 		printStack(err)
@@ -163,11 +167,46 @@ func printStack(err error) {
 	}
 }
 
-// printWarnings writes the last eval's warnings to stderr.
+// printWarnings writes the last eval's diagnostics block (warning:, note:,
+// profile:, limits: lines) to stderr.
 func printWarnings(sh *runtime.Shell) {
-	for _, w := range sh.Warnings() {
-		fmt.Fprintln(os.Stderr, "warning: "+w)
+	if block := strings.TrimLeft(sh.Diagnostics().Format(), "\n"); block != "" {
+		fmt.Fprintln(os.Stderr, block)
 	}
+}
+
+// evalOpts are the per-eval options of the one-shot forms, set by --profile
+// and --limits.
+var evalOpts runtime.EvalOptions
+
+// takeEvalFlags removes leading --profile and --limits <spec> (or
+// --limits=<spec>) from args into evalOpts. They apply to the one-shot forms
+// only and must come first, before the code or -f.
+func takeEvalFlags(args []string) []string {
+	for len(args) > 0 {
+		switch {
+		case args[0] == "--profile":
+			evalOpts.Profile = true
+			args = args[1:]
+		case args[0] == "--limits" || strings.HasPrefix(args[0], "--limits="):
+			var spec string
+			if v, ok := strings.CutPrefix(args[0], "--limits="); ok {
+				spec, args = v, args[1:]
+			} else if len(args) > 1 {
+				spec, args = args[1], args[2:]
+			} else {
+				fail("--limits needs steps=N,timeout=60s,callDepth=N,outputBytes=N")
+			}
+			s, err := runtime.ParseLimitSpec("limits", spec)
+			if err != nil {
+				fail("%v", err)
+			}
+			evalOpts.Limits = s
+		default:
+			return args
+		}
+	}
+	return args
 }
 
 // repl runs a line-based read-eval-print loop. Use `export` to persist state.
