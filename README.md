@@ -137,9 +137,12 @@ baseline on hot loops).
 
 Every eval is bounded (step, call-depth, wall-clock, and output limits) so
 untrusted code can't hang the host. The eval tool takes `profile: true` (per-line
-step costs) and `limits: {steps, timeout, callDepth, outputBytes}` (this eval
+step costs) and `limits: {steps, timeout, callDepth, outputBytes, memory}` (this eval
 only, up to the operator maximums in `--max-limits`); the CLI takes
-`--profile` and `--limits steps=N,timeout=60s`. A tripped limit says which
+`--profile` and `--limits steps=N,timeout=60s,memory=2GB`. `memory` is bytes of Go heap (default 1 GB, maximum 2 GB unless
+`--max-limits memory=4GB`); over it the error lists what holds memory and how to
+free it (`unload("db")`, `forget("$r2")`, `export rows = null`), and an eval
+that ends at 80% or more says so in a `note:` line. A tripped limit says which
 argument raises it.
 
 ## Toolkits
