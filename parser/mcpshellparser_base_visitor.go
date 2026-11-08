@@ -299,6 +299,10 @@ func (v *BaseMcpShellParserVisitor) VisitRegexExpr(ctx *RegexExprContext) interf
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseMcpShellParserVisitor) VisitNewExpr(ctx *NewExprContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseMcpShellParserVisitor) VisitParenExpr(ctx *ParenExprContext) interface{} {
 	return v.VisitChildren(ctx)
 }

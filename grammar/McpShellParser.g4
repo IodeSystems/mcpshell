@@ -156,6 +156,7 @@ primaryExpr
   | functionExpr                                        # funcExpr
   | FUNCTION                                            # identifierExpr
   | REGEX                                                # regexExpr
+  | NEW IDENTIFIER (DOT fieldName)* (LPAREN argumentList? RPAREN)?  # newExpr
   | LPAREN expression (COMMA expression)* RPAREN         # parenExpr
   ;
 
@@ -186,7 +187,7 @@ objectField
 fieldName
   : IDENTIFIER | STRING | NUMBER | LET | FUNCTION | IF | ELSE | WHILE | DO | FOR | OF | IN | RETURN
   | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE | AWAIT | ASYNC
-  | TRUE | FALSE | NULL
+  | TRUE | FALSE | NULL | NEW
   ;
 
 spreadOrExpr      : SPREAD? expression;

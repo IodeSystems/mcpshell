@@ -226,6 +226,9 @@ type McpShellParserVisitor interface {
 	// Visit a parse tree produced by McpShellParser#regexExpr.
 	VisitRegexExpr(ctx *RegexExprContext) interface{}
 
+	// Visit a parse tree produced by McpShellParser#newExpr.
+	VisitNewExpr(ctx *NewExprContext) interface{}
+
 	// Visit a parse tree produced by McpShellParser#parenExpr.
 	VisitParenExpr(ctx *ParenExprContext) interface{}
 
