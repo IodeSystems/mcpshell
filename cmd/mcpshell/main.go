@@ -84,6 +84,7 @@ func newShell() *runtime.Shell {
 	toolkit.InstallWeb(sh)
 	toolkit.InstallGraph(sh)
 	toolkit.AddSolver(sh)
+	toolkit.AddRoute(sh)
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	if wd, err := os.Getwd(); err == nil {
 		toolkit.InstallFile(sh, wd, false)
@@ -294,6 +295,7 @@ func runMCP(args []string) {
 	// installs them with load().
 	sh.AddLoadable(toolkit.GraphLoadable())
 	toolkit.AddSolver(sh)
+	toolkit.AddRoute(sh)
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{MaxMB: *dbMaxMB}))
 	if *noLoad != "" {
 		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
