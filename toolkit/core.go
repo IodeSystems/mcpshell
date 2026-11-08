@@ -1194,12 +1194,18 @@ func InstallCore(sh *Shell) *Shell {
 				if *n <= lim.MaxSteps {
 					panic(Runtime(fmt.Sprintf("extendLimit: steps (%d) must be greater than current (%d)", *n, lim.MaxSteps)))
 				}
+				if *n > lim.CapSteps {
+					panic(Runtime(fmt.Sprintf("extendLimit: steps (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits steps=N", *n, lim.CapSteps)))
+				}
 				lim.MaxSteps = *n
 				result.Set("maxSteps", Num(float64(*n)))
 			}
 			if n := optObjInt(opts, "timeout"); n != nil {
 				if int64(*n) <= lim.TimeoutMs {
 					panic(Runtime(fmt.Sprintf("extendLimit: timeout (%d) must be greater than current (%d)", *n, lim.TimeoutMs)))
+				}
+				if int64(*n) > lim.CapTimeoutMs {
+					panic(Runtime(fmt.Sprintf("extendLimit: timeout (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits timeout=N", *n, lim.CapTimeoutMs)))
 				}
 				lim.TimeoutMs = int64(*n)
 				result.Set("timeoutMs", Num(float64(*n)))
@@ -1208,12 +1214,18 @@ func InstallCore(sh *Shell) *Shell {
 				if *n <= lim.MaxCallDepth {
 					panic(Runtime(fmt.Sprintf("extendLimit: callDepth (%d) must be greater than current (%d)", *n, lim.MaxCallDepth)))
 				}
+				if *n > lim.CapCallDepth {
+					panic(Runtime(fmt.Sprintf("extendLimit: callDepth (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits callDepth=N", *n, lim.CapCallDepth)))
+				}
 				lim.MaxCallDepth = *n
 				result.Set("maxCallDepth", Num(float64(*n)))
 			}
 			if n := optObjInt(opts, "outputBytes"); n != nil {
 				if *n <= lim.MaxOutputBytes {
 					panic(Runtime(fmt.Sprintf("extendLimit: outputBytes (%d) must be greater than current (%d)", *n, lim.MaxOutputBytes)))
+				}
+				if *n > lim.CapOutputBytes {
+					panic(Runtime(fmt.Sprintf("extendLimit: outputBytes (%d) exceeds the operator maximum (%d); the operator sets it with --max-limits outputBytes=N", *n, lim.CapOutputBytes)))
 				}
 				lim.MaxOutputBytes = *n
 				result.Set("maxOutputBytes", Num(float64(*n)))

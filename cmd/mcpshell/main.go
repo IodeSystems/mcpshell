@@ -207,6 +207,7 @@ func runMCP(args []string) {
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
+	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	var connect, mcpConfigs, sqlSpecs stringSlice
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
@@ -217,6 +218,9 @@ func runMCP(args []string) {
 	}
 
 	sh := runtime.NewShell()
+	if err := sh.Limits().ParseCaps(*maxLimits); err != nil {
+		fail("%v", err)
+	}
 	toolkit.InstallCore(sh)
 	toolkit.InstallMath(sh)
 	toolkit.InstallGraph(sh)

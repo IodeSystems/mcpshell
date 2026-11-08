@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,13 @@ type ExecutionLimits struct {
 	defaultMaxCallDepth   int
 	defaultTimeoutMs      int64
 	defaultMaxOutputBytes int
+
+	// Caps are the operator maximums: extendLimit cannot raise a limit past
+	// them. Set with SetCaps; a cap is never below its default.
+	CapSteps       int
+	CapCallDepth   int
+	CapTimeoutMs   int64
+	CapOutputBytes int
 
 	MaxSteps       int
 	MaxCallDepth   int
@@ -54,6 +62,41 @@ type LineCost struct {
 
 const timeoutCheckInterval = 1000
 
+// Default operator maximums for extendLimit: 20x steps, 10x timeout, 8x call
+// depth, 16x output bytes of the standard limits (see docs/design.md).
+const (
+	DefaultCapSteps       = 20_000_000
+	DefaultCapCallDepth   = 2048
+	DefaultCapTimeoutMs   = 300_000
+	DefaultCapOutputBytes = 1_000_000
+)
+
+// SetCaps sets the operator maximums. A value <= 0 keeps the current cap. A
+// cap below the current default is raised to the default.
+func (l *ExecutionLimits) SetCaps(steps, callDepth int, timeoutMs int64, outputBytes int) {
+	if steps > 0 {
+		l.CapSteps = max(steps, l.defaultMaxSteps)
+	}
+	if callDepth > 0 {
+		l.CapCallDepth = max(callDepth, l.defaultMaxCallDepth)
+	}
+	if timeoutMs > 0 {
+		l.CapTimeoutMs = max(timeoutMs, l.defaultTimeoutMs)
+	}
+	if outputBytes > 0 {
+		l.CapOutputBytes = max(outputBytes, l.defaultMaxOutputBytes)
+	}
+}
+
+// extendHint is the last line of a limit-hit message: a suggested value
+// (want, clamped to the cap), or a statement that the cap is reached.
+func extendHint(name string, cur, want, cap int64, what string) string {
+	if cur >= cap {
+		return fmt.Sprintf("    - %s is at the operator maximum (%d); extendLimit cannot raise it. Reduce the work", name, cap)
+	}
+	return fmt.Sprintf("    - If %s, use extendLimit({%s: %d}) (operator maximum: %d)", what, name, min(want, cap), cap)
+}
+
 // NewExecutionLimits builds limits with the standard defaults.
 func NewExecutionLimits() *ExecutionLimits {
 	l := &ExecutionLimits{
@@ -61,6 +104,10 @@ func NewExecutionLimits() *ExecutionLimits {
 		defaultMaxCallDepth:   256,
 		defaultTimeoutMs:      30_000,
 		defaultMaxOutputBytes: 64_000,
+		CapSteps:              DefaultCapSteps,
+		CapCallDepth:          DefaultCapCallDepth,
+		CapTimeoutMs:          DefaultCapTimeoutMs,
+		CapOutputBytes:        DefaultCapOutputBytes,
 		ResetOnEval:           true,
 		rejections:            &rejectionList{},
 	}
@@ -96,9 +143,10 @@ func (l *ExecutionLimits) Step(line int) {
 				"    - Recursive algorithms (e.g. fib(n-1)+fib(n-2)) are O(2^n) — rewrite with a loop\n"+
 				"    - Check while/for conditions for infinite loops\n"+
 				"    - Filter or limit() data earlier to reduce iterations\n"+
-				"    - profile(() => ...) to see which lines burn the steps\n"+
-				"    - If your algorithm is correct but data is large, use extendLimit({steps: %d})",
-			l.MaxSteps, line, l.hotLinesHint(), l.MaxSteps*5)))
+				"    - profile(() => ...) to see which lines burn the steps\n%s",
+			l.MaxSteps, line, l.hotLinesHint(),
+			extendHint("steps", int64(l.MaxSteps), int64(l.MaxSteps)*5, int64(l.CapSteps),
+				"your algorithm is correct but data is large"))))
 	}
 	if count%timeoutCheckInterval == 0 {
 		l.checkTimeout(line)
@@ -113,9 +161,10 @@ func (l *ExecutionLimits) checkTimeout(line int) {
 				"  Common fixes:\n"+
 				"    - Recursive algorithms (e.g. fib(n-1)+fib(n-2)) are O(2^n) — rewrite with a loop\n"+
 				"    - Process less data: use limit() or filter early\n"+
-				"    - Restructure to avoid redundant computation\n"+
-				"    - If your algorithm is correct but data is large, use extendLimit({timeout: %d})",
-			l.TimeoutMs, float64(elapsed)/1000.0, line, l.TimeoutMs*2)))
+				"    - Restructure to avoid redundant computation\n%s",
+			l.TimeoutMs, float64(elapsed)/1000.0, line,
+			extendHint("timeout", l.TimeoutMs, l.TimeoutMs*2, l.CapTimeoutMs,
+				"your algorithm is correct but data is large"))))
 	}
 }
 
@@ -127,9 +176,10 @@ func (l *ExecutionLimits) PushCall(line int) {
 				"  Common fixes:\n"+
 				"    - Is the recursion missing a base case?\n"+
 				"    - Convert to an iterative approach using while/for\n"+
-				"    - Use reduce() instead of manual recursion\n"+
-				"    - If recursion depth is expected, use extendLimit({callDepth: %d})",
-			l.MaxCallDepth, line, l.MaxCallDepth*2)))
+				"    - Use reduce() instead of manual recursion\n%s",
+			l.MaxCallDepth, line,
+			extendHint("callDepth", int64(l.MaxCallDepth), int64(l.MaxCallDepth)*2, int64(l.CapCallDepth),
+				"recursion depth is expected"))))
 	}
 }
 
@@ -198,8 +248,10 @@ func (l *ExecutionLimits) TrackOutput(bytes int, source string) {
 				"  Common fixes:\n"+
 				"    - Use limit() to reduce results before returning\n"+
 				"    - Use read(path, startLine, lineCount) for partial file reads\n"+
-				"    - Filter or map to extract only the fields you need",
-			total, l.MaxOutputBytes, source)))
+				"    - Filter or map to extract only the fields you need\n%s",
+			total, l.MaxOutputBytes, source,
+			extendHint("outputBytes", int64(l.MaxOutputBytes), int64(l.MaxOutputBytes)*4, int64(l.CapOutputBytes),
+				"you need all of it"))))
 	}
 }
 
@@ -213,6 +265,9 @@ func (l *ExecutionLimits) SetDefaults(maxSteps, maxCallDepth int, timeoutMs int6
 	l.MaxSteps = maxSteps
 	l.MaxCallDepth = maxCallDepth
 	l.TimeoutMs = timeoutMs
+	l.CapSteps = max(l.CapSteps, maxSteps)
+	l.CapCallDepth = max(l.CapCallDepth, maxCallDepth)
+	l.CapTimeoutMs = max(l.CapTimeoutMs, timeoutMs)
 }
 
 // Reset restores defaults and zeroes the per-eval counters.
@@ -236,6 +291,10 @@ func (l *ExecutionLimits) Fork() *ExecutionLimits {
 		defaultMaxCallDepth:   l.MaxCallDepth,
 		defaultTimeoutMs:      l.TimeoutMs,
 		defaultMaxOutputBytes: l.MaxOutputBytes,
+		CapSteps:              l.CapSteps,
+		CapCallDepth:          l.CapCallDepth,
+		CapTimeoutMs:          l.CapTimeoutMs,
+		CapOutputBytes:        l.CapOutputBytes,
 		ResetOnEval:           false,
 		rejections:            l.rejections,
 	}
@@ -269,4 +328,54 @@ func (l *ExecutionLimits) ClearWarnings() {
 	defer l.warnMu.Unlock()
 	l.warnings = nil
 	l.rejections = &rejectionList{}
+}
+
+// ParseCaps applies a "steps=N,timeout=60s,callDepth=N,outputBytes=N" spec (the
+// --max-limits flag) to the operator maximums. Unlisted keys keep their cap.
+// timeout takes a Go duration ("60s", "5m") or plain milliseconds.
+func (l *ExecutionLimits) ParseCaps(spec string) error {
+	var steps, depth, out int
+	var timeoutMs int64
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			return fmt.Errorf("max-limits: %q is not key=value", part)
+		}
+		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
+		if key == "timeout" {
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				n, nerr := strconv.ParseInt(val, 10, 64)
+				if nerr != nil {
+					return fmt.Errorf("max-limits: timeout %q is not a duration (60s) or milliseconds", val)
+				}
+				d = time.Duration(n) * time.Millisecond
+			}
+			if d <= 0 {
+				return fmt.Errorf("max-limits: timeout must be positive")
+			}
+			timeoutMs = d.Milliseconds()
+			continue
+		}
+		n, err := strconv.Atoi(val)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("max-limits: %s %q is not a positive integer", key, val)
+		}
+		switch key {
+		case "steps":
+			steps = n
+		case "callDepth":
+			depth = n
+		case "outputBytes":
+			out = n
+		default:
+			return fmt.Errorf("max-limits: unknown key %q (use steps, timeout, callDepth, outputBytes)", key)
+		}
+	}
+	l.SetCaps(steps, depth, timeoutMs, out)
+	return nil
 }

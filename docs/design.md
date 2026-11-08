@@ -63,6 +63,10 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 - **Limits:** `MaxVars` 1000, `MaxCons` 1000, `MaxNodes` 10000, `MaxPivots` 1000000 per Solve. Size and pivot limits return `*LimitError` naming the limit. The node limit is a status (`NodeLimit`) with the best incumbent, bound and gap. `context.Context` is checked at every pivot and node. Exact numbers can grow large, so a limit on pivots does not bound the time of one pivot: the caller's context is the real time limit.
 - The package is not wired into the language yet.
 
+## Limits
+
+- **`extendLimit` stops at operator maximums.** `extendLimit({timeout: 1e12, steps: 1e15})` removed every limit, so model code could hang the host. Each limit has a cap that only the operator raises: `--max-limits steps=N,timeout=60s,callDepth=N,outputBytes=N`. Defaults: steps 20,000,000 (20x of 1,000,000), timeout 300 s (10x of 30 s), callDepth 2048 (8x of 256; deeper recursion costs Go stack for each frame), outputBytes 1,000,000 (16x of 64,000). A value over the cap is an error that names the cap and the flag. It is not clamped: a clamped limit makes the script fail later with an error that does not match what it asked for, and the agent cannot know. A limit-hit error suggests at most the cap, and at the cap it says `extendLimit` cannot raise it. A cap below its default is raised to the default. Limits and caps reset on each eval (`Reset`), and a forked branch copies the caps.
+
 ## Build
 
 - `make vet`, not `go vet ./...`. ANTLR ends every rule in the generated `parser/` with a dead `goto errorExit` so the label is always used. vet reports each one as unreachable code (69 reports, the same at v0.4.1). These reports cannot be acted on in a generated file.
