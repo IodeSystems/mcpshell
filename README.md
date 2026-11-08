@@ -83,8 +83,9 @@ for filtering in code. `load("name")` installs a loadable toolkit (see Toolkits)
 their values directly.
 
 Code an agent writes from JS habit runs, and the eval result says when it may
-not do what was meant: lines starting `warning: line N:` follow the result (or
-the error). `let all = []` replaces the builtin `all` for the rest of that
+not do what was meant: one block of typed lines follows the result (or the
+error): `warning: line N: …`, `note: …` (a toolkit's notice), `profile: …`,
+`limits: steps 850000/1000000 (85%)`. `let all = []` replaces the builtin `all` for the rest of that
 scope, with a warning. A command given more arguments than its signature lists
 ignores the extras, as JS does, with a warning: `floor(2.7, 9)`.
 `round(n, digits?)` rounds to decimal places, and a half rounds up as in JS
@@ -133,9 +134,11 @@ baseline on hot loops).
 ```
 
 Every eval is bounded (step, call-depth, wall-clock, and output limits) so
-untrusted code can't hang the host. `profile(() => …)` returns
-`{result, steps, lines}` to see which lines cost the most, and a tripped step
-limit names the hot lines instead of just a number.
+untrusted code can't hang the host. The eval tool takes `profile: true` (per-line
+step costs) and `limits: {steps, timeout, callDepth, outputBytes}` (this eval
+only, up to the operator maximums in `--max-limits`); the CLI takes
+`--profile` and `--limits steps=N,timeout=60s`. A tripped limit says which
+argument raises it.
 
 ## Toolkits
 
