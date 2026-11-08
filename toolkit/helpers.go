@@ -107,6 +107,9 @@ func requireArray(cmd string, v Value) *ArrayVal {
 		if _, ok := v.(*FuncVal); ok {
 			hint = "Did you mean: array |> " + cmd + "(fn)? The first argument must be an array."
 		}
+		if _, ok := v.(*MapVal); ok {
+			hint = "a Map or Set is not an array: [...s] |> " + cmd + "(…) (a Map gives [key, value] pairs)"
+		}
 		panic(TypeMismatch(cmd, "array", v, hint))
 	}
 }
@@ -984,6 +987,8 @@ func jsonIn(v Value, anc *Ancestors) string {
 		return "{" + strings.Join(parts, ",") + "}"
 	case *RegexVal:
 		return "\"" + escapeJSONString("/"+x.Pattern+"/"+x.Flags) + "\""
+	case *MapVal:
+		return "{}" // a Map or Set has no enumerable properties, as JSON.stringify gives in JS
 	case *DateVal:
 		if !x.Valid() {
 			return "null"
@@ -1040,6 +1045,14 @@ TYPICAL: Objects and lookups
   let obj = {name: "Alice", age: 30}
   obj |> keys()    // → ["name", "age"]
   obj |> entries() |> filter(e => e.key != "age") |> map(e => e.value)
+
+TYPICAL: Classes, Map and Set (as in JS)
+  class Tally { #counts = new Map()
+    add(k) { this.#counts.set(k, (this.#counts.get(k) ?? 0) + 1); return this }
+    get top() { return [...this.#counts].sort((a, b) => b[1] - a[1])[0] } }
+  new Tally().add("a").add("b").add("a").top   // → ["a", 2]
+  new Set([1, 2, 2]).size                       // → 2; [...set] gives an array for pipes
+  class NotFound extends Error {}               // catch (e) { e instanceof NotFound }
 
 TYPICAL: String processing
   "  Hello World  " |> trim() |> lower() |> replace("world", "mcpshell")

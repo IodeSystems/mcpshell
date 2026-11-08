@@ -26,14 +26,15 @@ func fullShell() *runtime.Shell {
 // into capability. Each must error rather than reach outside the sandbox.
 func TestSandboxNoHostEscape(t *testing.T) {
 	escapes := []string{
-		`require("fs")`,           // no module system
-		`import("fs")`,            // no dynamic import
-		`eval("1+1")`,             // no nested/host eval
-		`process`,                 // no process object
-		`process.exit(0)`,         // no process control
-		`globalThis`,              // no global object to walk
-		`this`,                    // no receiver / prototype chain
-		`this.constructor`,        // no constructor escape
+		`require("fs")`,    // no module system
+		`import("fs")`,     // no dynamic import
+		`eval("1+1")`,      // no nested/host eval
+		`process`,          // no process object
+		`process.exit(0)`,  // no process control
+		`globalThis`,       // no global object to walk
+		`this.constructor`, // top-level this is null: no global object behind it
+		`({}).constructor("return 1")`,
+		`(() => 1).constructor("return 1")`,
 		`readFile("/etc/passwd")`, // no ambient filesystem
 		`open("/etc/passwd")`,
 		`fetch("http://169.254.169.254/")`, // no ambient network (SSRF)
@@ -42,6 +43,9 @@ func TestSandboxNoHostEscape(t *testing.T) {
 		`Function("return 1")`, // no function constructor
 	}
 	sh := fullShell()
+	if v, err := sh.Eval(`this`); err != nil || v != runtime.Null {
+		t.Errorf("top-level this = %v, %v; want null (no global object)", v, err)
+	}
 	for _, src := range escapes {
 		if _, err := sh.Eval(src); err == nil {
 			t.Errorf("sandbox escape not blocked: %q evaluated without error", src)

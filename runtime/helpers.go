@@ -9,6 +9,7 @@ import (
 
 // accessor step kinds for assignment-target traversal.
 type fieldStep struct{ name string }
+type privateStep struct{ name string }
 type indexStep struct{ value Value }
 
 // namedArg is one `name: value` call argument.
@@ -281,7 +282,7 @@ func add(left, right Value) Value {
 	_, ld := left.(*DateVal)
 	_, rd := right.(*DateVal)
 	if ls || rs || ld || rd { // Date + x is a string concatenation, as in JS
-		return &StringVal{V: left.Display() + right.Display()}
+		return &StringVal{V: ToDisplayString(left) + ToDisplayString(right)}
 	}
 	l, r := binNums(left, right, "+")
 	if l.bigint || r.bigint {
@@ -314,6 +315,8 @@ type eqPair struct{ a, b Value }
 
 func equalsIn(a, b Value, comparing []eqPair) bool {
 	switch a.(type) {
+	case *FuncVal, *MapVal, *RegexVal:
+		return a == b // identity, as in JS
 	case *ArrayVal, *ObjectVal:
 		if a == b {
 			return true
@@ -357,15 +360,15 @@ func equalsIn(a, b Value, comparing []eqPair) bool {
 		return true
 	case *ObjectVal:
 		y, ok := b.(*ObjectVal)
-		if !ok || x.Len() != y.Len() {
+		if !ok || x.Len() != y.Len() || x.proto != y.proto {
 			return false
 		}
 		for _, k := range x.keys {
-			yv, has := y.Get(k)
+			yv, has := y.rawOwn(k)
 			if !has {
 				return false
 			}
-			xv, _ := x.Get(k)
+			xv, _ := x.rawOwn(k)
 			if !equalsIn(xv, yv, comparing) {
 				return false
 			}

@@ -242,6 +242,99 @@ func (itp *Interpreter) initBuiltinBindings() {
 	if itp.globals.Get("BigInt") == nil {
 		itp.registerNamespace("BigInt", bigIntNamespace(), false)
 	}
+	itp.initObjectModel()
+}
+
+// initObjectModel defines the classes and collections once per shell, on the
+// root scope, so a class's identity (instanceof, an exported instance) holds
+// across evals: Error and its subclasses, Map, Set, WeakMap, WeakSet, and
+// Object.create / getPrototypeOf / setPrototypeOf.
+func (itp *Interpreter) initObjectModel() {
+	root := itp.globals
+	for root.parent != nil {
+		root = root.parent
+	}
+	if root.Get("Map") == nil {
+		for name, cls := range errorClasses() {
+			root.DefineBuiltin(name, cls)
+		}
+		// Function exists for instanceof; it cannot make code from a string.
+		root.DefineBuiltin("Function", nativeFn("Function", func([]Value) Value {
+			panic(Runtime("Function(…) cannot make a function from a string here: write a function or an arrow"))
+		}))
+		root.DefineBuiltin("Map", collectionNamespace(kindMap))
+		root.DefineBuiltin("Set", collectionNamespace(kindSet))
+		root.DefineBuiltin("WeakMap", collectionNamespace(kindWeakMap))
+		root.DefineBuiltin("WeakSet", collectionNamespace(kindWeakSet))
+	}
+	obj, ok := itp.globals.Get("Object").(*ObjectVal)
+	if !ok {
+		obj = NewObject()
+		itp.registerNamespace("Object", obj, false)
+	}
+	if !obj.HasOwn("create") {
+		for k, f := range objectStatics() {
+			obj.Set(k, f)
+		}
+	}
+}
+
+func objectStatics() map[string]*FuncVal {
+	protoArg := func(cmd string, v Value) *ObjectVal {
+		switch p := v.(type) {
+		case *ObjectVal:
+			return p
+		case *NullVal:
+			return nil
+		case *FuncVal:
+			panic(TypeMismatch(cmd, "object or null", v, "pass a prototype object: "+cmd+"(Point.prototype)"))
+		}
+		panic(TypeMismatch(cmd, "object or null", v, ""))
+	}
+	return map[string]*FuncVal{
+		"create": nativeFn("Object.create", func(args []Value) Value {
+			if len(args) == 0 {
+				panic(Runtime("Object.create(proto) needs a prototype object or null"))
+			}
+			if len(args) > 1 && args[1] != Null {
+				panic(Runtime("Object.create(proto, descriptors) is not supported: create, then assign the fields (o.x = 1), or use a class"))
+			}
+			p := protoArg("Object.create", args[0])
+			o := NewObjectWithProto(p)
+			o.nullProto = p == nil
+			return o
+		}),
+		"getPrototypeOf": nativeFn("Object.getPrototypeOf", func(args []Value) Value {
+			if len(args) == 0 {
+				return Null
+			}
+			switch o := args[0].(type) {
+			case *ObjectVal:
+				if o.proto == nil {
+					return Null
+				}
+				return o.proto
+			case *FuncVal:
+				if p := o.props().proto; p != nil && p.fn != nil {
+					return p.fn
+				}
+			}
+			return Null
+		}),
+		"setPrototypeOf": nativeFn("Object.setPrototypeOf", func(args []Value) Value {
+			if len(args) < 2 {
+				panic(Runtime("Object.setPrototypeOf(obj, proto) takes 2 arguments"))
+			}
+			o, ok := args[0].(*ObjectVal)
+			if !ok {
+				panic(TypeMismatch("Object.setPrototypeOf", "object", args[0], ""))
+			}
+			p := protoArg("Object.setPrototypeOf", args[1])
+			o.SetProto(p)
+			o.nullProto = p == nil
+			return o
+		}),
+	}
 }
 
 // --- Composition -------------------------------------------------------------
@@ -314,8 +407,8 @@ func (itp *Interpreter) executeAllSettled(args []Value) Value {
 		if failed != nil {
 			out.Set("ok", &BoolVal{V: false})
 			out.Set("status", &StringVal{V: "rejected"})
-			out.Set("error", &StringVal{V: failed.Thrown()})
-			out.Set("reason", &StringVal{V: failed.Thrown()})
+			out.Set("error", failed.ThrownValue())
+			out.Set("reason", failed.ThrownValue())
 		} else {
 			out.Set("ok", &BoolVal{V: true})
 			out.Set("status", &StringVal{V: "fulfilled"})

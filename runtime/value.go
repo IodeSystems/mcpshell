@@ -201,9 +201,25 @@ func (a *ArrayVal) Inspect() string { return a.Display() }
 // ObjectVal is an insertion-ordered, mutable map. Ordering matters: object
 // display, entries(), and help() output all depend on it, and Go's builtin map
 // iteration is randomized — hence the explicit key slice.
+//
+// It is also a JS object (objects.go): proto is its prototype (nil for a
+// plain object literal), hidden holds own keys that are not enumerable (class
+// methods, constructor), m may hold an *accessorVal (get/set), and priv holds
+// the private fields of the classes that constructed it.
 type ObjectVal struct {
-	keys []string
-	m    map[string]Value
+	keys   []string
+	m      map[string]Value
+	proto  *ObjectVal
+	hidden map[string]bool
+	priv   map[*brandVal]map[string]Value
+	// fn is the function this object holds the properties of (statics), the
+	// receiver of their getters.
+	fn *FuncVal
+	// nullProto marks Object.create(null): not an instance of Object.
+	nullProto bool
+	// errorBase marks Error.prototype, so an object whose chain reaches it
+	// prints and throws as an error.
+	errorBase bool
 }
 
 func NewObject() *ObjectVal {
@@ -212,24 +228,54 @@ func NewObject() *ObjectVal {
 
 func (*ObjectVal) isValue()         {}
 func (*ObjectVal) TypeName() string { return "object" }
-func (o *ObjectVal) IsTruthy() bool { return len(o.keys) > 0 }
+
+// IsTruthy: an empty object literal is false here (as an empty array is), but
+// an object with a prototype (a class instance, Object.create(p)) is always
+// true, as in JS: `if (obj)` on an instance without fields must not fail.
+func (o *ObjectVal) IsTruthy() bool { return len(o.keys) > 0 || o.proto != nil || len(o.hidden) > 0 }
 func (o *ObjectVal) Len() int       { return len(o.keys) }
 
-func (o *ObjectVal) Get(k string) (Value, bool) {
-	v, ok := o.m[k]
-	return v, ok
+// Get is JS [[Get]]: an own property, else the prototype chain's; a getter is
+// called with o as this.
+func (o *ObjectVal) Get(k string) (Value, bool) { return o.getWith(k, o) }
+
+// Has reports whether k is an own or inherited property (JS `in`).
+func (o *ObjectVal) Has(k string) bool {
+	for p := o; p != nil; p = p.proto {
+		if _, ok := p.m[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
-func (o *ObjectVal) Has(k string) bool {
+// HasOwn reports whether k is an own property (hasOwnProperty).
+func (o *ObjectVal) HasOwn(k string) bool {
 	_, ok := o.m[k]
 	return ok
 }
 
-// Set inserts or updates k, preserving first-insertion order.
+// Set is JS [[Set]]: a setter on the chain is called; a getter without a
+// setter is an error; otherwise k becomes an own property, keeping
+// first-insertion order.
 func (o *ObjectVal) Set(k string, v Value) {
-	if _, ok := o.m[k]; !ok {
-		o.keys = append(o.keys, k)
+	if cur, ok := o.m[k]; ok {
+		if acc, isAcc := cur.(*accessorVal); isAcc {
+			acc.put(o.receiver(), k, v)
+			return
+		}
+		o.m[k] = v
+		return
 	}
+	if o.proto != nil {
+		for p := o.proto; p != nil; p = p.proto {
+			if acc, isAcc := p.m[k].(*accessorVal); isAcc {
+				acc.put(o.receiver(), k, v)
+				return
+			}
+		}
+	}
+	o.keys = append(o.keys, k)
 	o.m[k] = v
 }
 
@@ -238,6 +284,10 @@ func (o *ObjectVal) Delete(k string) {
 		return
 	}
 	delete(o.m, k)
+	if o.hidden[k] {
+		delete(o.hidden, k)
+		return
+	}
 	for i, key := range o.keys {
 		if key == k {
 			o.keys = append(o.keys[:i], o.keys[i+1:]...)
@@ -246,7 +296,8 @@ func (o *ObjectVal) Delete(k string) {
 	}
 }
 
-// Keys returns the keys in insertion order. The result must not be mutated.
+// Keys returns the own enumerable keys in insertion order. The result must
+// not be mutated.
 func (o *ObjectVal) Keys() []string { return o.keys }
 
 func (o *ObjectVal) Display() string { return inspectIn(o, &Ancestors{}) }
@@ -285,6 +336,9 @@ type NativeBody struct {
 	// async call's rejection in their arguments; any other native function
 	// raises it (see settledArgs).
 	TakesRejections bool
+	// This, when set, is called instead of Fn with the call's this (a
+	// builtin method that reads its receiver: Error.prototype.toString).
+	This func(this Value, args []Value) Value
 }
 
 // ExpressionBody is an arrow function with an expression body: `x => expr`.
@@ -319,6 +373,15 @@ type FuncVal struct {
 	// Async marks a function declared async: an error it raises is returned
 	// as a *RejectedVal instead (see promise.go).
 	Async bool
+	// kind says how the function takes this and whether new works (objects.go).
+	kind funcKind
+	// Home is the object a method was defined on, where super looks up from.
+	Home *ObjectVal
+	// Class is set on a class value.
+	Class *classInfo
+	// obj holds the function's own properties (prototype, statics), made on
+	// first use.
+	obj *ObjectVal
 }
 
 func (*FuncVal) isValue()         {}
@@ -329,6 +392,9 @@ func (f *FuncVal) Display() string {
 	name := f.Name
 	if name == "" {
 		name = "<anonymous>"
+	}
+	if f.Class != nil {
+		return "class " + name
 	}
 	return "function " + name + "(" + strings.Join(f.Params, ", ") + ")"
 }

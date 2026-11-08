@@ -402,14 +402,54 @@ func (w *sizeWalk) size(v Value) int64 {
 			return 0
 		}
 		w.seen[v] = struct{}{}
-		n := objectSize(len(x.keys))
-		for _, k := range x.keys {
-			n += int64(len(k)) + w.size(x.m[k])
+		n := objectSize(len(x.m))
+		for k, e := range x.m { // hidden (class methods) and accessors too
+			n += int64(len(k)) + w.size(e)
+			if w.cut {
+				return n
+			}
+		}
+		for _, fields := range x.priv {
+			n += objectSize(len(fields))
+			for _, e := range fields {
+				n += w.size(e)
+			}
+		}
+		if x.proto != nil {
+			n += w.size(x.proto) // shared by instances: counted once
+		}
+		return n
+	case *MapVal:
+		if _, ok := w.seen[v]; ok {
+			return 0
+		}
+		w.seen[v] = struct{}{}
+		// a Go map entry per key plus the two slices.
+		n := objectSize(x.live) + int64(cap(x.keys)+cap(x.vals))*sizeIface
+		for i, k := range x.keys {
+			if k == nil {
+				continue
+			}
+			n += w.size(k)
+			if !x.isSet() {
+				n += w.size(x.vals[i])
+			}
 			if w.cut {
 				break
 			}
 		}
 		return n
+	case *FuncVal:
+		if x.obj == nil {
+			return sizeOther
+		}
+		if _, ok := w.seen[v]; ok {
+			return 0
+		}
+		w.seen[v] = struct{}{}
+		return sizeOther + w.size(x.obj)
+	case *accessorVal:
+		return sizeOther
 	}
 	return sizeOther
 }

@@ -76,7 +76,19 @@ func isIdentifierText(s string) bool {
 // --- function calls ----------------------------------------------------------
 
 func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleContext) Value {
+	return v.callMethod(fn, nil, args, ctx)
+}
+
+// callMethod is a call with this bound: obj.m() passes obj. this is nil for
+// a plain call, which a function sees as undefined (null), as in strict JS.
+func (v *Visitor) callMethod(fn *FuncVal, this Value, args []Value, ctx antlr.ParserRuleContext) Value {
 	v.step(ctx)
+	if fn.Class != nil && fn.Class.native != nil {
+		return v.construct(fn, fn.Name, args, ctx) // Error("x") is new Error("x"), as in JS
+	}
+	if fn.Class != nil {
+		panic(Runtime("Class constructor " + nameOr(fn.Name, "<anonymous>") + " cannot be invoked without 'new': write new " + nameOr(fn.Name, "C") + "(…)"))
+	}
 	if nb, ok := fn.Body.(*NativeBody); ok {
 		if nb.Cmd != nil {
 			v.checkArity(nb.Cmd, nb.Bound, args)
@@ -85,9 +97,9 @@ func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleCo
 			v.settledArgs(args)
 		}
 	} else if fn.Async {
-		return v.callAsync(fn, args, ctx)
+		return v.callAsync(fn, this, args, ctx)
 	}
-	return v.callFunctionInternal(fn, args)
+	return v.callWith(fn, this, args)
 }
 
 // checkArity raises an error when a call passes more arguments than the
@@ -121,11 +133,43 @@ func (v *Visitor) checkArity(cmd *CommandDef, bound int, args []Value) {
 // callFunctionInternal dispatches a call by body type, evaluating user
 // functions in the function's captured scope.
 func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
+	return v.callWith(fn, nil, args)
+}
+
+// callWith runs fn with this bound. A function that is not an arrow gets its
+// own this (null when nil) and, for a method, its home object for super; an
+// arrow sees the this of the scope it was written in.
+func (v *Visitor) callWith(fn *FuncVal, this Value, args []Value) Value {
+	return v.callSetup(fn, this, args, nil)
+}
+
+// callSetup is callWith with setup run on the new function scope before the
+// body (a constructor's super bookkeeping).
+func (v *Visitor) callSetup(fn *FuncVal, this Value, args []Value, setup func(*Environment)) Value {
 	if nb, ok := fn.Body.(*NativeBody); ok {
+		if nb.This != nil {
+			return nb.This(this, args)
+		}
 		return nb.Fn(args)
 	}
 	if fn.Async {
-		return v.callAsync(fn, args, nil)
+		return v.callAsync(fn, this, args, nil)
+	}
+	bindThis := func(env *Environment) {
+		if fn.kind == kindArrow {
+			return
+		}
+		if setup != nil {
+			setup(env) // binds this itself (a derived constructor's)
+			return
+		}
+		if this == nil {
+			this = Null
+		}
+		env.Define(thisBinding, this)
+		if fn.Home != nil {
+			env.Define(homeBinding, fn.Home)
+		}
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -141,6 +185,7 @@ func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 		v.pushCall(node)
 		defer v.popCall()
 		fnEnv := body.CapturedEnv.Child()
+		bindThis(fnEnv)
 		v.bindParamsWithDefaults(fn, args, fnEnv)
 		outer := v.env
 		v.env = fnEnv
@@ -151,6 +196,7 @@ func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 		v.pushCall(node)
 		defer v.popCall()
 		fnEnv := body.CapturedEnv.Child()
+		bindThis(fnEnv)
 		v.bindParamsWithDefaults(fn, args, fnEnv)
 		outer := v.env
 		v.env = fnEnv
@@ -163,6 +209,7 @@ func (v *Visitor) callFunctionInternal(fn *FuncVal, args []Value) Value {
 // runFunctionBlock runs a block body, converting a return signal into a value.
 func (v *Visitor) runFunctionBlock(node parser.IBlockContext) Value {
 	result := v.visitBlock(node)
+	v.explicitReturn = v.returning
 	if v.returning {
 		result = v.returnValue
 		v.returning = false
@@ -281,21 +328,34 @@ func (v *Visitor) bindObjectDestructure(od parser.IObjectDestructureContext, obj
 // bindArrayDestructure binds [a, b = 1, ...rest]; a default applies when the
 // array is shorter than the element's position.
 func (v *Visitor) bindArrayDestructure(ad parser.IArrayDestructureContext, arr *ArrayVal) {
-	elems := ad.AllArrayDestructureElem()
-	for idx, e := range elems {
-		var el Value = Null
-		if idx < len(arr.Elements) {
-			el = arr.Elements[idx]
-		} else if e.Expression() != nil {
-			el = v.eval(e.Expression())
+	// Positions come from the commas, so an empty element ([, b]) skips one.
+	pos := 0
+	positions := 0
+	for _, c := range ad.GetChildren() {
+		switch x := c.(type) {
+		case antlr.TerminalNode:
+			if x.GetSymbol().GetTokenType() == parser.McpShellLexerCOMMA {
+				pos++
+			}
+		case parser.IArrayDestructureElemContext:
+			var el Value = Null
+			if pos < len(arr.Elements) {
+				el = arr.Elements[pos]
+			} else if x.Expression() != nil {
+				el = v.eval(x.Expression())
+			}
+			v.bindDestructure(x.Destructure(), el)
 		}
-		v.bindDestructure(e.Destructure(), el)
+	}
+	positions = pos
+	if ad.SPREAD() == nil {
+		positions = pos + 1
 	}
 	if ad.SPREAD() != nil {
 		if restName := identOrFunctionTextOrEmpty(ad.IDENTIFIER(), ad.FUNCTION()); restName != "" {
 			var rest []Value
-			if len(elems) < len(arr.Elements) {
-				rest = append([]Value(nil), arr.Elements[len(elems):]...)
+			if positions < len(arr.Elements) {
+				rest = append([]Value(nil), arr.Elements[positions:]...)
 			}
 			v.env.Define(restName, &ArrayVal{Elements: rest})
 		}
@@ -413,6 +473,23 @@ func asCallable(val Value) *FuncVal {
 // --- assignment --------------------------------------------------------------
 
 func (v *Visitor) performAssign(target *parser.AssignTargetContext, op string, rhs Value) {
+	if target.THIS() != nil {
+		steps := v.buildAccessorSteps(target)
+		if len(steps) == 0 {
+			panic(Runtime("cannot assign to 'this'"))
+		}
+		current := v.currentThis()
+		for i := 0; i < len(steps)-1; i++ {
+			current = v.resolveStep(current, steps[i])
+		}
+		last := steps[len(steps)-1]
+		finalValue := rhs
+		if op != "=" {
+			finalValue = v.applyCompoundOp(op, v.resolveStep(current, last), rhs)
+		}
+		v.mutateInPlace(current, last, finalValue)
+		return
+	}
 	rootName := identOrFunctionText(target.IDENTIFIER(), target.FUNCTION())
 	steps := v.buildAccessorSteps(target)
 
@@ -450,10 +527,15 @@ func (v *Visitor) performAssign(target *parser.AssignTargetContext, op string, r
 
 // readAssignTarget returns the current value at an assignment target.
 func (v *Visitor) readAssignTarget(target *parser.AssignTargetContext) Value {
-	rootName := identOrFunctionText(target.IDENTIFIER(), target.FUNCTION())
-	current := v.env.Get(rootName)
-	if current == nil {
-		panic(Runtime("'" + rootName + "' is not defined"))
+	var current Value
+	if target.THIS() != nil {
+		current = v.currentThis()
+	} else {
+		rootName := identOrFunctionText(target.IDENTIFIER(), target.FUNCTION())
+		current = v.env.Get(rootName)
+		if current == nil {
+			panic(Runtime("'" + rootName + "' is not defined"))
+		}
 	}
 	for _, step := range v.buildAccessorSteps(target) {
 		current = v.resolveStep(current, step)
@@ -473,6 +555,11 @@ func (v *Visitor) buildAccessorSteps(target *parser.AssignTargetContext) []any {
 		}
 		switch tn.GetSymbol().GetTokenType() {
 		case parser.McpShellLexerDOT:
+			if next, ok := target.GetChild(i + 1).(antlr.TerminalNode); ok && next.GetSymbol().GetTokenType() == parser.McpShellLexerPRIVATE_NAME {
+				steps = append(steps, privateStep{name: next.GetText()})
+				i++
+				continue
+			}
 			steps = append(steps, fieldStep{name: v.fieldNameText(fields[fieldIdx])})
 			fieldIdx++
 		case parser.McpShellLexerLBRACKET:
@@ -485,6 +572,8 @@ func (v *Visitor) buildAccessorSteps(target *parser.AssignTargetContext) []any {
 
 func (v *Visitor) resolveStep(obj Value, step any) Value {
 	switch s := step.(type) {
+	case privateStep:
+		return v.readPrivate(obj, s.name)
 	case fieldStep:
 		return v.accessMember(obj, s.name)
 	case indexStep:
@@ -494,11 +583,28 @@ func (v *Visitor) resolveStep(obj Value, step any) Value {
 }
 
 func (v *Visitor) mutateInPlace(parent Value, step any, value Value) {
+	if f, isFn := parent.(*FuncVal); isFn {
+		// A function's properties: F.prototype.m = …, F.count = 0.
+		switch s := step.(type) {
+		case fieldStep:
+			v.setFuncMember(f, s.name, value)
+			return
+		case indexStep:
+			v.setFuncMember(f, propertyKey(s.value, "index assignment"), value)
+			return
+		}
+	}
 	switch s := step.(type) {
+	case privateStep:
+		v.writePrivate(parent, s.name, value)
 	case fieldStep:
 		obj, ok := parent.(*ObjectVal)
 		if !ok {
-			panic(TypeMismatch("assignment to ."+s.name, "object", parent, ""))
+			hint := ""
+			if _, isMap := parent.(*MapVal); isMap {
+				hint = "a Map's entries are set with m.set(key, value)"
+			}
+			panic(TypeMismatch("assignment to ."+s.name, "object", parent, hint))
 		}
 		obj.Set(s.name, value)
 	case indexStep:
@@ -582,9 +688,9 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 					}
 					switch k := arg.(type) {
 					case *StringVal:
-						return &BoolVal{V: o.Has(k.V)}
+						return &BoolVal{V: o.HasOwn(k.V)}
 					case *NumberVal:
-						return &BoolVal{V: o.Has(k.Display())}
+						return &BoolVal{V: o.HasOwn(k.Display())}
 					default:
 						panic(TypeMismatch("hasOwnProperty", "string or number", arg, ""))
 					}
@@ -594,7 +700,14 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		if val, ok := o.Get(field); ok {
 			return val
 		}
+		if m := objectProtoMethod(o, field); m != nil {
+			return m
+		}
 		return Null
+	case *FuncVal:
+		return v.funcMember(o, field)
+	case *MapVal:
+		return v.collectionMember(o, field)
 	case *ArrayVal:
 		switch field {
 		case "length":

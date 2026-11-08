@@ -19,6 +19,17 @@ type ShellError struct {
 	// Reason is Message without the "at line" location that withLocation
 	// adds: what the script threw, for catch (e) and promise handlers.
 	Reason string
+	// Value is what a throw statement threw when it was not a string (an
+	// Error object, any value): catch (e) gets it back unchanged.
+	Value Value
+}
+
+// ThrownValue is what catch (e) binds: the thrown value, or the message.
+func (e *ShellError) ThrownValue() Value {
+	if e.Value != nil {
+		return e.Value
+	}
+	return &StringVal{V: e.Thrown()}
 }
 
 // Thrown is the error as the script sees it in catch (e): the message
@@ -114,18 +125,10 @@ func UnknownCommand(name string, available []string) *ShellError {
 // deliberately omits, or "" if the name is not one of them.
 func jsGlobalHint(name string) string {
 	switch name {
-	case "class":
-		return "mcpshell does not support classes — use objects and functions\n\n  Example: let obj = {name: \"Alice\", greet: () => \"hi\"}"
 	case "import", "require":
 		return "mcpshell does not support imports — all commands are built-in or registered via toolkits"
 	case "void":
 		return "mcpshell does not support 'void' — use null instead"
-	case "instanceof":
-		return "mcpshell does not support 'instanceof' — use typeof to check types\n\n  Example: typeof x == \"array\""
-	case "this":
-		return "mcpshell does not support 'this' — there are no classes or methods"
-	case "super":
-		return "mcpshell does not support 'super' — there is no inheritance"
 	case "yield":
 		return "mcpshell does not support generators — use arrays and pipes for data transformation"
 	case "with":
@@ -136,8 +139,6 @@ func jsGlobalHint(name string) string {
 		return "mcpshell does not support timers"
 	case "RegExp":
 		return "mcpshell has regex literals instead\n\n  Example: /[0-9]+/g\n  Example: \"abc123\" |> match(/[0-9]+/)"
-	case "Map", "Set", "WeakMap", "WeakSet":
-		return "mcpshell does not have " + name + " — use objects and arrays\n\n  Example: unique([1, 2, 2, 3])  // Set-like dedup"
 	case "Symbol", "Proxy", "Reflect":
 		return "mcpshell does not support " + name
 	case "Error", "TypeError", "RangeError":

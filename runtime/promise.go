@@ -101,7 +101,7 @@ func (v *Visitor) settlePromiseCall(name string, value Value, rejected *ShellErr
 	}
 	var reason []Value
 	if rejected != nil {
-		reason = []Value{&StringVal{V: rejected.Thrown()}}
+		reason = []Value{rejected.ThrownValue()}
 	}
 	switch name {
 	case "then":
@@ -202,7 +202,7 @@ func (l *rejectionList) unhandled() *RejectedVal {
 // rejection, as an async function returns a rejected promise in JS. The
 // error gets the location of the call site, or with no call site (a command
 // called fn), the function's own.
-func (v *Visitor) callAsync(fn *FuncVal, args []Value, site antlr.ParserRuleContext) (result Value) {
+func (v *Visitor) callAsync(fn *FuncVal, this Value, args []Value, site antlr.ParserRuleContext) (result Value) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e := strayLoopSignal(r); e != nil {
@@ -225,7 +225,7 @@ func (v *Visitor) callAsync(fn *FuncVal, args []Value, site antlr.ParserRuleCont
 	}()
 	plain := *fn
 	plain.Async = false
-	return v.callFunctionInternal(&plain, args)
+	return v.callWith(&plain, this, args)
 }
 
 // isRejected reports whether value is a failed async call's rejection.

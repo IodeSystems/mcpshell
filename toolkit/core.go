@@ -306,6 +306,8 @@ func InstallCore(sh *Shell) *Shell {
 				return Num(float64(len([]rune(input.V))))
 			case *ObjectVal:
 				return Num(float64(input.Len()))
+			case *MapVal:
+				return Num(float64(input.Size())) // its .size
 			default:
 				return Num(0)
 			}
@@ -440,6 +442,13 @@ func InstallCore(sh *Shell) *Shell {
 	reg("fromEntries", "input: array", "[[key, value]] or [{key, value}] → object",
 		[]string{`[["a", 1], ["b", 2]] |> fromEntries()`},
 		func(args []Value) Value {
+			if m, isMap := arg(args, 0).(*MapVal); isMap { // Object.fromEntries(map)
+				items, ok := Iterate(m)
+				if !ok {
+					panic(TypeMismatch("fromEntries", "Map or array", m, ""))
+				}
+				args = append([]Value{&ArrayVal{Elements: items}}, args[1:]...)
+			}
 			a := requireArray("fromEntries", arg(args, 0))
 			obj := NewObject()
 			for _, elem := range a.Elements {
@@ -610,7 +619,7 @@ func InstallCore(sh *Shell) *Shell {
 	// --- Conversions ---
 
 	reg("str", "value: any", "→ string", []string{`str(42)`},
-		func(args []Value) Value { return Str(arg(args, 0).Display()) })
+		func(args []Value) Value { return Str(ToDisplayString(arg(args, 0))) })
 
 	reg("num", "value: any", "→ number", []string{`num("42")`},
 		func(args []Value) Value {
@@ -697,6 +706,12 @@ func InstallCore(sh *Shell) *Shell {
 				base = &ArrayVal{}
 			case *ArrayVal:
 				base = v
+			case *MapVal: // Array.from(set), Array.from(map): its values or [key, value] pairs
+				items, ok := Iterate(v)
+				if !ok {
+					panic(TypeMismatch("Array.from", "iterable", v, "a WeakMap or WeakSet cannot be listed"))
+				}
+				base = &ArrayVal{Elements: items}
 			case *ObjectVal:
 				if l, ok := v.Get("length"); ok {
 					if n, ok := l.(*NumberVal); ok {

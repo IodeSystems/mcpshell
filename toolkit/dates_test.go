@@ -147,10 +147,9 @@ func TestDateErrors(t *testing.T) {
 		{"null arg", `new Date(null)`, "new Date"},
 		{"unknown member", `new Date(0).getYear2()`, "no member"},
 		{"setter extra", `new Date(0).setDate(1, 2)`, "at most 1"},
-		{"new unknown", `new Foo()`, "no classes"},
+		{"new unknown", `new Foo()`, "Foo is not defined"},
 		{"new Promise", `new Promise(x => x)`, "no timers"},
-		{"new Map", `new Map()`, "object"},
-		{"new user function", `let f = () => 1; new f()`, "no classes"},
+		{"new arrow function", `let f = () => 1; new f()`, "not a constructor"},
 	})
 }
 

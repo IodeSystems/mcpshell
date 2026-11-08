@@ -30,8 +30,11 @@ type Visitor struct {
 	// function call, and panic/recover is expensive. Statement runners (blocks,
 	// loops, switch) check returning and stop; runFunctionBlock consumes it.
 	// break/continue stay panic-based (they only unwind loops, not hot).
-	returning   bool
-	returnValue Value
+	returning bool
+	// explicitReturn: the last function body that ended ran a return
+	// statement (a constructor's own value counts only then).
+	explicitReturn bool
+	returnValue    Value
 
 	// loopLabel is the label of the loop about to run (see takeLabel).
 	loopLabel string
@@ -144,7 +147,7 @@ func located(te *ShellError, ctx antlr.ParserRuleContext) *ShellError {
 		return te
 	}
 	return &ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d",
-		te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack, Reason: te.Thrown()}
+		te.Message, startLine(ctx), startCol(ctx)), Stack: te.Stack, Reason: te.Thrown(), Value: te.Value}
 }
 
 func (v *Visitor) withLocation(ctx antlr.ParserRuleContext, block func() Value) (result Value) {
@@ -223,6 +226,8 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		return v.visitLetDecl(ctx)
 	case *parser.FnDeclContext:
 		return v.visitFnDecl(ctx)
+	case *parser.ClassDeclContext:
+		return v.visitClassDecl(ctx)
 	case *parser.TryCatchStatementContext:
 		return v.visitTryCatchStatement(ctx)
 	case *parser.ThrowStatementContext:
@@ -354,6 +359,12 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		return v.visitRegexExpr(ctx)
 	case *parser.NewExprContext:
 		return v.visitNewExpr(ctx)
+	case *parser.ThisExprContext:
+		return v.currentThis()
+	case *parser.SuperExprContext:
+		panic(Runtime("'super' must be called, super(…), or read, super.method(…)"))
+	case *parser.ClassExprContext:
+		return v.visitClassExpr(ctx)
 	case *parser.ArrayExprContext:
 		return v.eval(ctx.ArrayLiteral())
 	case *parser.ObjectExprContext:
@@ -414,6 +425,10 @@ func (v *Visitor) visitExportStatement(ctx *parser.ExportStatementContext) Value
 		fd := ctx.FnDecl().(*parser.FnDeclContext)
 		result = v.visitFnDecl(fd)
 		v.exportedNames[fnDeclName(fd)] = struct{}{}
+	case ctx.ClassDecl() != nil:
+		cd := ctx.ClassDecl().(*parser.ClassDeclContext)
+		result = v.visitClassDecl(cd)
+		v.exportedNames[identOrFunctionText(cd.IDENTIFIER(), cd.FUNCTION())] = struct{}{}
 	case ctx.AssignStatement() != nil:
 		as := ctx.AssignStatement().(*parser.AssignStatementContext)
 		at := as.AssignTarget().(*parser.AssignTargetContext)
@@ -642,13 +657,13 @@ func (v *Visitor) visitTryCatchStatement(ctx *parser.TryCatchStatementContext) V
 		}
 	}
 
-	caught := func() (errMsg string, threw bool) {
+	caught := func() (thrown Value, threw bool) {
 		defer func() {
 			if r := recover(); r != nil {
 				// An internal error is not caught: a script that handled it
 				// would hide the bug from the log.
 				if te, ok := r.(*ShellError); ok && !te.Internal() {
-					errMsg, threw = te.Thrown(), true
+					thrown, threw = te.ThrownValue(), true
 					return
 				}
 				runFinally()
@@ -656,13 +671,13 @@ func (v *Visitor) visitTryCatchStatement(ctx *parser.TryCatchStatementContext) V
 			}
 		}()
 		result = v.visitBlock(blocks[0].(*parser.BlockContext))
-		return "", false
+		return nil, false
 	}
 
-	errMsg, threw := caught()
+	thrown, threw := caught()
 	if threw && ctx.CATCH() != nil && len(blocks) > 1 {
 		catchEnv := v.env.Child()
-		catchEnv.Define(catchVarName(ctx), &StringVal{V: errMsg})
+		catchEnv.Define(catchVarName(ctx), thrown)
 		outer := v.env
 		v.env = catchEnv
 		func() {
@@ -684,12 +699,15 @@ func catchVarName(ctx *parser.TryCatchStatementContext) string {
 	return "e"
 }
 
+// visitThrowStatement throws a value. A string is the error message, as
+// before; anything else (an Error object, any value) is kept for catch (e),
+// and its message is an Error's "Name: message" or the value as it prints.
 func (v *Visitor) visitThrowStatement(ctx *parser.ThrowStatementContext) Value {
-	value := v.eval(ctx.Expression())
+	value := settled(v.eval(ctx.Expression()))
 	if s, ok := value.(*StringVal); ok {
 		panic(Runtime(s.V))
 	}
-	panic(Runtime(value.Display()))
+	panic(&ShellError{Message: thrownMessage(value), Value: value})
 }
 
 func (v *Visitor) visitAssignStatement(ctx *parser.AssignStatementContext) Value {
@@ -878,16 +896,13 @@ func (v *Visitor) visitWhileStatement(ctx *parser.WhileStatementContext) Value {
 func (v *Visitor) visitForOfStatement(ctx *parser.ForOfStatementContext) Value {
 	label := v.takeLabel()
 	iterable := v.eval(ctx.Expression())
-	var items []Value
-	switch it := iterable.(type) {
-	case *ArrayVal:
-		items = it.Elements
-	case *StringVal:
-		for _, r := range it.V {
-			items = append(items, &StringVal{V: string(r)})
+	items, ok := Iterate(iterable)
+	if !ok {
+		hint := ""
+		if _, isObj := iterable.(*ObjectVal); isObj {
+			hint = "an object is not iterable: for (const [k, v] of Object.entries(obj)), or for (const k in obj)"
 		}
-	default:
-		panic(TypeMismatch("for..of", "array or string", iterable, ""))
+		panic(TypeMismatch("for..of", "array, string, Map or Set", iterable, hint))
 	}
 	var result Value = Null
 	outer := v.env
@@ -910,8 +925,20 @@ func (v *Visitor) visitForInStatement(ctx *parser.ForInStatementContext) Value {
 	var keys []Value
 	switch o := obj.(type) {
 	case *ObjectVal:
-		for _, k := range o.Keys() {
-			keys = append(keys, &StringVal{V: k})
+		// Own enumerable keys, then inherited ones not shadowed, as JS does
+		// (a method set with F.prototype.m = … is enumerable; class methods
+		// are not).
+		seen := map[string]bool{}
+		for p := o; p != nil; p = p.proto {
+			for _, k := range p.Keys() {
+				if !seen[k] {
+					seen[k] = true
+					keys = append(keys, &StringVal{V: k})
+				}
+			}
+			for k := range p.hidden {
+				seen[k] = true
+			}
 		}
 	case *ArrayVal:
 		for i := range o.Elements {
@@ -1157,6 +1184,12 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 	for i := 1; i < len(shifts); i++ {
 		right := v.eval(shifts[i])
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
+		if op == "instanceof" {
+			left := settled(result)
+			r := settled(right)
+			result = v.withLocation(ctx, func() Value { return Bln(v.instanceOf(left, r)) })
+			continue
+		}
 		if op == "in" {
 			switch r := right.(type) {
 			case *ObjectVal:
@@ -1423,6 +1456,8 @@ func (v *Visitor) applyPostfixRead(base Value, opc *parser.PostfixOpContext) Val
 	}
 	return v.withLocation(opc, func() Value {
 		switch {
+		case opc.PRIVATE_NAME() != nil:
+			return v.readPrivate(base, opc.PRIVATE_NAME().GetText())
 		case opc.FieldName() != nil:
 			field := v.fieldNameText(opc.FieldName())
 			val := v.accessMember(base, field)
@@ -1489,7 +1524,15 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 	lastPromise := lastPromiseCall(ops)
 	var rejected *ShellError
 	var result Value
-	if lastPromise >= 0 {
+	// receiver and member of the latest member access, so a failed call on it
+	// can name what was missing, and a call on it gets it as this.
+	var memberOf Value
+	var member string
+	startOp := 0
+	if _, isSuper := ctx.PrimaryExpr().(*parser.SuperExprContext); isSuper {
+		result, memberOf, member = v.superPrimary(ops)
+		startOp = 1
+	} else if lastPromise >= 0 {
 		result, rejected = catchRejection(func() Value { return v.eval(ctx.PrimaryExpr()) })
 	} else {
 		result = v.eval(ctx.PrimaryExpr())
@@ -1499,12 +1542,11 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 		lvaluePath = append(lvaluePath, identOrFunctionText(id.IDENTIFIER(), id.FUNCTION()))
 	}
 
-	// receiver and member of the latest member access, so a failed call on it
-	// can name what was missing.
-	var memberOf Value
-	var member string
 	skipCall := false
 	for opIdx, op := range ops {
+		if opIdx < startOp {
+			continue
+		}
 		if skipCall {
 			skipCall = false
 			continue
@@ -1532,15 +1574,19 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 		apply := func() Value {
 			return v.withLocation(opc, func() Value {
 				switch {
+				case opc.PRIVATE_NAME() != nil:
+					name := opc.PRIVATE_NAME().GetText()
+					lvaluePath = lvaluePath[:0]
+					memberOf, member = current, name
+					return v.readPrivate(current, name)
 				case opc.FieldName() != nil:
 					field := v.fieldNameText(opc.FieldName())
 					var nextOp *parser.PostfixOpContext
 					if opIdx+1 < len(ops) {
 						nextOp = ops[opIdx+1].(*parser.PostfixOpContext)
 					}
-					if arr, ok := current.(*ArrayVal); ok && nextOp != nil && nextOp.LPAREN() != nil &&
-						mutatingArrayMethods[field] && len(lvaluePath) > 0 {
-						return v.bindMutatingArrayMethod(arr, field, append([]string(nil), lvaluePath...))
+					if arr, ok := current.(*ArrayVal); ok && nextOp != nil && nextOp.LPAREN() != nil && mutatingArrayMethods[field] {
+						return v.bindMutatingArrayMethod(arr, field)
 					}
 					lvaluePath = append(lvaluePath, field)
 					memberOf, member = current, field
@@ -1556,8 +1602,11 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 					return val
 				case opc.LBRACKET() != nil:
 					index := v.eval(opc.Expression())
-					if s, ok := index.(*StringVal); ok {
-						memberOf, member = current, s.V
+					switch k := index.(type) {
+					case *StringVal:
+						memberOf, member = current, k.V
+					case *NumberVal:
+						memberOf, member = current, k.Display()
 					}
 					if obj, ok := current.(*ObjectVal); ok {
 						_ = obj
@@ -1583,7 +1632,7 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 						panic(TypeMismatch("call", "function", current, ""))
 					}
 					args := v.resolveNamedArgs(fn, ca)
-					return v.callFunction(fn, args, opc)
+					return v.callMethod(fn, prevMemberOf, args, opc)
 				case opc.INCREMENT() != nil || opc.DECREMENT() != nil:
 					oldValue := current
 					delta := &NumberVal{V: 1}
@@ -1618,16 +1667,18 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 	return result
 }
 
-func (v *Visitor) bindMutatingArrayMethod(arr *ArrayVal, method string, lvaluePath []string) *FuncVal {
+// bindMutatingArrayMethod is arr.push(…) and the other methods that change
+// the array: in place, under the scope lock (parallel branches may share it),
+// whatever expression produced arr (this.items, f().list, a[0]).
+func (v *Visitor) bindMutatingArrayMethod(arr *ArrayVal, method string) *FuncVal {
 	return &FuncVal{
 		Name: method,
 		Body: &NativeBody{Fn: func(args []Value) Value {
 			var removed Value
-			v.env.Mutate(lvaluePath, func(current Value) Value {
-				cur, ok := current.(*ArrayVal)
-				if !ok {
-					cur = arr
-				}
+			func() {
+				v.env.gil.Lock()
+				defer v.env.gil.Unlock()
+				cur := arr
 				switch method {
 				case "push":
 					cur.Elements = append(cur.Elements, args...)
@@ -1657,8 +1708,7 @@ func (v *Visitor) bindMutatingArrayMethod(arr *ArrayVal, method string, lvaluePa
 					tail := append([]Value(nil), cur.Elements[start+deleteCount:]...)
 					cur.Elements = append(cur.Elements[:start], append(append([]Value(nil), inserts...), tail...)...)
 				}
-				return cur
-			})
+			}()
 			if removed != nil {
 				return removed
 			}
@@ -1682,7 +1732,7 @@ func (v *Visitor) visitTemplateString(ctx *parser.TemplateStringContext) Value {
 		case *parser.TemplateTextContext:
 			sb.WriteString(unescapeString(p.TEMPLATE_TEXT().GetText()))
 		case *parser.TemplateInterpContext:
-			sb.WriteString(v.templateValue(p).Display())
+			sb.WriteString(ToDisplayString(v.templateValue(p)))
 		}
 	}
 	return &StringVal{V: sb.String()}
@@ -1704,7 +1754,7 @@ func (v *Visitor) visitRawTemplateString(ctx *parser.RawTemplateStringContext) V
 		case *parser.TemplateTextContext:
 			sb.WriteString(p.TEMPLATE_TEXT().GetText())
 		case *parser.TemplateInterpContext:
-			sb.WriteString(v.templateValue(p).Display())
+			sb.WriteString(ToDisplayString(v.templateValue(p)))
 		}
 	}
 	return &StringVal{V: sb.String()}
@@ -1833,7 +1883,37 @@ func (v *Visitor) visitObjectLiteral(ctx *parser.ObjectLiteralContext) Value {
 				ParamDefaults: defaults,
 				ParamNodes:    nodes,
 				Async:         f.ASYNC() != nil,
+				kind:          kindMethod,
+				Home:          obj,
 			})
+		case *parser.AccessorFieldContext:
+			kind := f.IDENTIFIER().GetText()
+			var name string
+			if f.FieldName() != nil {
+				name = v.fieldNameText(f.FieldName())
+			} else {
+				name = propertyKey(v.eval(f.Expression()), "computed getter name")
+			}
+			if kind != "get" && kind != "set" {
+				panic(Runtime("'" + kind + " " + name + "(…) {…}' in an object literal: only get and set may stand before a method name"))
+			}
+			params, defaults, nodes := v.extractParams(f.ParamList())
+			fn := &FuncVal{
+				Name: name, Params: params, ParamDefaults: defaults, ParamNodes: nodes,
+				Body: &BlockBody{Node: f.Block(), CapturedEnv: v.env, Commands: v.itp.commands, Limits: v.itp.limits},
+				kind: kindMethod, Home: obj,
+			}
+			if kind == "get" {
+				if len(params) != 0 {
+					panic(Runtime("a getter takes no parameters: get " + name + "() {…}"))
+				}
+				obj.defineAccessor(name, fn, nil, true)
+			} else {
+				if len(params) != 1 {
+					panic(Runtime("a setter takes one parameter: set " + name + "(value) {…}"))
+				}
+				obj.defineAccessor(name, nil, fn, true)
+			}
 		}
 	}
 	return obj
@@ -1851,6 +1931,7 @@ func (v *Visitor) visitParenExpr(ctx *parser.ParenExprContext) Value {
 
 func (v *Visitor) visitSingleParamArrow(ctx *parser.SingleParamArrowContext) Value {
 	return &FuncVal{
+		kind:   kindArrow,
 		Async:  ctx.ASYNC() != nil,
 		Params: []string{identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())},
 		Body: &ExpressionBody{
@@ -1863,6 +1944,7 @@ func (v *Visitor) visitSingleParamArrow(ctx *parser.SingleParamArrowContext) Val
 func (v *Visitor) visitMultiParamArrow(ctx *parser.MultiParamArrowContext) Value {
 	params, defaults, nodes := v.extractParams(ctx.ParamList())
 	return &FuncVal{
+		kind:   kindArrow,
 		Async:  ctx.ASYNC() != nil,
 		Params: params,
 		Body: &ExpressionBody{
@@ -1876,6 +1958,7 @@ func (v *Visitor) visitMultiParamArrow(ctx *parser.MultiParamArrowContext) Value
 
 func (v *Visitor) visitSingleParamArrowBlock(ctx *parser.SingleParamArrowBlockContext) Value {
 	return &FuncVal{
+		kind:   kindArrow,
 		Async:  ctx.ASYNC() != nil,
 		Params: []string{identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())},
 		Body: &BlockBody{
@@ -1888,6 +1971,7 @@ func (v *Visitor) visitSingleParamArrowBlock(ctx *parser.SingleParamArrowBlockCo
 func (v *Visitor) visitMultiParamArrowBlock(ctx *parser.MultiParamArrowBlockContext) Value {
 	params, defaults, nodes := v.extractParams(ctx.ParamList())
 	return &FuncVal{
+		kind:   kindArrow,
 		Async:  ctx.ASYNC() != nil,
 		Params: params,
 		Body: &BlockBody{
@@ -1913,16 +1997,8 @@ func receiverText(ctx *parser.PostfixExprContext, ops []parser.IPostfixOpContext
 // spreadElements is what ...value yields: an array's elements, or a string's
 // characters as JS iterates them.
 func spreadElements(value Value, hint string) []Value {
-	switch x := value.(type) {
-	case *ArrayVal:
-		return x.Elements
-	case *StringVal:
-		out := []Value{}
-		for _, r := range x.V {
-			out = append(out, &StringVal{V: string(r)})
-		}
-		return out
-	default:
-		panic(TypeMismatch("spread", "array or string", value, hint))
+	if items, ok := Iterate(value); ok {
+		return items
 	}
+	panic(TypeMismatch("spread", "array, string, Map or Set", value, hint))
 }

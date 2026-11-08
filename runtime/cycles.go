@@ -43,12 +43,25 @@ func inspectIn(v Value, anc *Ancestors) string {
 			parts[i] = inspectIn(e, anc)
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
+	case *MapVal:
+		if !anc.Enter(x) {
+			return "[Circular]"
+		}
+		defer anc.Leave()
+		return x.inspect(anc)
 	case *ObjectVal:
 		if !anc.Enter(x) {
 			return "[Circular]"
 		}
 		defer anc.Leave()
+		if x.isErrorObject() && x.proto != nil {
+			return errorInspect(x, anc)
+		}
 		var sb strings.Builder
+		if c := x.className(); c != "" {
+			sb.WriteString(c)
+			sb.WriteByte(' ')
+		}
 		sb.WriteByte('{')
 		for i, k := range x.keys {
 			if i > 0 {

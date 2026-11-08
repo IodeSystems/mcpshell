@@ -29,6 +29,9 @@ func TestEstimateSizeNearMeasured(t *testing.T) {
 		`range(0, 200000).map(i => ({a: null, b: null, c: null, d: null, e: null, f: null, g: null, h: null, j: null}))`,
 		`range(0, 200000).map(i => "row " + i)`,
 		`range(0, 200000).map(i => [i, i])`,
+		`let m = new Map(); for (let i = 0; i < 200000; i++) m.set("k" + i, {i}); m`,
+		`let s = new Set(); for (let i = 0; i < 200000; i++) s.add("v" + i); s`,
+		`class P { #id; constructor(i) { this.#id = i; this.x = i; this.y = "p" + i } }; range(0, 200000).map(i => new P(i))`,
 	} {
 		sh := mr.NewShell()
 		toolkit.InstallCore(sh)
