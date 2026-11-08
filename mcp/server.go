@@ -40,6 +40,7 @@ func NewServer(shell *runtime.Shell, maxOutputBytes int) *Server {
 	if maxOutputBytes <= 0 {
 		maxOutputBytes = 16_000
 	}
+	shell.Limits().Hint = runtime.HintEvalArg
 	return &Server{shell: shell, maxOutputBytes: maxOutputBytes}
 }
 
@@ -202,7 +203,9 @@ func (s *Server) toolDefs() []toolDef {
 			Description: s.evalDescription(),
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"code":{"type":"string","description":"mcpshell source code"},` +
-				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true}` +
+				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true},` +
+				`"profile":{"type":"boolean","description":"Add per-line step costs to the result."},` +
+				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"}},"additionalProperties":false}` +
 				`},"required":["code"]}`),
 		},
 	}
@@ -234,8 +237,10 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 
 func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	var args struct {
-		Code *string         `json:"code"`
-		Vars json.RawMessage `json:"vars"`
+		Code    *string         `json:"code"`
+		Vars    json.RawMessage `json:"vars"`
+		Profile bool            `json:"profile"`
+		Limits  json.RawMessage `json:"limits"`
 	}
 	if json.Unmarshal(rawArgs, &args) != nil || args.Code == nil {
 		return toolResult("ERROR: missing 'code' argument", true)
@@ -250,8 +255,16 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 			}
 		}
 	}
-	value, err := s.shell.EvalExported(code, vars)
-	warnings := runtime.FormatWarnings(s.shell.Warnings())
+	opts := runtime.EvalOptions{Profile: args.Profile}
+	if len(args.Limits) > 0 && string(args.Limits) != "null" {
+		spec, err := parseLimitsArg(args.Limits)
+		if err != nil {
+			return toolResult("ERROR: "+err.Error(), true)
+		}
+		opts.Limits = spec
+	}
+	value, err := s.shell.EvalExportedWith(code, vars, opts)
+	warnings := s.shell.Diagnostics().Format()
 	if se, ok := err.(*runtime.ShellError); ok && se.Internal() {
 		logInternalError(se, code, args.Vars)
 	}
@@ -272,6 +285,39 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		out = head + note
 	}
 	return toolResult(out+warnings, false)
+}
+
+// parseLimitsArg reads the eval tool's limits argument. A timeout is
+// milliseconds, or a duration string ("60s").
+func parseLimitsArg(raw json.RawMessage) (runtime.LimitSpec, error) {
+	var spec runtime.LimitSpec
+	var a struct {
+		Steps       *int            `json:"steps"`
+		Timeout     json.RawMessage `json:"timeout"`
+		CallDepth   *int            `json:"callDepth"`
+		OutputBytes *int            `json:"outputBytes"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&a); err != nil {
+		return spec, fmt.Errorf("limits: %v (use {steps?, timeout?, callDepth?, outputBytes?} with integers)", err)
+	}
+	spec.Steps, spec.CallDepth, spec.OutputBytes = a.Steps, a.CallDepth, a.OutputBytes
+	if len(a.Timeout) > 0 && string(a.Timeout) != "null" {
+		var str string
+		var ms int64
+		if json.Unmarshal(a.Timeout, &str) == nil {
+			n, err := runtime.ParseDurationMs(str)
+			if err != nil {
+				return spec, fmt.Errorf("limits: %v", err)
+			}
+			ms = n
+		} else if err := json.Unmarshal(a.Timeout, &ms); err != nil {
+			return spec, errors.New("limits: timeout must be an integer (ms) or a duration string like \"60s\"")
+		}
+		spec.TimeoutMs = &ms
+	}
+	return spec, nil
 }
 
 // overflowContent renders an over-limit value for its overflow file so that
