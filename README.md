@@ -140,7 +140,7 @@ limit names the hot lines instead of just a number.
 ## Toolkits
 
 Toolkits register commands into the shell. `core` and `math` are always on.
-In `mcpshell mcp`, `graph` is loadable by the agent; `web`, `file`, and
+In `mcpshell mcp`, `graph` and `solver` are loadable by the agent; `web`, `file`, and
 `browser` need an operator flag, and the agent then installs them with
 `load("name")`. The LLM only sees the capabilities you grant. One-shot and
 REPL modes install core, math, web, graph, and file (rooted at the current
@@ -154,6 +154,7 @@ directory) at start.
 | **web** | `--web`, then `load("web")` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
 | **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
+| **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries |
 | **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
 Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file; it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
