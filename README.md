@@ -79,7 +79,7 @@ that caches tokens knows to mint a new one:
 
 `help("<words>")` searches command names and descriptions; `commands(…)` takes
 the same argument and returns `[{name, call, category, signature, description}]`
-for filtering in code. `await` is accepted and does nothing: tool calls return
+for filtering in code. `load("name")` installs a loadable toolkit (see Toolkits). `await` is accepted and does nothing: tool calls return
 their values directly.
 
 Code an agent writes from JS habit runs, and the eval result says when it may
@@ -152,6 +152,8 @@ LLM only sees the capabilities you grant.
 | **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
+
+Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. In-process toolkits can instead be *loadable*: `help()` and the prompt list them on one line (`Available (load first): load("name") — summary`), `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` still evaluates a file when the file toolkit is on.
 
 ### Large output
 

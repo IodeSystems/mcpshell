@@ -21,6 +21,8 @@ type Shell struct {
 	// earlierLets are the names earlier EvalExported calls declared without
 	// export: they are gone in later evals, and reading one says so.
 	earlierLets map[string]bool
+
+	loaders
 }
 
 // KeptResults is how many truncated results the shell keeps as $r1, $r2, …
@@ -140,6 +142,9 @@ func (t *Shell) Limits() *ExecutionLimits { return t.limits }
 
 // Register adds a command, auto-lifting the namespace object into globals.
 func (t *Shell) Register(def *CommandDef) *Shell {
+	if t.hook != nil {
+		t.hook.guard(def)
+	}
 	t.commands.Register(def)
 	if def.Namespace != "" {
 		if nsObj := t.commands.BuildNamespaceObject(def.Namespace); nsObj != nil {
@@ -151,6 +156,9 @@ func (t *Shell) Register(def *CommandDef) *Shell {
 
 // RegisterGuide adds a named help guide.
 func (t *Shell) RegisterGuide(name, content string) *Shell {
+	if t.hook != nil {
+		t.hook.guides = append(t.hook.guides, name)
+	}
 	t.commands.RegisterGuide(name, content)
 	return t
 }
@@ -274,6 +282,11 @@ func (t *Shell) ToPrompt(compact bool) string {
 	} else {
 		b.WriteString("## Commands (first arg is pipe input unless noted)\n")
 		b.WriteString(t.commands.Prompt())
+	}
+	// Lists every allowed loadable, loaded or not, so the text does not change
+	// after a load (a changed prompt invalidates the KV cache).
+	if line := t.commands.AvailableLine(); line != "" {
+		b.WriteString("\n\n" + line)
 	}
 	return b.String()
 }

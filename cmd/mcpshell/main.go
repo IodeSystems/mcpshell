@@ -43,6 +43,7 @@ mcp flags:
   --files-read-only    file toolkit is read-only
   --web                enable the web toolkit (Web.*, Html.*)
   --browser            enable the browser toolkit (Browser.*, needs a Chrome binary)
+  --no-load <a,b>      hide and deny these loadable toolkits (load("name") refuses them)
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
   --max-output <n>     cap eval output bytes (default 16000)
@@ -204,6 +205,7 @@ func runMCP(args []string) {
 	filesReadOnly := fs.Bool("files-read-only", false, "file toolkit is read-only")
 	web := fs.Bool("web", false, "enable the web toolkit (Web.*, Html.*)")
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
+	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	var connect, mcpConfigs, sqlSpecs stringSlice
@@ -218,6 +220,9 @@ func runMCP(args []string) {
 	toolkit.InstallCore(sh)
 	toolkit.InstallMath(sh)
 	toolkit.InstallGraph(sh)
+	if *noLoad != "" {
+		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
+	}
 	if *web {
 		toolkit.InstallWeb(sh)
 		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled")

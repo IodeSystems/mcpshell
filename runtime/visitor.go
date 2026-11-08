@@ -1699,6 +1699,9 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 			panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d", msg, startLine(ctx), startCol(ctx))})
 		}
 	}
+	if hint := v.itp.commands.NotLoadedHint(name); hint != "" {
+		panic(Runtime(hint))
+	}
 	available = append(available, v.itp.commands.Names()...)
 	panic(UnknownCommand(name, available))
 }

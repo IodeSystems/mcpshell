@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // CommandDef is a single registered command.
@@ -124,7 +125,13 @@ func (c *CommandDef) CallName() string {
 }
 
 // CommandRegistry holds every command, guide, and namespace available to a shell.
+//
+// load() can register commands while parallel branches of an eval read the
+// registry, so every exported method takes mu.
 type CommandRegistry struct {
+	mu         sync.RWMutex
+	loadables  map[string]*loadable
+	denied     map[string]bool
 	commands   map[string]*CommandDef
 	order      []string // command keys in registration order
 	guides     map[string]string
@@ -139,11 +146,15 @@ func NewCommandRegistry() *CommandRegistry {
 		commands:   make(map[string]*CommandDef),
 		guides:     make(map[string]string),
 		namespaces: make(map[string][]*CommandDef),
+		loadables:  make(map[string]*loadable),
+		denied:     make(map[string]bool),
 	}
 }
 
 // Register adds a command. namespace "" registers a global command.
 func (r *CommandRegistry) Register(def *CommandDef) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	key := def.DisplayName()
 	if _, exists := r.commands[key]; !exists {
 		r.order = append(r.order, key)
@@ -159,6 +170,8 @@ func (r *CommandRegistry) Register(def *CommandDef) {
 
 // RegisterGuide adds a named help guide.
 func (r *CommandRegistry) RegisterGuide(name, content string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, ok := r.guides[name]; !ok {
 		r.guideOrder = append(r.guideOrder, name)
 	}
@@ -166,25 +179,37 @@ func (r *CommandRegistry) RegisterGuide(name, content string) {
 }
 
 // Get looks up a command by key ("name" or "Ns.name").
-func (r *CommandRegistry) Get(name string) *CommandDef { return r.commands[name] }
+func (r *CommandRegistry) Get(name string) *CommandDef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.commands[name]
+}
 
 // Names returns every command key in registration order.
 func (r *CommandRegistry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return append([]string(nil), r.order...)
 }
 
 // NamespaceNames returns every registered namespace.
 func (r *CommandRegistry) NamespaceNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return append([]string(nil), r.nsOrder...)
 }
 
 // NamespaceCommands returns the commands in a namespace, registration-ordered.
 func (r *CommandRegistry) NamespaceCommands(namespace string) []*CommandDef {
-	return r.namespaces[namespace]
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]*CommandDef(nil), r.namespaces[namespace]...)
 }
 
 // BuildNamespaceObject builds the TObject of TFunctions for a namespace, or nil.
 func (r *CommandRegistry) BuildNamespaceObject(namespace string) *ObjectVal {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	cmds, ok := r.namespaces[namespace]
 	if !ok {
 		return nil
@@ -213,11 +238,19 @@ func (r *CommandRegistry) visible() []*CommandDef {
 // Help renders help text. An empty search lists everything; otherwise it
 // resolves a guide, an exact command, a namespace, or a fuzzy match.
 func (r *CommandRegistry) Help(search string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if search == "" {
 		return r.helpAll()
 	}
 	if g, ok := r.guides[search]; ok {
 		return g
+	}
+	if l := r.loadables[search]; l != nil && !r.denied[search] {
+		if l.loaded == nil {
+			return l.def.Guide + "\n\n  Not loaded: call load(\"" + search + "\") first."
+		}
+		return l.def.Guide
 	}
 	if exact := r.commands[search]; exact != nil {
 		return detailedHelp(exact)
@@ -295,6 +328,8 @@ func (r *CommandRegistry) Help(search string) string {
 // commands for "", then an exact command, a "ns.category", a namespace, or a
 // ranked word search.
 func (r *CommandRegistry) Find(search string) []*CommandDef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if search == "" {
 		return r.visible()
 	}
@@ -447,11 +482,16 @@ func (r *CommandRegistry) helpAll() string {
 			b.WriteString("  help(\"" + n + "\") — " + n + " usage patterns\n")
 		}
 	}
+	if line := r.availableLine(false); line != "" {
+		b.WriteString("\n" + line + "\n")
+	}
 	return strings.TrimRight(b.String(), "\n ")
 }
 
 // Prompt renders the compact per-command listing for system prompts.
 func (r *CommandRegistry) Prompt() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	visible := r.visible()
 	if len(visible) == 0 {
 		return "No commands available."
@@ -487,6 +527,8 @@ func (r *CommandRegistry) Prompt() string {
 
 // CompactPrompt renders the minimal name-only listing for prompt-weight-sensitive use.
 func (r *CommandRegistry) CompactPrompt() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	visible := r.visible()
 	if len(visible) == 0 {
 		return "No commands available."

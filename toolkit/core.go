@@ -598,6 +598,30 @@ func InstallCore(sh *Shell) *Shell {
 	reg("bool", "value: any", "→ boolean", []string{`bool(1)`},
 		func(args []Value) Value { return Bln(arg(args, 0).IsTruthy()) })
 
+	reg("load", "name: string", "installs a loadable toolkit by name, or evaluates a .mcpshell file by path (file toolkit only)",
+		[]string{`load("db")`, `load("lib/helpers.mcpshell")`},
+		func(args []Value) Value {
+			name := requireStringArg("load", args, 0)
+			if sh.IsLoadableName(name) {
+				summary, err := sh.Load(name)
+				if err != nil {
+					panic(Runtime(err.Error()))
+				}
+				return Str(summary)
+			}
+			return sh.LoadFile(name)
+		})
+
+	reg("unload", "name: string", "removes a loaded toolkit and its commands",
+		[]string{`unload("db")`},
+		func(args []Value) Value {
+			msg, err := sh.Unload(requireStringArg("unload", args, 0))
+			if err != nil {
+				panic(Runtime(err.Error()))
+			}
+			return Str(msg)
+		})
+
 	reg("toArray", "value: any, mapFn?: (v, i) => T", "array-like→array; supports {length: n} and optional mapFn",
 		[]string{`toArray(null)`, `toArray(5)`},
 		func(args []Value) Value {

@@ -439,24 +439,21 @@ TYPICAL: Write and edit files
 			return Null
 		})
 
-	reg("load", "path: string", "loads and evaluates a .mcpshell file, making its definitions available",
-		[]string{`load("lib/helpers.mcpshell")`},
-		func(args []Value) Value {
-			path := requireStringArg("load", args, 0)
-			resolved := cfg.confine(path)
-			if !pathExists(resolved) {
-				panic(Runtime("load: file not found '" + path + "'\n\n  Resolved to: " + resolved))
-			}
-			data, err := os.ReadFile(resolved)
-			if err != nil {
-				panic(Runtime("load: " + err.Error()))
-			}
-			v, evalErr := sh.Eval(string(data))
-			if evalErr != nil {
-				panic(evalErr)
-			}
-			return v
-		})
+	sh.SetFileLoader(func(path string) Value {
+		resolved := cfg.confine(path)
+		if !pathExists(resolved) {
+			panic(Runtime("load: file not found '" + path + "'\n\n  Resolved to: " + resolved))
+		}
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			panic(Runtime("load: " + err.Error()))
+		}
+		v, evalErr := sh.Eval(string(data))
+		if evalErr != nil {
+			panic(evalErr)
+		}
+		return v
+	})
 
 	return sh
 }
