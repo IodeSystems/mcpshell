@@ -55,6 +55,14 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 - Postgres: lib/pq uses the simple query protocol when a call has no parameters, and that protocol runs several statements. The same statement count check applies, with Postgres quoting (`$tag$..$tag$`, `E'..'`, nested comments). `query()` and the schema helpers run in a `READ ONLY` transaction that is rolled back, so the server refuses writes whatever the text is. Read-only mode also sets `default_transaction_read_only=on` in the DSN.
 - `query()` never writes, in either mode. A writable SQLite pool switches the borrowed connection to `query_only` plus the read-only authorizer for the call and restores it after. It does not use a second pool because every `:memory:` connection is its own database.
 
+## Solver
+
+- **`solver/` is exact.** Simplex and branch and bound run on `math/big.Rat`, with no float64. The README promises exact numbers; a float LP solver would return `0.30000000000000004`-style results and tolerance-dependent feasibility ("is slack -1e-9 feasible?"). Exact rationals make every status, objective and value reproducible and checkable with `==`. The cost is speed: a dense 100x100 LP takes about 0.6 s (3.7 s under -race). The solver targets the small models an agent writes, not industrial LPs.
+- **Anti-cycling:** Bland's rule in both phases. It terminates on degenerate problems (Beale, Kuhn) and is slower than steepest-edge. Two-phase simplex; redundant equality rows are dropped after phase 1.
+- **MILP:** depth-first branch and bound on the LP relaxation; each node solves from scratch (no warm start). Branches on the first fractional integer variable, the floor branch first. A relaxation that is unbounded is reported `unbounded` without checking for an integer point.
+- **Limits:** `MaxVars` 1000, `MaxCons` 1000, `MaxNodes` 10000, `MaxPivots` 1000000 per Solve. Size and pivot limits return `*LimitError` naming the limit. The node limit is a status (`NodeLimit`) with the best incumbent, bound and gap. `context.Context` is checked at every pivot and node. Exact numbers can grow large, so a limit on pivots does not bound the time of one pivot: the caller's context is the real time limit.
+- The package is not wired into the language yet.
+
 ## Build
 
 - `make vet`, not `go vet ./...`. ANTLR ends every rule in the generated `parser/` with a dead `goto errorExit` so the label is always used. vet reports each one as unreachable code (69 reports, the same at v0.4.1). These reports cannot be acted on in a generated file.
