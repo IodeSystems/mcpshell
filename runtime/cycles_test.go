@@ -12,12 +12,12 @@ import (
 // or raises an error, as JS does.
 func TestCycles(t *testing.T) {
 	for src, want := range map[string]string{
-		`let a = {x: 1}; a.self = a; a`:                                       `{x: 1, self: [Circular]}`,
-		`let a = [1]; a.push(a); a`:                                           `[1, [Circular]]`,
-		`let s = {v: 1}; [s, s]`:                                              `[{v: 1}, {v: 1}]`, // shared is not circular
-		`let a = {}; a.s = a; let b = {}; b.s = b; a == b`:                    `true`,
+		`let a = {x: 1}; a.self = a; a`:                                          `{x: 1, self: [Circular]}`,
+		`let a = [1]; a.push(a); a`:                                              `[1, [Circular]]`,
+		`let s = {v: 1}; [s, s]`:                                                 `[{v: 1}, {v: 1}]`, // shared is not circular
+		`let a = {}; a.s = a; let b = {}; b.s = b; a == b`:                       `true`,
 		`let a = {}; a.s = a; let c = structuredClone(a); c.x = 1; [c.s.x, a.x]`: `[1, null]`,
-		`let a = {}; a.s = a; [a] |> len`:                                     `1`,
+		`let a = {}; a.s = a; [a] |> len`:                                        `1`,
 	} {
 		v, err := toolkit.InstallCore(runtime.NewShell()).Eval(src)
 		if err != nil || v.Display() != want {
