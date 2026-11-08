@@ -39,10 +39,10 @@ type loadable struct {
 
 // loadState is what one load added, so unload can take it away.
 type loadState struct {
-	alive   *atomic.Bool
-	cmds    []*CommandDef
-	guides  []string
-	closer  io.Closer
+	alive    *atomic.Bool
+	cmds     []*CommandDef
+	guides   []string
+	closer   io.Closer
 	summary  string // what the first load returned: the usage block
 	reminder string // what a second load returns: one line
 }
