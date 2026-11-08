@@ -228,6 +228,10 @@ func TestGeoJSONRoundTrip(t *testing.T) {
 	if got != want {
 		t.Errorf("round trip:\n%s\nwant\n%s", got, want)
 	}
+	got = okEval(t, sh, `Geo.fromGeoJSON(Geo.toGeoJSON([{x: 3, y: 4, n: 1}]))`)
+	if got != `[{n: 1, x: 3, y: 4}]` {
+		t.Errorf("planar round trip %s", got)
+	}
 	got = okEval(t, sh, `Geo.fromGeoJSON({type: "Feature", id: 7, properties: {id: "x"}, geometry: null})`)
 	if got != `[{id: "x", featureId: 7, geometry: null}]` {
 		t.Errorf("feature id and null geometry %s", got)

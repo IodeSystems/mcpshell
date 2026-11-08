@@ -546,17 +546,26 @@ func geoFromGeoJSON(_ *Shell, args []Value) Value {
 		isPoint := false
 		if g, ok := gv.(*ObjectVal); ok {
 			t, _ := g.Get("type")
-			isPoint = t != nil && t.Display() == "Point" && !s.planar
+			isPoint = t != nil && t.Display() == "Point"
 		}
 		if isPoint && !keepGeom {
 			p := s.g.Points[0]
-			for _, k := range []string{"lat", "lon"} {
+			ks := [2]string{"lat", "lon"}
+			if s.planar {
+				ks = [2]string{"x", "y"}
+			}
+			for _, k := range ks {
 				if row.Has(k) {
 					c.fail("%s: properties has %q, which the Point would overwrite; pass {geometry: true} to keep the geometry as a column instead", w, k)
 				}
 			}
-			row.Set("lat", Num(p.Y))
-			row.Set("lon", Num(p.X))
+			if s.planar {
+				row.Set("x", Num(p.X))
+				row.Set("y", Num(p.Y))
+			} else {
+				row.Set("lat", Num(p.Y))
+				row.Set("lon", Num(p.X))
+			}
 		} else {
 			if row.Has("geometry") {
 				c.fail("%s: properties has \"geometry\", which the geometry column would overwrite", w)
