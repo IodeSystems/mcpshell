@@ -61,7 +61,9 @@ const (
 
 // Errors a caller can name.
 var (
-	ErrPole         = errors.New("the ring goes around a pole")
-	ErrAntimeridian = errors.New("an edge crosses the antimeridian")
+	// ErrAntimeridian: an edge spans more than 180 degrees of longitude. A
+	// closed ring whose edges each span less sums to 0, so this also catches
+	// every ring that goes around a pole.
+	ErrAntimeridian = errors.New("an edge spans more than 180 degrees of longitude: the ring crosses the antimeridian or goes around a pole")
 	ErrSpread       = errors.New("the points are spread evenly around the globe: their mean direction is undefined")
 )
