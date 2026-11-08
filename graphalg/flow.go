@@ -101,7 +101,7 @@ func MaxFlow(ctx context.Context, n int, arcs []FlowArc, s, t int) (*FlowResult,
 		}
 		ids[i] = r.add(a.From, a.To, c, 0)
 	}
-	value, err := r.dinic(ctx, s, t)
+	value, err := r.dinic(ctx, s, t, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,9 @@ func MaxFlow(ctx context.Context, n int, arcs []FlowArc, s, t int) (*FlowResult,
 	return res, nil
 }
 
-func (r *rnet) dinic(ctx context.Context, s, t int) (int64, error) {
+// dinic is a maximum flow over the residual edges with cap > 0 that ok
+// accepts (nil: all).
+func (r *rnet) dinic(ctx context.Context, s, t int, ok func(e int) bool) (int64, error) {
 	n := len(r.head)
 	level := make([]int, n)
 	it := make([]int, n)
@@ -142,7 +144,7 @@ func (r *rnet) dinic(ctx context.Context, s, t int) (int64, error) {
 			u := q[0]
 			q = q[1:]
 			for _, e := range r.head[u] {
-				if v := r.to[e]; r.cap[e] > 0 && level[v] < 0 {
+				if v := r.to[e]; r.cap[e] > 0 && level[v] < 0 && (ok == nil || ok(e)) {
 					level[v] = level[u] + 1
 					q = append(q, v)
 				}
@@ -155,7 +157,7 @@ func (r *rnet) dinic(ctx context.Context, s, t int) (int64, error) {
 			it[i] = 0
 		}
 		for {
-			f := r.blocking(s, t, math.MaxInt64, level, it)
+			f := r.blocking(s, t, math.MaxInt64, level, it, ok)
 			if f == 0 {
 				break
 			}
@@ -165,7 +167,7 @@ func (r *rnet) dinic(ctx context.Context, s, t int) (int64, error) {
 }
 
 // blocking pushes one augmenting path in the level graph (iterative DFS).
-func (r *rnet) blocking(s, t int, limit int64, level, it []int) int64 {
+func (r *rnet) blocking(s, t int, limit int64, level, it []int, ok func(int) bool) int64 {
 	var path []int // edge ids
 	u := s
 	for {
@@ -183,7 +185,7 @@ func (r *rnet) blocking(s, t int, limit int64, level, it []int) int64 {
 		advanced := false
 		for ; it[u] < len(r.head[u]); it[u]++ {
 			e := r.head[u][it[u]]
-			if v := r.to[e]; r.cap[e] > 0 && level[v] == level[u]+1 {
+			if v := r.to[e]; r.cap[e] > 0 && level[v] == level[u]+1 && (ok == nil || ok(e)) {
 				path = append(path, e)
 				u = v
 				advanced = true
@@ -229,8 +231,10 @@ func MinCostFlow(ctx context.Context, n int, arcs []FlowArc, supply []int64) (*F
 		}
 		maxCost = max(maxCost, a.Cost, -a.Cost)
 	}
-	if maxCost > 0 && int64(n+2) > MaxInt/maxCost {
-		return nil, invalid("%d nodes times the largest cost %d is past 2^62", n, maxCost)
+	// Potentials are shortest distances, at most (n+2) * maxCost; Dijkstra
+	// adds a reduced cost to a distance, so keep that below 2^61.
+	if maxCost > 0 && int64(n+2) > MaxInt/4/maxCost {
+		return nil, invalid("%d nodes times the largest cost %d is past 2^60", n, maxCost)
 	}
 	if negativeUnlimitedCycle(n, arcs) {
 		return &FlowResult{Status: Unbounded}, nil
@@ -346,24 +350,26 @@ func (h *costHeap) Pop() any {
 	return x
 }
 
-// ssp augments along shortest S-T paths (reduced costs, Dijkstra) until T
-// is unreachable. Every residual cost must start >= 0.
+// ssp is primal-dual min-cost flow: Dijkstra on reduced costs finds the
+// shortest S-T distance and updates the potentials, then a blocking flow
+// (Dinic) on the arcs of reduced cost 0 ships along every shortest path at
+// once. Every residual cost must start >= 0. Dijkstra stops when T is
+// settled; nodes not settled get T's distance added to their potential,
+// which keeps every reduced cost >= 0.
 func (r *rnet) ssp(ctx context.Context, S, T int) (int64, error) {
 	n := len(r.head)
 	pot := make([]int64, n)
 	dist := make([]int64, n)
-	prevE := make([]int, n)
 	done := make([]bool, n)
 	const unreached = math.MaxInt64
+	admissible := func(e int) bool { return r.cost[e]+pot[r.to[e^1]]-pot[r.to[e]] == 0 }
 	var total int64
-	for iter := 0; ; iter++ {
-		if iter&63 == 0 {
-			if err := ctx.Err(); err != nil {
-				return 0, err
-			}
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
 		}
 		for i := range dist {
-			dist[i], prevE[i], done[i] = unreached, -1, false
+			dist[i], done[i] = unreached, false
 		}
 		dist[S] = 0
 		h := &costHeap{{S, 0}}
@@ -374,33 +380,34 @@ func (r *rnet) ssp(ctx context.Context, S, T int) (int64, error) {
 				continue
 			}
 			done[u] = true
+			if u == T {
+				break
+			}
 			for _, e := range r.head[u] {
 				if r.cap[e] <= 0 {
 					continue
 				}
 				v := r.to[e]
 				if d := dist[u] + r.cost[e] + pot[u] - pot[v]; d < dist[v] {
-					dist[v], prevE[v] = d, e
+					dist[v] = d
 					heap.Push(h, costItem{v, d})
 				}
 			}
 		}
-		if dist[T] == unreached {
+		if !done[T] {
 			return total, nil
 		}
+		dt := dist[T]
 		for v := range pot {
-			if dist[v] != unreached {
+			if done[v] {
 				pot[v] += dist[v]
+			} else {
+				pot[v] += dt
 			}
 		}
-		f := int64(math.MaxInt64)
-		for v := T; v != S; v = r.to[prevE[v]^1] {
-			f = min(f, r.cap[prevE[v]])
-		}
-		for v := T; v != S; v = r.to[prevE[v]^1] {
-			e := prevE[v]
-			r.cap[e] -= f
-			r.cap[e^1] += f
+		f, err := r.dinic(ctx, S, T, admissible)
+		if err != nil {
+			return 0, err
 		}
 		total += f
 	}
