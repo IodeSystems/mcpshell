@@ -46,6 +46,7 @@ mcp flags:
   --no-load <a,b>      hide and deny these loadable toolkits (load("name") refuses them)
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
+  --prompt             print the system prompt for these flags and exit (no upstream tools)
   --max-output <n>     cap eval output bytes (default 16000)
   --connect <spec>     compose an upstream MCP server: 'ns=cmd args', 'cmd args',
                        'ns=https://…', or 'https://…' (streamable HTTP)
@@ -206,6 +207,7 @@ func runMCP(args []string) {
 	web := fs.Bool("web", false, "enable the web toolkit (Web.*, Html.*)")
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
+	printPrompt := fs.Bool("prompt", false, "print the system prompt for this configuration and exit")
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
 	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
@@ -272,6 +274,11 @@ func runMCP(args []string) {
 	if *browser {
 		closers = append(closers, toolkit.InstallBrowser(sh, true))
 		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (Browser.*)")
+	}
+
+	if *printPrompt {
+		fmt.Println(sh.ToPrompt(false))
+		return
 	}
 
 	var servers []mcp.NamedServer
