@@ -2,6 +2,7 @@ package toolkit_test
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,5 +116,98 @@ func TestSQLErrors(t *testing.T) {
 	if _, err := sh.Eval(`db.columns("userz")`); err == nil ||
 		!strings.Contains(err.Error(), "Did you mean") {
 		t.Errorf("expected a fuzzy table suggestion, got: %v", err)
+	}
+}
+
+// sqlShellAt is sqlShell on a db in dir, so tests can look for stray files.
+func sqlShellAt(t *testing.T, dir string, readOnly bool) *runtime.Shell {
+	t.Helper()
+	path := filepath.Join(dir, "main.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	sh := toolkit.InstallCore(runtime.NewShell())
+	closer, err := toolkit.InstallSQL(sh, "db", path, readOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closer.Close() })
+	return sh
+}
+
+func TestSQLMultiStatementAttach(t *testing.T) {
+	for _, readOnly := range []bool{true, false} {
+		dir := t.TempDir()
+		sh := sqlShellAt(t, dir, readOnly)
+		pwn := filepath.ToSlash(filepath.Join(dir, "pwn.db"))
+		for _, src := range []string{
+			`db.query("select 1; attach '` + pwn + `' as y; create table y.t(x)")`,
+			`db.query("attach '` + pwn + `' as y")`,
+			`db.query("select 1; select 2")`,
+			`db.query("select 1; /* x */ select 2")`,
+		} {
+			if _, err := sh.Eval(src); err == nil {
+				t.Errorf("ro=%v %s: want error", readOnly, src)
+			}
+		}
+		if !readOnly {
+			if _, err := sh.Eval(`db.execute("insert into users(name) values ('a'); attach '` + pwn + `' as y")`); err == nil ||
+				!strings.Contains(err.Error(), "one SQL statement") {
+				t.Errorf("execute multi-statement: got %v", err)
+			}
+		}
+		if _, err := os.Stat(pwn); err == nil {
+			t.Errorf("ro=%v: pwn.db was created", readOnly)
+		}
+	}
+}
+
+func TestSQLReadOnlyBlocksWrites(t *testing.T) {
+	sh := sqlShellAt(t, t.TempDir(), true)
+	for _, src := range []string{
+		`db.query("select 1; insert into users(name) values ('x')")`,
+		`db.query("with c as (select 1) delete from users")`,
+		`db.query("with c as (select 1) insert into users(name) values ('x')")`,
+		`db.query("pragma query_only = 0")`,
+		`db.query("pragma writable_schema = 1")`,
+	} {
+		if _, err := sh.Eval(src); err == nil {
+			t.Errorf("%s: want error", src)
+		}
+	}
+	v, err := sh.Eval(`db.query("select count(*) as n from users")[0].n`)
+	if err != nil || v.Display() != "0" {
+		t.Errorf("table changed or unreadable: %v %v", v, err)
+	}
+}
+
+func TestSQLSingleStatementForms(t *testing.T) {
+	sh := sqlShellAt(t, t.TempDir(), true)
+	for _, src := range []string{
+		`db.query("select 1;")`,
+		`db.query("select 1 ; ")`,
+		`db.query("select 'a;b' as x")`,
+		`db.query("select \"a;b\" as x")`,
+		`db.query("select 1 -- ; select 2")`,
+		`db.query("select 1 /* ; */")`,
+		`db.query("select 'it''s; ok' as x")`,
+	} {
+		if _, err := sh.Eval(src); err != nil {
+			t.Errorf("%s: %v", src, err)
+		}
+	}
+}
+
+func TestSQLLoadExtensionDenied(t *testing.T) {
+	for _, ro := range []bool{true, false} {
+		sh := sqlShellAt(t, t.TempDir(), ro)
+		if _, err := sh.Eval(`db.query("select load_extension('/nonexistent')")`); err == nil {
+			t.Errorf("ro=%v: load_extension must fail", ro)
+		}
 	}
 }

@@ -49,6 +49,10 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 - `MCPSHELL_TMP_OVERFLOW_DIR` receives the full over-limit eval output. mcpshell makes file names unique only. Scoping per session is the launcher's job: dun uses `<sessions>/<root>/overflow/<session-id>` and removes it on `ForgetSession`.
 - Arrays are saved as JSON Lines and objects one key per line, so line-based `read`/`grep` can page them.
 
+## SQL
+
+- SQLite: the first-word check in `assertStatement` is not a security boundary. The driver runs every statement in a string, so `select 1; attach ...` passed it and created files. Three layers apply: a statement count check (`sqlSingleStatement`), an authorizer on every pooled connection (`sqliteAuthorizer`: ATTACH, DETACH, `load_extension` and non-reporting pragmas always denied; all writes denied when read-only), and `PRAGMA query_only` when read-only. The connection hook is on a private driver, not the global one, so other `sqlite` users in the process are not affected.
+
 ## Build
 
 - `make vet`, not `go vet ./...`. ANTLR ends every rule in the generated `parser/` with a dead `goto errorExit` so the label is always used. vet reports each one as unreachable code (69 reports, the same at v0.4.1). These reports cannot be acted on in a generated file.

@@ -11,8 +11,7 @@ import (
 
 	. "github.com/iodesystems/mcpshell/runtime"
 
-	_ "github.com/lib/pq"  // Postgres driver, registered as "postgres"
-	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered as "sqlite"
+	_ "github.com/lib/pq" // Postgres driver, registered as "postgres"
 )
 
 const (
@@ -44,9 +43,14 @@ func InstallSQL(sh *Shell, namespace, dsn string, readOnly bool) (io.Closer, err
 	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		driver, dialect = "postgres", dialectPostgres
 	}
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("sql: open %q: %w", dsn, err)
+	var db *sql.DB
+	if dialect == dialectSQLite {
+		db = openSQLite(dsn, readOnly)
+	} else {
+		var err error
+		if db, err = sql.Open(driver, dsn); err != nil {
+			return nil, fmt.Errorf("sql: open %q: %w", dsn, err)
+		}
 	}
 	if err := db.Ping(); err != nil {
 		db.Close()
@@ -394,6 +398,10 @@ func (st *sqlToolkit) suggestTable(requested string) {
 // --- statement validation ----------------------------------------------------
 
 func (st *sqlToolkit) assertStatement(cmd, query string, read bool) {
+	if st.dialect == dialectSQLite && !sqlSingleStatement(query) {
+		panic(Runtime(cmd + ": only one SQL statement per call is allowed\n\n" +
+			"  Hint: split the statements into separate calls"))
+	}
 	first := ""
 	if fields := strings.Fields(strings.ToLower(strings.TrimSpace(query))); len(fields) > 0 {
 		first = fields[0]
