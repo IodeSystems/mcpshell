@@ -180,7 +180,7 @@ directory) at start.
 |---------|-------------|----------|
 | **core** | always on | strings, arrays, objects, JSON, regex, pipes, control flow; `Date` and `Dates.*`, `toLocaleString` and `Intl.NumberFormat`, `toMarkdown` |
 | **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
-| **graph** | `load("graph")` | in-memory node/edge graph: `addNode`, `link`, `nodes`, `setProps`, … |
+| **graph** | `load("graph")` | in-memory node/edge graph: `addNode`, `link`, `nodes`, `edges`, `setProps`, …; algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
 | **web** | `--web`, then `load("web")` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
 | **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
@@ -277,6 +277,7 @@ runtime/   Value types, environment, interpreter, the Shell facade
 toolkit/   Built-in command toolkits — core, math, web, file, graph, sql, db, solver, cp, route, geo, num, browser
 solver/    Exact LP/MILP solver (math/big.Rat), no runtime dependency
 routing/   Distances, shortest paths, TSP, VRP (float64), no runtime dependency
+graphalg/  Graph algorithms: components, SCC, topo, CPM, flows, matching, MST; no runtime dependency
 geo/       Spatial geometry and clustering (float64), no runtime dependency
 numeric/   Float64 linear algebra, fitting, optimization, distributions, RNG; no runtime dependency
 mcp/       MCP server + upstream-MCP client/composition
