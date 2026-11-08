@@ -147,6 +147,7 @@ func (t *Shell) beginEval(opts EvalOptions) error {
 			return err
 		}
 	}
+	t.limits.applyGCTarget()
 	if opts.Profile {
 		t.limits.StartProfile()
 	}
@@ -156,6 +157,9 @@ func (t *Shell) beginEval(opts EvalOptions) error {
 // endEval collects the eval's diagnostics.
 func (t *Shell) endEval(itp *Interpreter, opts EvalOptions) {
 	d := Diagnostics{Warnings: itp.Warnings(), Notes: t.limits.Notes(), Usage: t.limits.Usage()}
+	if note := t.limits.MemoryNote(); note != "" {
+		d.Notes = append(d.Notes, note)
+	}
 	if opts.Profile {
 		d.Profile, d.Steps = t.limits.StopProfile()
 		if d.Profile == nil {
@@ -178,6 +182,7 @@ func NewShell() *Shell {
 		limits:   NewExecutionLimits(),
 		globals:  NewEnvironment(nil),
 	}
+	t.limits.memReport = t.memoryReport
 	t.commands.Register(&CommandDef{
 		Name:        "help",
 		Signature:   "search?: string",

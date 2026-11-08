@@ -249,3 +249,17 @@ func (e *Environment) DefineBuiltin(name string, value Value) {
 func copyBindings(src map[string]Value) map[string]Value {
 	return maps.Clone(src)
 }
+
+// UserBindings returns the bindings of this scope that are not builtins:
+// exported values and kept results.
+func (e *Environment) UserBindings() map[string]Value {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	out := make(map[string]Value, len(e.bindings))
+	for k, v := range e.bindings {
+		if !e.builtins[k] {
+			out[k] = v
+		}
+	}
+	return out
+}

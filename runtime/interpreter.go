@@ -198,7 +198,8 @@ func (itp *Interpreter) initBuiltinBindings() {
 					n = int(num.V)
 				}
 			}
-			elems := make([]Value, n)
+			itp.limits.CheckAlloc(AllocBytes(int64(n), SlotElem), fmt.Sprintf("Array(%d)", n))
+			elems := make([]Value, max(n, 0))
 			for i := range elems {
 				elems[i] = Null
 			}

@@ -19,6 +19,7 @@ type ExecutionLimits struct {
 	defaultMaxCallDepth   int
 	defaultTimeoutMs      int64
 	defaultMaxOutputBytes int
+	defaultMaxMemory      int64
 
 	// Caps are the operator maximums: extendLimit cannot raise a limit past
 	// them. Set with SetCaps; a cap is never below its default.
@@ -26,12 +27,20 @@ type ExecutionLimits struct {
 	CapCallDepth   int
 	CapTimeoutMs   int64
 	CapOutputBytes int
+	CapMemory      int64
 
 	MaxSteps       int
 	MaxCallDepth   int
 	TimeoutMs      int64
 	MaxOutputBytes int
-	ResetOnEval    bool
+	// MaxMemory is the limit on Go heap objects, in bytes; <= 0 is off.
+	MaxMemory   int64
+	ResetOnEval bool
+
+	// GCTarget makes each eval set the Go runtime soft memory limit to 90%
+	// of MaxMemory (process-wide, so only the servers and the CLI turn it
+	// on). A set GOMEMLIMIT stays.
+	GCTarget bool
 
 	// Hint is how limit-hit errors say to raise a limit. The default names
 	// extendLimit; the MCP server and the CLI set the form they accept.
@@ -44,6 +53,12 @@ type ExecutionLimits struct {
 	// rejections are the async calls of this eval that failed, shared with
 	// forked branch limits; an unhandled one fails the eval at its end.
 	rejections *rejectionList
+
+	// memReport lists the holders of memory for a memory error; the shell
+	// sets it. memHit is set when this eval raised the memory error.
+	memReport   MemReporter
+	memHit      atomic.Bool
+	lastForceNs atomic.Int64
 
 	stepCount   atomic.Int64
 	callDepth   atomic.Int64
@@ -76,6 +91,14 @@ const (
 	DefaultCapTimeoutMs   = 300_000
 	DefaultCapOutputBytes = 1_000_000
 )
+
+// SetMemoryCap sets the operator maximum for memory, in bytes. A value <= 0
+// keeps the current cap. A cap below the default is raised to the default.
+func (l *ExecutionLimits) SetMemoryCap(bytes int64) {
+	if bytes > 0 {
+		l.CapMemory = max(bytes, l.defaultMaxMemory)
+	}
+}
 
 // SetCaps sets the operator maximums. A value <= 0 keeps the current cap. A
 // cap below the current default is raised to the default.
@@ -141,6 +164,8 @@ func NewExecutionLimits() *ExecutionLimits {
 		defaultMaxCallDepth:   256,
 		defaultTimeoutMs:      30_000,
 		defaultMaxOutputBytes: 64_000,
+		defaultMaxMemory:      DefaultMaxMemory,
+		CapMemory:             DefaultCapMemory,
 		CapSteps:              DefaultCapSteps,
 		CapCallDepth:          DefaultCapCallDepth,
 		CapTimeoutMs:          DefaultCapTimeoutMs,
@@ -152,6 +177,7 @@ func NewExecutionLimits() *ExecutionLimits {
 	l.MaxCallDepth = l.defaultMaxCallDepth
 	l.TimeoutMs = l.defaultTimeoutMs
 	l.MaxOutputBytes = l.defaultMaxOutputBytes
+	l.MaxMemory = l.defaultMaxMemory
 	l.startTimeMs.Store(nowMs())
 	return l
 }
@@ -196,6 +222,9 @@ func (l *ExecutionLimits) Step(line int) {
 	}
 	if count%timeoutCheckInterval == 0 {
 		l.checkTimeout(line)
+	}
+	if count&memCheckMask == 0 {
+		l.checkMemory(line)
 	}
 }
 
@@ -326,6 +355,8 @@ func (l *ExecutionLimits) Reset() {
 	l.MaxCallDepth = l.defaultMaxCallDepth
 	l.TimeoutMs = l.defaultTimeoutMs
 	l.MaxOutputBytes = l.defaultMaxOutputBytes
+	l.MaxMemory = l.defaultMaxMemory
+	l.memHit.Store(false)
 	l.stepCount.Store(0)
 	l.callDepth.Store(0)
 	l.peakDepth.Store(0)
@@ -342,6 +373,9 @@ func (l *ExecutionLimits) Fork() *ExecutionLimits {
 		defaultMaxCallDepth:   l.MaxCallDepth,
 		defaultTimeoutMs:      l.TimeoutMs,
 		defaultMaxOutputBytes: l.MaxOutputBytes,
+		defaultMaxMemory:      l.MaxMemory,
+		CapMemory:             l.CapMemory,
+		memReport:             l.memReport,
 		CapSteps:              l.CapSteps,
 		CapCallDepth:          l.CapCallDepth,
 		CapTimeoutMs:          l.CapTimeoutMs,
@@ -353,6 +387,7 @@ func (l *ExecutionLimits) Fork() *ExecutionLimits {
 	child.MaxCallDepth = l.MaxCallDepth
 	child.TimeoutMs = l.TimeoutMs
 	child.MaxOutputBytes = l.MaxOutputBytes
+	child.MaxMemory = l.MaxMemory
 	child.startTimeMs.Store(l.startTimeMs.Load())
 	return child
 }
@@ -405,11 +440,12 @@ type LimitSpec struct {
 	TimeoutMs   *int64
 	CallDepth   *int
 	OutputBytes *int
+	MemoryBytes *int64
 }
 
 // Empty reports whether no field is set.
 func (s LimitSpec) Empty() bool {
-	return s.Steps == nil && s.TimeoutMs == nil && s.CallDepth == nil && s.OutputBytes == nil
+	return s.Steps == nil && s.TimeoutMs == nil && s.CallDepth == nil && s.OutputBytes == nil && s.MemoryBytes == nil
 }
 
 // ParseDurationMs reads a Go duration ("60s", "5m") or plain milliseconds.
@@ -428,7 +464,7 @@ func ParseDurationMs(val string) (int64, error) {
 	return d.Milliseconds(), nil
 }
 
-// ParseLimitSpec parses "steps=N,timeout=60s,callDepth=N,outputBytes=N". who
+// ParseLimitSpec parses "steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=1GB". who
 // prefixes errors (the flag name).
 func ParseLimitSpec(who, spec string) (LimitSpec, error) {
 	var out LimitSpec
@@ -450,6 +486,14 @@ func ParseLimitSpec(who, spec string) (LimitSpec, error) {
 			out.TimeoutMs = &ms
 			continue
 		}
+		if key == "memory" {
+			n, err := ParseBytes(val)
+			if err != nil {
+				return out, fmt.Errorf("%s: %v", who, err)
+			}
+			out.MemoryBytes = &n
+			continue
+		}
 		n, err := strconv.Atoi(val)
 		if err != nil || n <= 0 {
 			return out, fmt.Errorf("%s: %s %q is not a positive integer", who, key, val)
@@ -462,13 +506,13 @@ func ParseLimitSpec(who, spec string) (LimitSpec, error) {
 		case "outputBytes":
 			out.OutputBytes = &n
 		default:
-			return out, fmt.Errorf("%s: unknown key %q (use steps, timeout, callDepth, outputBytes)", who, key)
+			return out, fmt.Errorf("%s: unknown key %q (use steps, timeout, callDepth, outputBytes, memory)", who, key)
 		}
 	}
 	return out, nil
 }
 
-// ParseCaps applies a "steps=N,timeout=60s,callDepth=N,outputBytes=N" spec (the
+// ParseCaps applies a "steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=2GB" spec (the
 // --max-limits flag) to the operator maximums. Unlisted keys keep their cap.
 // timeout takes a Go duration ("60s", "5m") or plain milliseconds.
 func (l *ExecutionLimits) ParseCaps(spec string) error {
@@ -491,6 +535,9 @@ func (l *ExecutionLimits) ParseCaps(spec string) error {
 		timeoutMs = *s.TimeoutMs
 	}
 	l.SetCaps(steps, depth, timeoutMs, out)
+	if s.MemoryBytes != nil {
+		l.SetMemoryCap(*s.MemoryBytes)
+	}
 	return nil
 }
 
@@ -525,6 +572,14 @@ func (l *ExecutionLimits) Set(who string, s LimitSpec) error {
 	if s.OutputBytes != nil {
 		errs = append(errs, check("outputBytes", int64(*s.OutputBytes), int64(l.CapOutputBytes)))
 	}
+	if s.MemoryBytes != nil {
+		switch n := *s.MemoryBytes; {
+		case n <= 0:
+			errs = append(errs, Runtime(fmt.Sprintf("%s: memory (%d) must be positive", who, n)))
+		case n > l.CapMemory:
+			errs = append(errs, Runtime(fmt.Sprintf("%s: memory (%s) exceeds the operator maximum (%s); the operator sets it with --max-limits memory=SIZE", who, FormatBytes(n), FormatBytes(l.CapMemory))))
+		}
+	}
 	for _, e := range errs {
 		if e != nil {
 			return e
@@ -541,6 +596,9 @@ func (l *ExecutionLimits) Set(who string, s LimitSpec) error {
 	}
 	if s.OutputBytes != nil {
 		l.MaxOutputBytes = *s.OutputBytes
+	}
+	if s.MemoryBytes != nil {
+		l.MaxMemory = *s.MemoryBytes
 	}
 	return nil
 }

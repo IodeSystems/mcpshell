@@ -1231,6 +1231,7 @@ func (v *Visitor) visitAdditiveExpr(ctx *parser.AdditiveExprContext) Value {
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
 		case "+":
+			v.checkConcat(result, right)
 			result = v.arith(ctx, add, result, right)
 		case "-":
 			result = v.arith(ctx, sub, result, right)
@@ -1268,6 +1269,29 @@ func (v *Visitor) visitExponentiationExpr(ctx *parser.ExponentiationExprContext)
 
 // arith applies a binary operator. Two numbers take the fast path; anything
 // else runs under withLocation, so a type mismatch names its line.
+// concatCheckMin is the size from which a string `+` is checked against the
+// memory limit: doubling a string with s += s takes few steps.
+const concatCheckMin = 1 << 20
+
+// checkConcat refuses a string concatenation that would pass the memory limit.
+func (v *Visitor) checkConcat(a, b Value) {
+	as, aok := a.(*StringVal)
+	bs, bok := b.(*StringVal)
+	if !aok && !bok {
+		return
+	}
+	n := 0
+	if aok {
+		n += len(as.V)
+	}
+	if bok {
+		n += len(bs.V)
+	}
+	if n >= concatCheckMin {
+		v.itp.limits.CheckAlloc(int64(n), "string concatenation")
+	}
+}
+
 func (v *Visitor) arith(ctx antlr.ParserRuleContext, op func(a, b Value) Value, a, b Value) Value {
 	if bothNumbers(a, b) {
 		return op(a, b)
@@ -1730,7 +1754,9 @@ func (v *Visitor) visitArrayLiteral(ctx *parser.ArrayLiteralContext) Value {
 		sc := soe.(*parser.SpreadOrExprContext)
 		value := v.eval(sc.Expression())
 		if sc.SPREAD() != nil {
-			elements = append(elements, spreadElements(value, "... can only spread arrays and strings into arrays")...)
+			add := spreadElements(value, "... can only spread arrays and strings into arrays")
+			v.itp.limits.CheckAlloc(AllocBytes(int64(len(add)), SlotElem), "array spread")
+			elements = append(elements, add...)
 		} else {
 			elements = append(elements, value)
 		}
