@@ -399,7 +399,7 @@ func elemFrom(args []Value, i, n int) int {
 	return min(*from, n)
 }
 
-func pad(args []Value, cmd string, atStart bool) string {
+func pad(lim *ExecutionLimits, args []Value, cmd string, atStart bool) string {
 	s := requireString(cmd, arg(args, 0))
 	length := int(requireNumber(cmd, args, 1))
 	fill := optString(args, 2, " ")
@@ -411,6 +411,7 @@ func pad(args []Value, cmd string, atStart bool) string {
 	if len(r) >= length {
 		return s
 	}
+	lim.CheckAlloc(AllocBytes(int64(length-len(r)), int64(len(fillCh))), fmt.Sprintf("%s(%d)", cmd, length))
 	padding := strings.Repeat(fillCh, length-len(r))
 	if atStart {
 		return padding + s

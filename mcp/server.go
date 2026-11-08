@@ -43,6 +43,7 @@ func NewServer(shell *runtime.Shell, maxOutputBytes int) *Server {
 		maxOutputBytes = 16_000
 	}
 	shell.Limits().Hint = runtime.HintEvalArg
+	shell.Limits().GCTarget = true
 	return &Server{shell: shell, maxOutputBytes: maxOutputBytes}
 }
 
@@ -207,7 +208,7 @@ func (s *Server) toolDefs() []toolDef {
 				`"code":{"type":"string","description":"mcpshell source code"},` +
 				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true},` +
 				`"profile":{"type":"boolean","description":"Add per-line step costs to the result."},` +
-				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"}},"additionalProperties":false}` +
+				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"},"memory":{"type":["integer","string"],"description":"bytes of heap, or a size such as \"2GB\""}},"additionalProperties":false}` +
 				`},"required":["code"]}`),
 		},
 	}
@@ -298,12 +299,13 @@ func parseLimitsArg(raw json.RawMessage) (runtime.LimitSpec, error) {
 		Timeout     json.RawMessage `json:"timeout"`
 		CallDepth   *json.Number    `json:"callDepth"`
 		OutputBytes *json.Number    `json:"outputBytes"`
+		Memory      json.RawMessage `json:"memory"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	dec.UseNumber()
 	if err := dec.Decode(&a); err != nil {
-		return spec, fmt.Errorf("limits: %v (use {steps?, timeout?, callDepth?, outputBytes?} with integers)", err)
+		return spec, fmt.Errorf("limits: %v (use {steps?, timeout?, callDepth?, outputBytes?, memory?} with integers)", err)
 	}
 	var err error
 	if spec.Steps, err = limitInt("steps", a.Steps); err != nil {
@@ -314,6 +316,30 @@ func parseLimitsArg(raw json.RawMessage) (runtime.LimitSpec, error) {
 	}
 	if spec.OutputBytes, err = limitInt("outputBytes", a.OutputBytes); err != nil {
 		return spec, err
+	}
+	if len(a.Memory) > 0 && string(a.Memory) != "null" {
+		var str string
+		var num json.Number
+		var n int64
+		if json.Unmarshal(a.Memory, &str) == nil {
+			v, err := runtime.ParseBytes(str)
+			if err != nil {
+				return spec, fmt.Errorf("limits: %v", err)
+			}
+			n = v
+		} else if json.Unmarshal(a.Memory, &num) == nil {
+			r, ok := new(big.Rat).SetString(num.String())
+			if !ok || !r.IsInt() || r.Sign() <= 0 {
+				return spec, errors.New("limits: memory must be a positive integer (bytes) or a size string like \"2GB\"")
+			}
+			n = math.MaxInt64
+			if r.Num().IsInt64() {
+				n = r.Num().Int64()
+			}
+		} else {
+			return spec, errors.New("limits: memory must be a positive integer (bytes) or a size string like \"2GB\"")
+		}
+		spec.MemoryBytes = &n
 	}
 	if len(a.Timeout) > 0 && string(a.Timeout) != "null" {
 		var str string

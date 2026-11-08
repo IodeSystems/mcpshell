@@ -16,8 +16,7 @@ func GraphLoadable() runtime.Loadable {
 		Guide:    graphGuide,
 		Commands: globalNames(InstallGraph),
 		Install: func(sh *runtime.Shell) (io.Closer, error) {
-			InstallGraph(sh)
-			return nil, nil
+			return graphCloser{installGraph(sh)}, nil
 		},
 	}
 }

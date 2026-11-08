@@ -23,11 +23,20 @@ func InstallCore(sh *Shell) *Shell {
 	sh.SetBuiltin("Infinity", Num(math.Inf(1)))
 	sh.SetBuiltin("NaN", Num(math.NaN()))
 
+	// Results that are big arrays or strings are checked against the memory
+	// limit (see ExecutionLimits.CheckResult).
+	checked := func(fn NativeFn) NativeFn {
+		return func(args []Value) Value {
+			out := fn(args)
+			sh.Limits().CheckResult(out)
+			return out
+		}
+	}
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
-		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
+		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: checked(fn)})
 	}
 	regH := func(name, sig, desc string, fn NativeFn) {
-		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Hidden: true, Fn: fn})
+		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Hidden: true, Fn: checked(fn)})
 	}
 
 	// --- Collection transforms ---
@@ -487,6 +496,9 @@ func InstallCore(sh *Shell) *Shell {
 				start = int(requireNumber("range", args, 0))
 				end = int(requireNumber("range", args, 1))
 			}
+			if end > start {
+				sh.Limits().CheckAlloc(AllocBytes(int64(end)-int64(start), NumberElem), fmt.Sprintf("range(%d, %d)", start, end))
+			}
 			var out []Value
 			for i := start; i < end; i++ {
 				out = append(out, Num(float64(i)))
@@ -648,6 +660,29 @@ func InstallCore(sh *Shell) *Shell {
 			})
 		})
 
+	reg("forget", "...names: string", "drops kept results ($r1, …) to free their memory",
+		[]string{`forget("$r2")`, `forget("$r1", "$r2")`},
+		func(args []Value) Value {
+			if len(args) == 0 {
+				panic(WrongArguments("forget", "...names: string", args, `forget("$r2")`))
+			}
+			var total int64
+			var names []string
+			for _, a := range args {
+				name, ok := a.(*StringVal)
+				if !ok {
+					panic(WrongArguments("forget", "...names: string", args, `forget("$r2")`))
+				}
+				n, err := sh.ForgetResult(name.V)
+				if err != nil {
+					panic(Runtime(err.Error()))
+				}
+				total += n
+				names = append(names, name.V)
+			}
+			return Str(fmt.Sprintf("Forgot %s (~%s).", strings.Join(names, ", "), FormatBytes(total)))
+		})
+
 	reg("toArray", "value: any, mapFn?: (v, i) => T", "array-like→array; supports {length: n} and optional mapFn",
 		[]string{`toArray(null)`, `toArray(5)`},
 		func(args []Value) Value {
@@ -661,6 +696,7 @@ func InstallCore(sh *Shell) *Shell {
 			case *ObjectVal:
 				if l, ok := v.Get("length"); ok {
 					if n, ok := l.(*NumberVal); ok {
+						sh.Limits().CheckAlloc(AllocBytes(int64(n.V), SlotElem), fmt.Sprintf("toArray({length: %d})", int64(n.V)))
 						elems := make([]Value, int(n.V))
 						for i := range elems {
 							elems[i] = Null
@@ -815,11 +851,11 @@ func InstallCore(sh *Shell) *Shell {
 
 	reg("padStart", "input: string, length: number, fill?: string", "pads start to target length",
 		[]string{`"42" |> padStart(5, "0")`},
-		func(args []Value) Value { return Str(pad(args, "padStart", true)) })
+		func(args []Value) Value { return Str(pad(sh.Limits(), args, "padStart", true)) })
 
 	reg("padEnd", "input: string, length: number, fill?: string", "pads end to target length",
 		[]string{`"hi" |> padEnd(5, ".")`},
-		func(args []Value) Value { return Str(pad(args, "padEnd", false)) })
+		func(args []Value) Value { return Str(pad(sh.Limits(), args, "padEnd", false)) })
 
 	reg("match", "input: string, pattern: string|regex",
 		"JS-compatible regex match: non-global → [fullMatch, group1, ...] or null; global → [match1, ...]",
@@ -899,6 +935,7 @@ func InstallCore(sh *Shell) *Shell {
 			if count < 0 {
 				panic(Runtime("repeat: count must be non-negative"))
 			}
+			sh.Limits().CheckAlloc(AllocBytes(int64(len(s)), int64(count)), fmt.Sprintf("repeat(%d)", count))
 			return Str(strings.Repeat(s, count))
 		})
 
@@ -1287,8 +1324,30 @@ func InstallCore(sh *Shell) *Shell {
 				lim.MaxOutputBytes = *n
 				result.Set("maxOutputBytes", Num(float64(*n)))
 			}
+			if m, ok := opts.Get("memory"); ok {
+				var n int64
+				switch x := m.(type) {
+				case *NumberVal:
+					n = int64(x.V)
+				case *StringVal:
+					var err error
+					if n, err = ParseBytes(x.V); err != nil {
+						panic(Runtime("extendLimit: " + err.Error()))
+					}
+				default:
+					panic(Runtime(`extendLimit: memory must be bytes or a size string such as "2GB"`))
+				}
+				if n <= lim.MaxMemory {
+					panic(Runtime(fmt.Sprintf("extendLimit: memory (%s) must be greater than current (%s)", FormatBytes(n), FormatBytes(lim.MaxMemory))))
+				}
+				if n > lim.CapMemory {
+					panic(Runtime(fmt.Sprintf("extendLimit: memory (%s) exceeds the operator maximum (%s); the operator sets it with --max-limits memory=SIZE", FormatBytes(n), FormatBytes(lim.CapMemory))))
+				}
+				lim.MaxMemory = n
+				result.Set("maxMemory", Num(float64(n)))
+			}
 			if result.Len() == 0 {
-				panic(Runtime("extendLimit: no valid limits provided. Use {steps, timeout, callDepth, outputBytes}"))
+				panic(Runtime("extendLimit: no valid limits provided. Use {steps, timeout, callDepth, outputBytes, memory}"))
 			}
 			return result
 		})
@@ -1301,6 +1360,7 @@ func InstallCore(sh *Shell) *Shell {
 			result.Set("maxCallDepth", Num(float64(lim.MaxCallDepth)))
 			result.Set("timeoutMs", Num(float64(lim.TimeoutMs)))
 			result.Set("maxOutputBytes", Num(float64(lim.MaxOutputBytes)))
+			result.Set("maxMemory", Num(float64(lim.MaxMemory)))
 			return result
 		})
 

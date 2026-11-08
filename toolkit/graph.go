@@ -192,6 +192,11 @@ func (gt *graphToolkit) countTraversal(n int) {
 // InstallGraph registers the graph toolkit — an in-memory directed property
 // graph with node/edge CRUD and pipe-compatible traversal steps.
 func InstallGraph(sh *Shell) *Shell {
+	installGraph(sh)
+	return sh
+}
+
+func installGraph(sh *Shell) *graphToolkit {
 	gt := &graphToolkit{store: newGraphStore(), maxTraversals: 10_000}
 
 	sh.RegisterGuide("graph", graphGuide)
@@ -417,7 +422,7 @@ func InstallGraph(sh *Shell) *Shell {
 			return out
 		})
 
-	return sh
+	return gt
 }
 
 // --- conversions -------------------------------------------------------------

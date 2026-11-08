@@ -54,6 +54,8 @@ mcp flags:
   --prompt             print the system prompt for these flags and exit (no upstream tools)
   --db-max-mb <n>      size cap of the load("db") in-memory database (default 256)
   --max-output <n>     cap eval output bytes (default 16000)
+  --max-limits <spec>  operator maximums of the eval limits: steps=N,timeout=60s,callDepth=N,
+                       outputBytes=N,memory=2GB (defaults: 20000000, 300s, 2048, 1000000, 2GB)
   --connect <spec>     compose an upstream MCP server: 'ns=cmd args', 'cmd args',
                        'ns=https://…', or 'https://…' (streamable HTTP)
   --mcp <spec>         upstream MCP config: JSON file, inline JSON, or 'name:cmd args'
@@ -148,6 +150,7 @@ func main() {
 // evalAndPrint evaluates src, printing the result or exiting on error.
 func evalAndPrint(sh *runtime.Shell, src string) {
 	sh.Limits().Hint = runtime.HintFlag
+	sh.Limits().GCTarget = true
 	v, err := sh.EvalWith(src, evalOpts)
 	printWarnings(sh)
 	if err != nil {
@@ -195,7 +198,7 @@ func takeEvalFlags(args []string) []string {
 			} else if len(args) > 1 {
 				spec, args = args[1], args[2:]
 			} else {
-				fail("--limits needs steps=N,timeout=60s,callDepth=N,outputBytes=N")
+				fail("--limits needs steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=1GB")
 			}
 			s, err := runtime.ParseLimitSpec("limits", spec)
 			if err != nil {
@@ -258,7 +261,7 @@ func runMCP(args []string) {
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
 	printPrompt := fs.Bool("prompt", false, "print the system prompt for this configuration and exit")
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
-	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N")
+	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=2GB")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the load(\"db\") in-memory database")
 	var connect, mcpConfigs, sqlSpecs stringSlice

@@ -86,7 +86,7 @@ func TestEvalSchemaHasProfileAndLimits(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("got %d responses", len(lines))
 	}
-	for _, want := range []string{`"profile":{"type":"boolean"`, `"limits":{"type":"object"`, `"steps":{"type":"integer"}`, `"outputBytes"`} {
+	for _, want := range []string{`"profile":{"type":"boolean"`, `"limits":{"type":"object"`, `"steps":{"type":"integer"}`, `"outputBytes"`, `"memory":{"type":["integer","string"]`} {
 		if !strings.Contains(lines[0], want) {
 			t.Errorf("tools/list lacks %s: %s", want, lines[0])
 		}
