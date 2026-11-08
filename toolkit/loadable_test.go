@@ -70,13 +70,14 @@ func TestLoadAndUnload(t *testing.T) {
 	sh := loadShell(&closed)
 
 	got := okEval(t, sh, `load("demo")`)
-	mustContain(t, "load result", got, `Demo.add`, `Demo.twice`, `help("demo")`)
+	// The first load returns the usage block: signatures and the guide.
+	mustContain(t, "load result", got, `Demo.add(a: number, b: number) — adds two numbers`, `Demo.twice(n: number)`, `Demo toolkit — adds numbers.`, `help("demo")`)
 	if okEval(t, sh, `Demo.add(2, 3)`) != "5" {
 		t.Error("Demo.add should work after load")
 	}
-	// Loading again does nothing and returns the same summary.
-	if again := okEval(t, sh, `load("demo")`); again != got {
-		t.Errorf("second load = %q, want %q", again, got)
+	// Loading again does nothing and returns a one-line reminder.
+	if again := okEval(t, sh, `load("demo")`); strings.Contains(again, "\n") || !strings.Contains(again, `"demo" is already loaded: Demo.add, Demo.twice`) {
+		t.Errorf("second load = %q, want a one-line reminder", again)
 	}
 	if n := len(sh.Commands().NamespaceCommands("Demo")); n != 2 {
 		t.Errorf("reload must not duplicate commands: %d in Demo", n)

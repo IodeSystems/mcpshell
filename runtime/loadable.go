@@ -43,7 +43,8 @@ type loadState struct {
 	cmds    []*CommandDef
 	guides  []string
 	closer  io.Closer
-	summary string
+	summary  string // what the first load returned: the usage block
+	reminder string // what a second load returns: one line
 }
 
 // loadHook collects what Shell.Register and RegisterGuide add while Install runs.
@@ -310,7 +311,7 @@ func (t *Shell) Load(name string) (string, error) {
 	case denied:
 		return "", fmt.Errorf("load: toolkit %q is disabled by the operator", name)
 	case done != nil:
-		return done.summary, nil
+		return done.reminder, nil
 	}
 
 	hook := &loadHook{name: name, alive: &atomic.Bool{}}
@@ -340,11 +341,12 @@ func (t *Shell) Load(name string) (string, error) {
 	for i, c := range hook.cmds {
 		names[i] = c.CallName()
 	}
-	summary := fmt.Sprintf("Loaded %q. help(%q) for usage.", name, name)
+	summary := loadUsage(name, hook.cmds, l.def.Guide)
+	reminder := fmt.Sprintf("%q is already loaded. help(%q) repeats its usage.", name, name)
 	if len(names) > 0 {
-		summary = fmt.Sprintf("Loaded %q: %s. help(%q) for usage.", name, strings.Join(names, ", "), name)
+		reminder = fmt.Sprintf("%q is already loaded: %s. help(%q) repeats its usage.", name, strings.Join(names, ", "), name)
 	}
-	st := &loadState{alive: hook.alive, cmds: hook.cmds, guides: hook.guides, closer: closer, summary: summary}
+	st := &loadState{alive: hook.alive, cmds: hook.cmds, guides: hook.guides, closer: closer, summary: summary, reminder: reminder}
 	r.mu.Lock()
 	l.loaded = st
 	r.mu.Unlock()
@@ -399,7 +401,55 @@ func (h *loadHook) guard(def *CommandDef) {
 		if !alive.Load() {
 			panic(Runtime(fmt.Sprintf("%s: toolkit %q was unloaded: call load(%q) and use the new commands", def.DisplayName(), name, name)))
 		}
+		defer func() {
+			if p := recover(); p != nil {
+				if se, ok := p.(*ShellError); ok && !se.Internal() && !strings.Contains(se.Message, "\n  Usage: ") {
+					se.Message += usageLine(def, !strings.Contains(se.Message, "("+def.Signature+")"))
+				}
+				panic(p)
+			}
+		}()
 		return orig(args)
 	}
 	h.cmds = append(h.cmds, def)
+}
+
+// usageLine is what an error from a loaded toolkit's command ends with: the
+// right call and one example. A model learns a toolkit from its load result
+// and its errors; it rarely calls help().
+func usageLine(def *CommandDef, withSignature bool) string {
+	var b strings.Builder
+	if withSignature {
+		b.WriteString("\n\n  Usage: " + def.CallName() + "(" + def.Signature + ")")
+	}
+	if len(def.Examples) > 0 {
+		if !withSignature {
+			b.WriteString("\n")
+		}
+		b.WriteString("\n  Usage: e.g. " + def.Examples[0])
+	}
+	return b.String()
+}
+
+// loadUsage is what the first load of a toolkit returns: one line per
+// command with its signature, then the toolkit's guide (examples, notes).
+// It costs tokens once, in the result of the call that needs them, instead
+// of in every prompt; models in benchmark runs did not call help().
+func loadUsage(name string, cmds []*CommandDef, guide string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Loaded %q.", name)
+	if len(cmds) > 0 {
+		b.WriteString(" Commands:\n")
+		for _, c := range cmds {
+			if c.Hidden {
+				continue
+			}
+			b.WriteString("  " + c.CallName() + "(" + c.Signature + ") — " + Brief(c.Description) + "\n")
+		}
+	}
+	if g := strings.TrimSpace(guide); g != "" {
+		b.WriteString("\n" + g + "\n")
+	}
+	fmt.Fprintf(&b, "\nhelp(%q) shows this again.", name)
+	return b.String()
 }

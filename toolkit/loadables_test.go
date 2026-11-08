@@ -193,3 +193,21 @@ func TestLoadVariadic(t *testing.T) {
 		}
 	}
 }
+
+// An error from a loaded toolkit's command ends with the right call and an
+// example, once.
+func TestLoadedCommandErrorHasUsage(t *testing.T) {
+	sh := mcpLikeShell(false, "", "")
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	toolkit.AddSolver(sh)
+	for _, code := range []string{`load("db"); Db.query("select * from nope")`, `load("db"); Db.load(5)`, `load("solver"); Solver.lp({maximize: {a: 1}, subjectTo: [{a: 1}]})`} {
+		_, err := sh.Eval(code)
+		if err == nil {
+			t.Fatalf("%s: want an error", code)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "Usage: e.g. ") || strings.Count(msg, "Usage: e.g. ") != 1 {
+			t.Errorf("%s: want one usage example line:\n%s", code, msg)
+		}
+	}
+}
