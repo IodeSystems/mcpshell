@@ -79,7 +79,7 @@ func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleCo
 	v.step(ctx)
 	if nb, ok := fn.Body.(*NativeBody); ok {
 		if nb.Cmd != nil {
-			args = v.dropExtraArgs(nb.Cmd, args, ctx)
+			v.checkArity(nb.Cmd, nb.Bound, args)
 		}
 		if !nb.TakesRejections {
 			v.settledArgs(args)
@@ -90,30 +90,32 @@ func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleCo
 	return v.callFunctionInternal(fn, args)
 }
 
-// dropExtraArgs drops arguments past the command's signature, as JS ignores
-// extra arguments, and warns: an extra argument usually means the caller
-// expected another signature — round(x, 2) for two decimals — and the result
-// silently differs from what was meant. One object argument is named
-// arguments and never extra.
-func (v *Visitor) dropExtraArgs(cmd *CommandDef, args []Value, ctx antlr.ParserRuleContext) []Value {
+// checkArity raises an error when a call passes more arguments than the
+// command's signature lists, plus the ones JS ignores too (Tolerate). A
+// caller that expected another signature — round(x, 2), "a,b".split(",", 1)
+// — would get a result that differs from what was meant, and a warning after
+// the result is not read: load("db", "files") dropped "files", and the next
+// call failed for a reason that pointed elsewhere. bound counts the leading
+// arguments the call form supplies itself (the method receiver). One object
+// argument is named arguments and never extra.
+func (v *Visitor) checkArity(cmd *CommandDef, bound int, args []Value) {
 	max := cmd.MaxArgs()
-	if max < 0 || len(args) <= max+cmd.Tolerate {
-		if max >= 0 && len(args) > max {
-			return args[:max]
-		}
-		return args
+	if max < 0 || len(args)+bound <= max+cmd.Tolerate {
+		return
 	}
-	if _, named := args[0].(*ObjectVal); named && len(args) == 1 {
-		return args
+	if _, named := args[0].(*ObjectVal); named && len(args) == 1 && bound == 0 {
+		return
 	}
-	extra := make([]string, 0, len(args)-max)
-	for _, a := range args[max:] {
-		extra = append(extra, a.Display())
+	extra := make([]string, 0, len(args))
+	for _, a := range args[max-bound:] {
+		extra = append(extra, a.Inspect())
 	}
-	v.itp.warn(fmt.Sprintf("line %d: %s(%s) takes %d argument(s); ignored the extra %s. "+
-		"The result may not be what was meant — see help(%q)",
-		startLine(ctx), cmd.DisplayName(), cmd.Signature, max, strings.Join(extra, ", "), cmd.DisplayName()))
-	return args[:max]
+	was := "the extra was "
+	if len(extra) > 1 {
+		was = "the extras were "
+	}
+	panic(Runtime(fmt.Sprintf("%s(%s) takes %d argument(s), got %d: %s%s%s",
+		cmd.CallName(), cmd.Signature, max, len(args)+bound, was, strings.Join(extra, ", "), usageLine(cmd, false))))
 }
 
 // callFunctionInternal dispatches a call by body type, evaluating user
@@ -714,7 +716,7 @@ func (v *Visitor) bindMethodOrHint(receiver Value, typ, field string) Value {
 	if cmd := v.itp.commands.Get(cmdName); cmd != nil {
 		return &FuncVal{
 			Name: cmdName,
-			Body: &NativeBody{Fn: func(args []Value) Value {
+			Body: &NativeBody{Cmd: cmd, Bound: 1, Fn: func(args []Value) Value {
 				return cmd.Fn(append([]Value{receiver}, args...))
 			}},
 		}

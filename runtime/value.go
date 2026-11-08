@@ -297,6 +297,9 @@ type FunctionBody interface{ isFunctionBody() }
 type NativeBody struct {
 	Fn  NativeFn
 	Cmd *CommandDef // the command this calls, if any: its signature caps the argument count
+	// Bound is how many leading arguments the call form supplies by itself:
+	// 1 for the method form, where the receiver is the first argument.
+	Bound int
 	// TakesRejections marks the Promise functions, which handle a failed
 	// async call's rejection in their arguments; any other native function
 	// raises it (see settledArgs).

@@ -157,6 +157,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 			Category:    cats[toolName],
 			Params:      detail,
 			ParamNames:  params,
+			LooseArity:  unchecked,
 			Fn: func(args []runtime.Value) runtime.Value {
 				defer withParams(callName, detail)
 				jsonArgs := argsToJSONMap(args, params)

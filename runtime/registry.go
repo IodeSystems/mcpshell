@@ -24,13 +24,16 @@ type CommandDef struct {
 	// and ignores because JS ignores them too: the thisArg of map, filter and
 	// the like. Ignoring must give the JS result exactly.
 	Tolerate int
+	// LooseArity turns the argument-count check off: the signature is not
+	// known to be complete (an upstream tool with unchecked arguments).
+	LooseArity bool
 }
 
 // MaxArgs is how many arguments the signature lists, or -1 when it does not
 // say: an empty signature, or a rest parameter (...values).
 func (c *CommandDef) MaxArgs() int {
 	sig := strings.TrimSpace(c.Signature)
-	if sig == "" || strings.Contains(sig, "...") {
+	if sig == "" || strings.Contains(sig, "...") || c.LooseArity {
 		return -1
 	}
 	return len(signatureParts(sig))

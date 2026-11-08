@@ -168,8 +168,7 @@ func TestBuiltinShadowWarns(t *testing.T) {
 
 // TestRoundAndDroppedArgs: round takes digits, rounds a half up as JS does,
 // and rounds exact values exactly. A command given more arguments than its
-// signature lists drops them with a warning, so round(x, 2) can no longer
-// silently return an integer.
+// signature lists is an error (TestExtraArgumentsError).
 func TestRoundAndDroppedArgs(t *testing.T) {
 	cases := []struct{ src, want, warn string }{
 		{"round(2.345, 2)", "2.35", ""},
@@ -188,11 +187,7 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 		{"(1.005).toFixed(2)", "1.01", ""},
 		{"(2).toFixed(2)", "2.00", ""},
 		{"(Math.sqrt(2)).toFixed(3)", "1.414", ""},
-		{"floor(2.7, 9)", "2", "line 1: floor(n: number) takes 1 argument(s); ignored the extra 9"},
-		{"Math.floor(2.7, 9)", "2", "line 1: Math.floor(n: number) takes 1 argument(s); ignored the extra 9"},
-		{"Math.pow(2, 3, 4)", "8", "line 1: Math.pow(a: number, b: number) takes 2 argument(s); ignored the extra 4"},
 		{"Math.max(1, 5, 3)", "5", ""},
-		{"let s = \"a\"\ns |> upper(1, 2)", "A", "line 2: upper(input: string) takes 1 argument(s); ignored the extra 1, 2"},
 		{"[3, 1] |> sort((a, b) => a - b)", "[1, 3]", ""},
 		{"[1, 2] |> reduce((a, x) => a + x, 10)", "13", ""},
 		{"print(1, 2, 3)", "", ""},
@@ -210,6 +205,58 @@ func TestRoundAndDroppedArgs(t *testing.T) {
 			warnings := strings.Join(sh.Warnings(), "\n")
 			if c.warn == "" && warnings != "" || !strings.Contains(warnings, c.warn) {
 				t.Errorf("eval(%q) warnings = %q, want %q", c.src, warnings, c.warn)
+			}
+		})
+	}
+}
+
+// TestExtraArgumentsError: an argument past a command's signature is an error
+// naming the command, its signature and an example, in every call form: a
+// result computed without the argument is not what the caller meant.
+func TestExtraArgumentsError(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{`floor(2.7, 9)`, "floor(n: number) takes 1 argument(s), got 2: the extra was 9"},
+		{`Math.floor(2.7, 9)`, "floor(n: number) takes 1 argument(s), got 2: the extra was 9"},
+		{`Math.pow(2, 3, 4)`, "pow(base: number, exp: number) takes 2 argument(s), got 3: the extra was 4"},
+		{`"a,b".split(",", 1, 2)`, "split(input: string, sep?: string|regex, limit?: number) takes 3 argument(s), got 4: the extra was 2"},
+		{`"a,b".trim(1)`, "trim(input: string) takes 1 argument(s), got 2: the extra was 1"},
+		{`[1, 2].sum(1, 2)`, "sum(input: array) takes 1 argument(s), got 3: the extras were 1, 2"},
+		{`"a" |> upper(1, 2)`, "upper(input: string) takes 1 argument(s), got 3: the extras were 1, 2"},
+		{`upper("a", 1)`, "upper(input: string) takes 1 argument(s), got 2: the extra was 1"},
+		{`round(2.5, 1, "x")`, `round(n: number, digits?: number) takes 2 argument(s), got 3: the extra was "x"`},
+		{`let f = upper; f("a", 1)`, "upper(input: string) takes 1 argument(s), got 2"},
+	}
+	for _, c := range cases {
+		t.Run(c.src, func(t *testing.T) {
+			msg := evalErr(t, c.src)
+			if !strings.Contains(msg, c.want) {
+				t.Errorf("eval(%q) error = %q, want it to contain %q", c.src, msg, c.want)
+			}
+		})
+	}
+	t.Run("error ends with the command's first example", func(t *testing.T) {
+		msg := evalErr(t, `"a,b".split(",", 1, 2)`)
+		if !strings.Contains(msg, "\n\n  Usage: e.g. \"a,b,c\" |> split(\",\")") {
+			t.Errorf("error = %q, want a Usage line with the first example", msg)
+		}
+	})
+	// Forms that are not extra arguments.
+	for _, src := range []string{
+		`print(1, 2, 3)`,                        // rest parameter
+		`Math.max(1, 5, 3)`,                     // rest parameter
+		`[1].concat([2], [3])`,                  // rest parameter
+		`limit(input: [1, 2, 3], n: 2)`,         // named arguments
+		`[1, 2, 3] |> limit(n: 2)`,              // named arguments in a pipe
+		`[3, 1] |> sort((a, b) => a - b)`,       // full signature
+		`[1, 2] |> reduce((a, x) => a + x, 10)`, // full signature
+		`[1, 2].map(x => x, null)`,              // thisArg, ignored as in JS
+		`[1, 2].map(Number)`,                    // callbacks get (value, index)
+		`["1", "2"].map(parseInt)`,              // JS quirk: parseInt("2", 1) is NaN
+	} {
+		t.Run(src, func(t *testing.T) {
+			sh := toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell()))
+			if _, err := sh.Eval(src); err != nil {
+				t.Errorf("eval(%q): %v", src, err)
 			}
 		})
 	}

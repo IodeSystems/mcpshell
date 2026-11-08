@@ -87,7 +87,9 @@ not do what was meant: one block of typed lines follows the result (or the
 error): `warning: line N: …`, `note: …` (a toolkit's notice), `profile: …`,
 `limits: steps 850000/1000000 (85%)`. `let all = []` replaces the builtin `all` for the rest of that
 scope, with a warning. A command given more arguments than its signature lists
-ignores the extras, as JS does, with a warning: `floor(2.7, 9)`.
+is an error with its signature and an example: `floor(2.7, 9)`. JS arguments
+that mean something (`parseInt(s, 16)`, `split(",", 2)`, `indexOf(x, from)`)
+work; callbacks' `thisArg` is ignored, as in JS.
 `round(n, digits?)` rounds to decimal places, and a half rounds up as in JS
 `Math.round` (`2.5` → `3`).
 
