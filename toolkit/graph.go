@@ -610,9 +610,9 @@ GRAPH TO Solver.lp / Cp.solve (side constraints the commands above do not take)
   One variable per edge, one balance row per node: out - in = supply.
   let id = e => e.from + ">" + e.to
   Solver.lp({sense: "min",
-    vars: edges |> map(e => ({id: id(e), obj: e.cost, hi: e.cap})),
-    coefs: edges |> flatMap(e => [{con: e.from, var: id(e), coef: 1}, {con: e.to, var: id(e), coef: -1}]),
-    rhs: nodes |> map(n => ({con: n.id, eq: n.supply}))})
+    vars: lanes |> map(e => ({id: id(e), obj: e.cost, hi: e.cap})),
+    coefs: lanes |> flatMap(e => [{con: e.from, var: id(e), coef: 1}, {con: e.to, var: id(e), coef: -1}]),
+    rhs: sites |> map(n => ({con: n.id, eq: n.supply}))})        // lanes, sites: your rows
   // add rows to coefs/rhs for the extra rule; int: true on vars for integer flows.
   // Cp.solve: the same rows as {terms: {...}, eq} constraints with 0/1 or integer vars.
 
