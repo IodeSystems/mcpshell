@@ -33,7 +33,7 @@ var jsNamespaceAliases = []struct {
 // jsConstructorAliases maps JS constructor-style calls to mcpshell command names.
 var jsConstructorAliases = []kv{
 	{"String", "str"}, {"Number", "num"}, {"Boolean", "bool"},
-	{"parseInt", "num"}, {"parseFloat", "num"},
+	{"parseInt", "parseInt"}, {"parseFloat", "parseFloat"},
 }
 
 // mutatingArrayMethods are array methods that mutate-and-write-back via lvalue tracking.
@@ -44,7 +44,6 @@ var mutatingArrayMethods = map[string]bool{
 // jsMethodAliases maps JS method names to mcpshell command names, keyed by receiver type.
 var jsMethodAliases = map[string]map[string]string{
 	"array": {
-		"includes":   "contains",
 		"toSorted":   "sort",
 		"toReversed": "reverse",
 		"with":       "withAt",
@@ -52,7 +51,6 @@ var jsMethodAliases = map[string]map[string]string{
 	"string": {
 		"toUpperCase": "upper",
 		"toLowerCase": "lower",
-		"includes":    "contains",
 		"matchAll":    "match",
 		"search":      "test",
 		"trimLeft":    "trimStart",
@@ -64,7 +62,6 @@ var jsMethodAliases = map[string]map[string]string{
 // and pipe forms match the method form: [1, 2] |> includes(2) as well as
 // [1, 2].includes(2). Only names that are not commands themselves (slice is).
 var jsCommandAliases = map[string]string{
-	"includes":    "contains",
 	"toUpperCase": "upper",
 	"toLowerCase": "lower",
 	"trimLeft":    "trimStart",

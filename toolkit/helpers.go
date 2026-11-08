@@ -301,6 +301,14 @@ func keyString(v Value) string {
 	return v.Display()
 }
 
+// clampIdx is *p clamped to 0..n, or def when p is nil.
+func clampIdx(p *int, def, n int) int {
+	if p == nil {
+		return def
+	}
+	return clamp(*p, 0, n)
+}
+
 func strArr(ss []string) *ArrayVal {
 	out := make([]Value, len(ss))
 	for i, s := range ss {
@@ -348,25 +356,47 @@ func takeLastRunes(r []rune, n int) []rune {
 	return r[len(r)-n:]
 }
 
-// runeIndex finds sub within s, returning a rune offset or -1.
-func runeIndex(s, sub string, last bool) int {
+// runeIndex finds sub within s as JS indexOf (first) or lastIndexOf (last)
+// does, returning a rune offset or -1. from is the fromIndex argument: nil
+// when absent. indexOf starts at from (clamped to the string); lastIndexOf
+// takes matches that start at or before from.
+func runeIndex(s, sub string, from *int, last bool) int {
 	rs, rsub := []rune(s), []rune(sub)
-	if len(rsub) == 0 {
-		if last {
-			return len(rs)
+	if last {
+		start := len(rs)
+		if from != nil {
+			start = clamp(*from, 0, len(rs))
 		}
-		return 0
-	}
-	found := -1
-	for i := 0; i+len(rsub) <= len(rs); i++ {
-		if string(rs[i:i+len(rsub)]) == sub {
-			if !last {
+		for i := min(start, len(rs)-len(rsub)); i >= 0; i-- {
+			if string(rs[i:i+len(rsub)]) == sub {
 				return i
 			}
-			found = i
+		}
+		return -1
+	}
+	start := 0
+	if from != nil {
+		start = clamp(*from, 0, len(rs))
+	}
+	for i := start; i+len(rsub) <= len(rs); i++ {
+		if string(rs[i:i+len(rsub)]) == sub {
+			return i
 		}
 	}
-	return found
+	return -1
+}
+
+// elemFrom resolves a JS fromIndex against a length n: negative counts from
+// the end, and the result is clamped to 0..n. Absent or non-numeric is 0.
+func elemFrom(args []Value, i, n int) int {
+	from := optInt(args, i)
+	if from == nil {
+		return 0
+	}
+	if *from < 0 {
+		return max(n+*from, 0)
+	}
+	return min(*from, n)
 }
 
 func pad(args []Value, cmd string, atStart bool) string {

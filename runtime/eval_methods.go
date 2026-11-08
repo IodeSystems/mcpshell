@@ -97,7 +97,10 @@ func (v *Visitor) callFunction(fn *FuncVal, args []Value, ctx antlr.ParserRuleCo
 // arguments and never extra.
 func (v *Visitor) dropExtraArgs(cmd *CommandDef, args []Value, ctx antlr.ParserRuleContext) []Value {
 	max := cmd.MaxArgs()
-	if max < 0 || len(args) <= max {
+	if max < 0 || len(args) <= max+cmd.Tolerate {
+		if max >= 0 && len(args) > max {
+			return args[:max]
+		}
 		return args
 	}
 	if _, named := args[0].(*ObjectVal); named && len(args) == 1 {
@@ -640,6 +643,17 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		case "toFixed":
 			return &FuncVal{Name: "toFixed", Params: []string{"digits"}, Body: &NativeBody{Fn: func(args []Value) Value {
 				return &StringVal{V: FixedString(o, argInt(args, 0, 0))}
+			}}}
+		case "toPrecision":
+			return &FuncVal{Name: "toPrecision", Params: []string{"precision"}, Body: &NativeBody{Fn: func(args []Value) Value {
+				if len(args) == 0 || args[0] == Null {
+					return &StringVal{V: o.Display()}
+				}
+				p := argInt(args, 0, 0)
+				if p < 1 || p > 100 {
+					panic(Runtime(fmt.Sprintf("toPrecision: precision must be between 1 and 100, got %d", p)))
+				}
+				return &StringVal{V: PrecisionString(o, p)}
 			}}}
 		default:
 			panic(TypeMismatch("member access ."+field, "object, array, or string", obj, ""))

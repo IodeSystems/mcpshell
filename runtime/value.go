@@ -488,6 +488,25 @@ func FixedString(n *NumberVal, digits int) string {
 	return strconv.FormatFloat(n.V, 'f', digits, 64)
 }
 
+// PrecisionString is JS toPrecision: p significant digits, in exponent
+// notation when the exponent is below -6 or at least p.
+func PrecisionString(n *NumberVal, p int) string {
+	if math.IsInf(n.V, 0) || math.IsNaN(n.V) {
+		return nonFinite(n.V)
+	}
+	exp := strconv.FormatFloat(n.V, 'e', p-1, 64)
+	i := strings.IndexByte(exp, 'e')
+	e, _ := strconv.Atoi(exp[i+1:])
+	if e < -6 || e >= p {
+		sign := "+"
+		if e < 0 {
+			sign = "-"
+		}
+		return exp[:i] + "e" + sign + strconv.Itoa(abs(e))
+	}
+	return strconv.FormatFloat(n.V, 'f', p-1-e, 64)
+}
+
 // nonFinite spells ±Inf and NaN as JS does: Infinity, -Infinity, NaN. Go's
 // "+Inf" does not parse back with num().
 func nonFinite(v float64) string {

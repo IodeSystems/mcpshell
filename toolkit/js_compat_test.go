@@ -126,7 +126,7 @@ func TestJsCompatProbe(t *testing.T) {
 		{"102 Object.groupBy", `Object.groupBy([1,2,3], x => x % 2 ? "odd" : "even")`, ok, "{odd: [1, 3], even: [2]}"},
 		{"103 structuredClone", `let a = {x: [1]}; let b = structuredClone(a); b.x.push(2); [a, b]`, ok, "[{x: [1]}, {x: [1, 2]}]"},
 		{"104 JSON.stringify indent", `JSON.stringify({a: [1]}, null, 2)`, ok, "{\n  \"a\": [\n    1\n  ]\n}"},
-		{"105 JSON.stringify replacer", `JSON.stringify({a: 1}, ["a"])`, err, "replacer"},
+		{"105 JSON.stringify replacer", `JSON.stringify({a: 1, b: 2}, ["a"])`, ok, `{"a":1}`},
 		// Syntax.
 		{"106 ??= on null", `let n = null; n ??= 5; n`, ok, "5"},
 		{"107 ??= keeps value", `let o = {a: 0}; o.a ??= 5; o.a`, ok, "0"},

@@ -215,21 +215,28 @@ func InstallCore(sh *Shell) *Shell {
 			return Str(strings.Join(parts, sep))
 		})
 
-	reg("split", "input: string, sep?: string|regex", "splits by separator; no separator → [input], as in JS",
-		[]string{`"a,b,c" |> split(",")`, `split("hello world", " ")`},
+	reg("split", "input: string, sep?: string|regex, limit?: number",
+		"splits by separator, into at most limit parts; no separator → [input], as in JS",
+		[]string{`"a,b,c" |> split(",")`, `split("hello world", " ")`, `"a,b,c".split(",", 2)`},
 		func(args []Value) Value {
 			s := requireString("split", arg(args, 0))
+			var parts []string
 			switch sep := argOpt(args, 1).(type) {
 			case *RegexVal:
-				return strArr(regexSplit(buildRegex(sep), s))
+				parts = regexSplit(buildRegex(sep), s)
 			case *StringVal:
 				if sep.V == "" {
-					return strArr(stringChars(s))
+					parts = stringChars(s)
+				} else {
+					parts = strings.Split(s, sep.V)
 				}
-				return strArr(strings.Split(s, sep.V))
 			default:
-				return strArr([]string{s})
+				parts = []string{s}
 			}
+			if n := optInt(args, 2); n != nil && *n >= 0 && *n < len(parts) {
+				parts = parts[:*n]
+			}
+			return strArr(parts)
 		})
 
 	reg("lines", "input: string", "splits string into lines (trims trailing empty line)",
@@ -500,13 +507,19 @@ func InstallCore(sh *Shell) *Shell {
 			return Null
 		})
 
-	reg("contains", "input: array|string, value: any", "membership test",
-		[]string{`[1, 2, 3] |> contains(2)`, `"hello world" |> contains("world")`},
-		func(args []Value) Value {
+	// contains has no fromIndex, so a method reference works as a callback:
+	// filter(allowed.contains) gets (element, index). includes is the JS form
+	// with fromIndex, and has JS's quirk with callbacks too.
+	contains := func(name string) NativeFn {
+		return func(args []Value) Value {
 			target := arg(args, 1)
 			switch input := arg(args, 0).(type) {
 			case *ArrayVal:
-				for _, el := range input.Elements {
+				els := input.Elements
+				if name == "includes" {
+					els = els[elemFrom(args, 2, len(els)):]
+				}
+				for _, el := range els {
 					if valuesEqual(el, target) {
 						return Bln(true)
 					}
@@ -515,13 +528,23 @@ func InstallCore(sh *Shell) *Shell {
 			case *StringVal:
 				sub, ok := target.(*StringVal)
 				if !ok {
-					panic(TypeMismatch("contains", "string", target, "use a string argument with string input"))
+					panic(TypeMismatch(name, "string", target, "use a string argument with string input"))
 				}
-				return Bln(strings.Contains(input.V, sub.V))
+				text := input.V
+				if name == "includes" {
+					r := []rune(text)
+					text = string(r[elemFrom(args, 2, len(r)):])
+				}
+				return Bln(strings.Contains(text, sub.V))
 			default:
 				return Bln(false)
 			}
-		})
+		}
+	}
+	reg("contains", "input: array|string, value: any", "membership test",
+		[]string{`[1, 2, 3] |> contains(2)`, `"hello world" |> contains("world")`}, contains("contains"))
+	regH("includes", "input: array|string, value: any, fromIndex?: number",
+		"membership test from fromIndex on (JS includes)", contains("includes"))
 
 	reg("groupBy", "input: array, fn: (T) => string", "→ {key: elements[]}",
 		[]string{`[1, 2, 3, 4, 5] |> groupBy(x => x % 2 == 0 ? "even" : "odd")`},
@@ -728,24 +751,28 @@ func InstallCore(sh *Shell) *Shell {
 		[]string{`"a-b-c" |> replaceAll("-", "+")`},
 		func(args []Value) Value { return Str(replaceString("replaceAll", args, true)) })
 
-	reg("startsWith", "input: string, prefix: string", "prefix test", []string{`"hello" |> startsWith("hel")`},
+	reg("startsWith", "input: string, prefix: string, position?: number", "prefix test, at position (default 0)",
+		[]string{`"hello" |> startsWith("hel")`, `"hello".startsWith("ll", 2)`},
 		func(args []Value) Value {
 			input := requireString("startsWith", arg(args, 0))
 			prefix, ok := arg(args, 1).(*StringVal)
 			if !ok {
 				panic(WrongArguments("startsWith", "input: string, prefix: string", args, ""))
 			}
-			return Bln(strings.HasPrefix(input, prefix.V))
+			r := []rune(input)
+			return Bln(strings.HasPrefix(string(r[clampIdx(optInt(args, 2), 0, len(r)):]), prefix.V))
 		})
 
-	reg("endsWith", "input: string, suffix: string", "suffix test", []string{`"hello" |> endsWith("llo")`},
+	reg("endsWith", "input: string, suffix: string, endPosition?: number", "suffix test, on the first endPosition characters (default all)",
+		[]string{`"hello" |> endsWith("llo")`, `"hello".endsWith("ell", 4)`},
 		func(args []Value) Value {
 			input := requireString("endsWith", arg(args, 0))
 			suffix, ok := arg(args, 1).(*StringVal)
 			if !ok {
 				panic(WrongArguments("endsWith", "input: string, suffix: string", args, ""))
 			}
-			return Bln(strings.HasSuffix(input, suffix.V))
+			r := []rune(input)
+			return Bln(strings.HasSuffix(string(r[:clampIdx(optInt(args, 2), len(r), len(r))]), suffix.V))
 		})
 
 	reg("substring", "input: string, start?: number, end?: number",
@@ -766,6 +793,22 @@ func InstallCore(sh *Shell) *Shell {
 			}
 			if start > end {
 				start, end = end, start
+			}
+			return Str(string(r[start:end]))
+		})
+
+	regH("substr", "input: string, start: number, length?: number",
+		"slice string, as JS substr: negative start counts from the end, length characters",
+		func(args []Value) Value {
+			r := []rune(requireString("substr", arg(args, 0)))
+			start := int(requireNumber("substr", args, 1))
+			if start < 0 {
+				start = max(len(r)+start, 0)
+			}
+			start = min(start, len(r))
+			end := len(r)
+			if n := optInt(args, 2); n != nil {
+				end = start + clamp(*n, 0, len(r)-start)
 			}
 			return Str(string(r[start:end]))
 		})
@@ -976,14 +1019,14 @@ func InstallCore(sh *Shell) *Shell {
 			return last
 		})
 
-	reg("indexOf", "input: array|string, value: any", "first index of value, or -1",
+	reg("indexOf", "input: array|string, value: any, fromIndex?: number", "first index of value from fromIndex on, or -1",
 		[]string{`[10, 20, 30] |> indexOf(20)`, `"hello" |> indexOf("ll")`},
 		func(args []Value) Value {
 			switch input := arg(args, 0).(type) {
 			case *ArrayVal:
 				target := arg(args, 1)
-				for i, el := range input.Elements {
-					if valuesEqual(el, target) {
+				for i := elemFrom(args, 2, len(input.Elements)); i < len(input.Elements); i++ {
+					if valuesEqual(input.Elements[i], target) {
 						return Num(float64(i))
 					}
 				}
@@ -993,17 +1036,25 @@ func InstallCore(sh *Shell) *Shell {
 				if !ok {
 					panic(TypeMismatch("indexOf", "string", arg(args, 1), ""))
 				}
-				return Num(float64(runeIndex(input.V, sub.V, false)))
+				return Num(float64(runeIndex(input.V, sub.V, optInt(args, 2), false)))
 			default:
 				panic(TypeMismatch("indexOf", "array or string", input, ""))
 			}
 		})
 
-	reg("lastIndexOf", "input: array|string, value: any", "last index of value, or -1",
+	reg("lastIndexOf", "input: array|string, value: any, fromIndex?: number", "last index of value at or before fromIndex, or -1",
 		[]string{`"hello world hello" |> lastIndexOf("hello")`, `[1, 2, 1] |> lastIndexOf(1)`},
 		func(args []Value) Value {
 			if a, ok := arg(args, 0).(*ArrayVal); ok {
-				for i := len(a.Elements) - 1; i >= 0; i-- {
+				start := len(a.Elements) - 1
+				if from := optInt(args, 2); from != nil {
+					start = *from
+					if start < 0 {
+						start += len(a.Elements)
+					}
+					start = min(start, len(a.Elements)-1)
+				}
+				for i := start; i >= 0; i-- {
 					if valuesEqual(a.Elements[i], arg(args, 1)) {
 						return Num(float64(i))
 					}
@@ -1015,7 +1066,7 @@ func InstallCore(sh *Shell) *Shell {
 			if !ok {
 				panic(WrongArguments("lastIndexOf", "input: string, substr: string", args, ""))
 			}
-			return Num(float64(runeIndex(input, sub.V, true)))
+			return Num(float64(runeIndex(input, sub.V, optInt(args, 2), true)))
 		})
 
 	reg("flatMap", "input: array, fn: (T) => array", "maps then flattens one level",
@@ -1272,13 +1323,20 @@ func InstallCore(sh *Shell) *Shell {
 			return Bitwise("^", arg(args, 0), arg(args, 1))
 		})
 
-	regH("jsonStringify", "value: any, replacer?: null, space?: number|string",
-		"JSON.stringify: space indents (a number of spaces, at most 10, or a string)",
+	regH("jsonStringify", "value: any, replacer?: null|string[]|(key, value) => any, space?: number|string",
+		"JSON.stringify: a replacer function or key list filters; space indents (a number of spaces, at most 10, or a string)",
 		func(args []Value) Value {
-			out := toJSONString(arg(args, 0))
-			if r := argOpt(args, 1); r != nil && r != Null {
-				panic(Runtime("JSON.stringify: a replacer is not supported; pass null, or map the value first"))
+			value := arg(args, 0)
+			switch r := argOpt(args, 1).(type) {
+			case nil, *NullVal:
+			case *FuncVal:
+				value = replaceJSON(r, "", value)
+			case *ArrayVal:
+				value = filterJSONKeys(r, value)
+			default:
+				panic(TypeMismatch("JSON.stringify", "replacer function, array of keys, or null", r, ""))
 			}
+			out := toJSONString(value)
 			indent := ""
 			switch sp := argOpt(args, 2).(type) {
 			case *NumberVal:
@@ -1299,37 +1357,29 @@ func InstallCore(sh *Shell) *Shell {
 			return Str(b.String())
 		})
 
-	regH("parseInt", "value: any, radix?: number", "parse string to integer",
+	regH("parseInt", "value: any, radix?: number", "parse the leading integer of a string in radix (default 10, or 16 after 0x); NaN when it has none",
 		func(args []Value) Value {
-			radix := 10
+			radix := 0
 			if r := optInt(args, 1); r != nil {
 				radix = *r
 			}
 			switch v := arg(args, 0).(type) {
 			case *NumberVal:
-				return Num(math.Trunc(v.V))
+				return jsParseInt(v.Display(), radix)
 			case *StringVal:
-				n, err := strconv.ParseInt(strings.TrimSpace(v.V), radix, 64)
-				if err != nil {
-					return Num(math.NaN())
-				}
-				return Num(float64(n))
+				return jsParseInt(v.V, radix)
 			default:
 				return Num(math.NaN())
 			}
 		})
 
-	regH("parseFloat", "value: any", "parse string to float",
+	regH("parseFloat", "value: any", "parse the leading decimal number of a string; NaN when it has none",
 		func(args []Value) Value {
 			switch v := arg(args, 0).(type) {
 			case *NumberVal:
 				return v
 			case *StringVal:
-				f, err := strconv.ParseFloat(strings.TrimSpace(v.V), 64)
-				if err != nil {
-					return Num(math.NaN())
-				}
-				return Num(f)
+				return jsParseFloat(v.V)
 			default:
 				return Num(math.NaN())
 			}
@@ -1478,6 +1528,15 @@ func InstallCore(sh *Shell) *Shell {
 	regH("Boolean", "value: any", "convert to boolean",
 		func(args []Value) Value { return Bln(arg(args, 0).IsTruthy()) })
 
+	// JS ignores one argument past these (the thisArg of a callback method,
+	// the radix of Number(x, 10)); ignoring it gives the JS result exactly.
+	for _, name := range []string{"map", "filter", "find", "forEach", "flatMap", "some", "every",
+		"findIndex", "findLastIndex", "findLast", "toArray",
+		"str", "num", "bool", "Number", "String", "Boolean", "parseFloat"} {
+		if c := sh.Commands().Get(name); c != nil {
+			c.Tolerate = 1
+		}
+	}
 	return sh
 }
 

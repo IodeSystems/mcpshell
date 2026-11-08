@@ -20,6 +20,10 @@ type CommandDef struct {
 	Params      string   // per-parameter detail, one line each; shown by help("name") only
 	ParamNames  []string // parameter names in order, for named arguments: f(region: "West")
 	Fn          NativeFn
+	// Tolerate is how many arguments past the signature the command accepts
+	// and ignores because JS ignores them too: the thisArg of map, filter and
+	// the like. Ignoring must give the JS result exactly.
+	Tolerate int
 }
 
 // MaxArgs is how many arguments the signature lists, or -1 when it does not
