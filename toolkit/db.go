@@ -45,6 +45,10 @@ var fileConfiners sync.Map // *Shell -> func(path string) string
 // setFileConfiner is called by the file toolkit when it is installed.
 func setFileConfiner(sh *Shell, resolve func(path string) string) { fileConfiners.Store(sh, resolve) }
 
+// ClearFileConfiner removes the confiner, so Db.loadCsv does not read through
+// a file toolkit that is not the agent's (the overflow reader).
+func ClearFileConfiner(sh *Shell) { fileConfiners.Delete(sh) }
+
 // DbLoadable returns the loadable for load("db").
 func DbLoadable(opts DbOptions) Loadable {
 	if opts.MaxMB <= 0 {
@@ -720,6 +724,12 @@ func (st *dbState) register(sh *Shell) {
 func (st *dbState) resolveFile(cmd, path string) (full string) {
 	fn, _ := fileConfiners.Load(st.sh)
 	resolve, _ := fn.(func(string) string)
+	if resolve == nil {
+		if ok, _ := st.sh.EnsureFiles(); ok {
+			fn, _ = fileConfiners.Load(st.sh)
+			resolve, _ = fn.(func(string) string)
+		}
+	}
 	if resolve == nil {
 		panic(Runtime(cmd + ": the file toolkit is not enabled, so there are no files to read\n\n  Hint: the operator starts mcpshell with --files-dir <dir>. Meanwhile pass the text through Db.parseCsv and Db.load"))
 	}

@@ -246,37 +246,47 @@ func (t *Shell) getFileLoader() func(path string) Value {
 // FilesToolkit is the loadable that provides the file loader.
 const FilesToolkit = "files"
 
+// EnsureFiles loads the file toolkit when the operator permitted it and it is
+// not loaded. It returns "" when the file toolkit can be used, or the reason
+// it cannot: the operator flag that enables it, or "" for disabled with no
+// flag known. Commands that read files through the file toolkit (load of a
+// path, Db.loadCsv) call it, so an agent does not pay a turn for load("files").
+func (t *Shell) EnsureFiles() (enabled bool, flag string) {
+	if t.getFileLoader() != nil {
+		return true, ""
+	}
+	r := t.commands
+	r.mu.RLock()
+	l := r.loadables[FilesToolkit]
+	denied := r.denied[FilesToolkit]
+	r.mu.RUnlock()
+	if l == nil || denied {
+		return false, ""
+	}
+	if l.def.Disabled != "" {
+		return false, l.def.Disabled
+	}
+	if _, err := t.Load(FilesToolkit); err != nil {
+		panic(Runtime(err.Error()))
+	}
+	return t.getFileLoader() != nil, ""
+}
+
 // LoadFile evaluates a .mcpshell file through the file toolkit. If the
 // operator permitted that toolkit but it is not loaded, LoadFile loads it.
 func (t *Shell) LoadFile(path string) Value {
-	fn := t.getFileLoader()
-	if fn == nil {
-		r := t.commands
-		r.mu.RLock()
-		l := r.loadables[FilesToolkit]
-		denied := r.denied[FilesToolkit]
-		r.mu.RUnlock()
-		if l != nil && !denied && l.def.Disabled == "" {
-			if _, err := t.Load(FilesToolkit); err != nil {
-				panic(Runtime(err.Error()))
-			}
-			fn = t.getFileLoader()
-		}
-	}
-	if fn == nil {
+	ok, flag := t.EnsureFiles()
+	if !ok {
 		msg := "load: '" + path + "' is not a loadable toolkit, and no file toolkit is installed to load it as a file"
-		t.commands.mu.RLock()
-		l := t.commands.loadables[FilesToolkit]
-		t.commands.mu.RUnlock()
-		if l != nil && l.def.Disabled != "" {
-			msg = "load: '" + path + "' is a file path, and the operator did not enable the file toolkit (" + l.def.Disabled + ")"
+		if flag != "" {
+			msg = "load: '" + path + "' is a file path, and the operator did not enable the file toolkit (" + flag + ")"
 		}
 		if names := t.commands.LoadableNames(); len(names) > 0 {
 			msg += ". Toolkits: " + strings.Join(names, ", ")
 		}
 		panic(Runtime(msg))
 	}
-	return fn(path)
+	return t.getFileLoader()(path)
 }
 
 // Load installs a loadable and returns its summary. Loading again does

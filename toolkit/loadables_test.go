@@ -22,6 +22,7 @@ func mcpLikeShell(web bool, filesDir string, overflow string) *runtime.Shell {
 		reader := func(sh *runtime.Shell) {
 			toolkit.InstallFile(sh, overflow, true)
 			sh.SetFileLoader(nil)
+			toolkit.ClearFileConfiner(sh)
 		}
 		reader(sh)
 		restore = reader
@@ -132,5 +133,34 @@ func TestXorIsHiddenAlias(t *testing.T) {
 	}
 	if strings.Contains(sh.ToPrompt(false), "xor(") {
 		t.Error("xor is listed in the prompt")
+	}
+}
+
+// Db.loadCsv installs a permitted file toolkit itself, and does not read
+// through the overflow reader.
+func TestDbLoadCsvLoadsFiles(t *testing.T) {
+	for _, overflow := range []bool{false, true} {
+		ws := t.TempDir()
+		ov := ""
+		if overflow {
+			ov = t.TempDir()
+		}
+		if err := os.WriteFile(filepath.Join(ws, "p.csv"), []byte("sku,amt\nA,0.1\nB,0.2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sh := mcpLikeShell(false, ws, ov)
+		sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+		v, err := sh.Eval(`load("db"); Db.loadCsv("p", "p.csv"); Db.query("select sum(amt) s from p")[0].s`)
+		if err != nil {
+			t.Fatalf("overflow=%v: %v", overflow, err)
+		}
+		if got := v.Display(); got != "0.3" {
+			t.Fatalf("overflow=%v: sum = %s, want 0.3", overflow, got)
+		}
+	}
+	sh := mcpLikeShell(false, "", "")
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	if _, err := sh.Eval(`load("db"); Db.loadCsv("p", "p.csv")`); err == nil || !strings.Contains(err.Error(), "--files-dir") {
+		t.Fatalf("without --files-dir: err = %v, want a hint naming --files-dir", err)
 	}
 }

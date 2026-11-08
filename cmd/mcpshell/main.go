@@ -263,6 +263,7 @@ func runMCP(args []string) {
 	overflowReader := func(sh *runtime.Shell) {
 		toolkit.InstallFile(sh, overflowDir, true)
 		sh.SetFileLoader(nil)
+		toolkit.ClearFileConfiner(sh)
 	}
 	var restore func(sh *runtime.Shell)
 	if overflowDir != "" {
