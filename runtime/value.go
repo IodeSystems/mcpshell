@@ -193,13 +193,7 @@ func (*ArrayVal) isValue()         {}
 func (*ArrayVal) TypeName() string { return "array" }
 func (a *ArrayVal) IsTruthy() bool { return len(a.Elements) > 0 }
 
-func (a *ArrayVal) Display() string {
-	parts := make([]string, len(a.Elements))
-	for i, e := range a.Elements {
-		parts[i] = e.Inspect()
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
+func (a *ArrayVal) Display() string { return inspectIn(a, &Ancestors{}) }
 func (a *ArrayVal) Inspect() string { return a.Display() }
 
 // --- Object ------------------------------------------------------------------
@@ -255,20 +249,7 @@ func (o *ObjectVal) Delete(k string) {
 // Keys returns the keys in insertion order. The result must not be mutated.
 func (o *ObjectVal) Keys() []string { return o.keys }
 
-func (o *ObjectVal) Display() string {
-	var sb strings.Builder
-	sb.WriteByte('{')
-	for i, k := range o.keys {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.WriteString(o.m[k].Inspect())
-	}
-	sb.WriteByte('}')
-	return sb.String()
-}
+func (o *ObjectVal) Display() string { return inspectIn(o, &Ancestors{}) }
 func (o *ObjectVal) Inspect() string { return o.Display() }
 
 // --- Regex -------------------------------------------------------------------

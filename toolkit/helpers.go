@@ -623,11 +623,17 @@ func reduceElements(fn *FuncVal, els []Value, args []Value, right bool) Value {
 }
 
 // flatten spreads nested arrays depth levels deep (+Inf: all levels).
-func flatten(els []Value, depth float64) []Value {
+func flatten(els []Value, depth float64) []Value { return flattenIn(els, depth, &Ancestors{}) }
+
+func flattenIn(els []Value, depth float64, anc *Ancestors) []Value {
 	out := []Value{}
 	for _, el := range els {
 		if sub, ok := el.(*ArrayVal); ok && depth >= 1 {
-			out = append(out, flatten(sub.Elements, depth-1)...)
+			if !anc.Enter(sub) {
+				panic(CircularError("flat"))
+			}
+			out = append(out, flattenIn(sub.Elements, depth-1, anc)...)
+			anc.Leave()
 		} else {
 			out = append(out, el)
 		}
@@ -661,20 +667,29 @@ func findIndexOf(cmd string, args []Value, fromEnd bool) int {
 	return -1
 }
 
-// deepCopy copies arrays and objects recursively; other values are immutable.
-func deepCopy(v Value) Value {
+// deepCopy copies arrays and objects recursively; other values are
+// immutable. A value reached twice is copied once, so shared parts stay shared
+// and a cycle stays a cycle, as structuredClone does.
+func deepCopy(v Value) Value { return copyIn(v, map[Value]Value{}) }
+
+func copyIn(v Value, done map[Value]Value) Value {
+	if c, ok := done[v]; ok {
+		return c
+	}
 	switch x := v.(type) {
 	case *ArrayVal:
-		out := make([]Value, len(x.Elements))
+		out := &ArrayVal{Elements: make([]Value, len(x.Elements))}
+		done[v] = out
 		for i, e := range x.Elements {
-			out[i] = deepCopy(e)
+			out.Elements[i] = copyIn(e, done)
 		}
-		return &ArrayVal{Elements: out}
+		return out
 	case *ObjectVal:
 		out := NewObject()
+		done[v] = out
 		for _, k := range x.Keys() {
 			e, _ := x.Get(k)
-			out.Set(k, deepCopy(e))
+			out.Set(k, copyIn(e, done))
 		}
 		return out
 	default:
@@ -932,7 +947,16 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 // ToJSON renders v as compact JSON, as toJson does.
 func ToJSON(v Value) string { return toJSONString(v) }
 
-func toJSONString(v Value) string {
+func toJSONString(v Value) string { return jsonIn(v, &Ancestors{}) }
+
+func jsonIn(v Value, anc *Ancestors) string {
+	switch v.(type) {
+	case *ArrayVal, *ObjectVal:
+		if !anc.Enter(v) {
+			panic(CircularError("JSON.stringify"))
+		}
+		defer anc.Leave()
+	}
 	switch x := v.(type) {
 	case *NullVal:
 		return "null"
@@ -948,14 +972,14 @@ func toJSONString(v Value) string {
 	case *ArrayVal:
 		parts := make([]string, len(x.Elements))
 		for i, e := range x.Elements {
-			parts[i] = toJSONString(e)
+			parts[i] = jsonIn(e, anc)
 		}
 		return "[" + strings.Join(parts, ",") + "]"
 	case *ObjectVal:
 		var parts []string
 		for _, k := range x.Keys() {
 			vv, _ := x.Get(k)
-			parts = append(parts, "\""+escapeJSONString(k)+"\":"+toJSONString(vv))
+			parts = append(parts, "\""+escapeJSONString(k)+"\":"+jsonIn(vv, anc))
 		}
 		return "{" + strings.Join(parts, ",") + "}"
 	case *RegexVal:

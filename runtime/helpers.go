@@ -305,7 +305,26 @@ func add(left, right Value) Value {
 func Equal(a, b Value) bool { return valueEquals(a, b) }
 
 // valueEquals is structural (deep) equality, matching mcpshell's `==`.
-func valueEquals(a, b Value) bool {
+func valueEquals(a, b Value) bool { return equalsIn(a, b, nil) }
+
+// eqPair is a pair of containers being compared; met again (a cycle), the
+// pair is taken as equal, so two structures that loop the same way compare
+// equal instead of recursing forever.
+type eqPair struct{ a, b Value }
+
+func equalsIn(a, b Value, comparing []eqPair) bool {
+	switch a.(type) {
+	case *ArrayVal, *ObjectVal:
+		if a == b {
+			return true
+		}
+		for _, p := range comparing {
+			if p.a == a && p.b == b {
+				return true
+			}
+		}
+		comparing = append(comparing, eqPair{a, b})
+	}
 	switch x := a.(type) {
 	case *NullVal:
 		_, ok := b.(*NullVal)
@@ -331,7 +350,7 @@ func valueEquals(a, b Value) bool {
 			return false
 		}
 		for i := range x.Elements {
-			if !valueEquals(x.Elements[i], y.Elements[i]) {
+			if !equalsIn(x.Elements[i], y.Elements[i], comparing) {
 				return false
 			}
 		}
@@ -347,7 +366,7 @@ func valueEquals(a, b Value) bool {
 				return false
 			}
 			xv, _ := x.Get(k)
-			if !valueEquals(xv, yv) {
+			if !equalsIn(xv, yv, comparing) {
 				return false
 			}
 		}

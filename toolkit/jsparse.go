@@ -95,20 +95,29 @@ func jsParseFloat(s string) Value {
 // replaceJSON applies a JSON.stringify replacer function: it is called with
 // (key, value) for the root (key "") and then for every member, and its
 // result replaces the value.
-func replaceJSON(fn *FuncVal, key string, v Value) Value {
+func replaceJSON(fn *FuncVal, key string, v Value) Value { return replaceIn(fn, key, v, &Ancestors{}) }
+
+func replaceIn(fn *FuncVal, key string, v Value, anc *Ancestors) Value {
 	v = Call(fn, []Value{Str(key), v})
+	switch v.(type) {
+	case *ArrayVal, *ObjectVal:
+		if !anc.Enter(v) {
+			panic(CircularError("JSON.stringify"))
+		}
+		defer anc.Leave()
+	}
 	switch x := v.(type) {
 	case *ObjectVal:
 		out := NewObject()
 		for _, k := range x.Keys() {
 			member, _ := x.Get(k)
-			out.Set(k, replaceJSON(fn, k, member))
+			out.Set(k, replaceIn(fn, k, member, anc))
 		}
 		return out
 	case *ArrayVal:
 		els := make([]Value, len(x.Elements))
 		for i, el := range x.Elements {
-			els[i] = replaceJSON(fn, Num(float64(i)).Display(), el)
+			els[i] = replaceIn(fn, Num(float64(i)).Display(), el, anc)
 		}
 		return &ArrayVal{Elements: els}
 	}
@@ -117,7 +126,16 @@ func replaceJSON(fn *FuncVal, key string, v Value) Value {
 
 // filterJSONKeys applies a JSON.stringify replacer array: objects keep only
 // the listed keys, in the list's order, at every depth.
-func filterJSONKeys(list *ArrayVal, v Value) Value {
+func filterJSONKeys(list *ArrayVal, v Value) Value { return filterIn(list, v, &Ancestors{}) }
+
+func filterIn(list *ArrayVal, v Value, anc *Ancestors) Value {
+	switch v.(type) {
+	case *ArrayVal, *ObjectVal:
+		if !anc.Enter(v) {
+			panic(CircularError("JSON.stringify"))
+		}
+		defer anc.Leave()
+	}
 	switch x := v.(type) {
 	case *ObjectVal:
 		out := NewObject()
@@ -134,14 +152,14 @@ func filterJSONKeys(list *ArrayVal, v Value) Value {
 			}
 			if member, ok := x.Get(name); ok && !seen[name] {
 				seen[name] = true
-				out.Set(name, filterJSONKeys(list, member))
+				out.Set(name, filterIn(list, member, anc))
 			}
 		}
 		return out
 	case *ArrayVal:
 		els := make([]Value, len(x.Elements))
 		for i, el := range x.Elements {
-			els[i] = filterJSONKeys(list, el)
+			els[i] = filterIn(list, el, anc)
 		}
 		return &ArrayVal{Elements: els}
 	}

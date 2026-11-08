@@ -423,7 +423,16 @@ func argsToJSONMap(args []runtime.Value, paramNames []string) map[string]any {
 }
 
 // valueToJSON converts a mcpshell value to a JSON-encodable Go value.
-func valueToJSON(v runtime.Value) any {
+func valueToJSON(v runtime.Value) any { return jsonValueIn(v, &runtime.Ancestors{}) }
+
+func jsonValueIn(v runtime.Value, anc *runtime.Ancestors) any {
+	switch v.(type) {
+	case *runtime.ArrayVal, *runtime.ObjectVal:
+		if !anc.Enter(v) {
+			panic(runtime.CircularError("a tool argument"))
+		}
+		defer anc.Leave()
+	}
 	switch x := v.(type) {
 	case *runtime.NullVal:
 		return nil
@@ -439,14 +448,14 @@ func valueToJSON(v runtime.Value) any {
 	case *runtime.ArrayVal:
 		out := make([]any, len(x.Elements))
 		for i, e := range x.Elements {
-			out[i] = valueToJSON(e)
+			out[i] = jsonValueIn(e, anc)
 		}
 		return out
 	case *runtime.ObjectVal:
 		out := make(map[string]any, x.Len())
 		for _, k := range x.Keys() {
 			e, _ := x.Get(k)
-			out[k] = valueToJSON(e)
+			out[k] = jsonValueIn(e, anc)
 		}
 		return out
 	default:
