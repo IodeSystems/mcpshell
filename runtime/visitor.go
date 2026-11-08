@@ -1190,9 +1190,9 @@ func (v *Visitor) visitComparisonExpr(ctx *parser.ComparisonExprContext) Value {
 			cmp = compareValues(result, right)
 		} else if bothNumbers(result, right) || bothStrings(result, right) {
 			cmp = compareValues(result, right)
-		} else { // a mismatch panics; give it the location, off the hot path
+		} else { // off the hot path: settle, convert booleans, or raise with the location
 			left := result
-			v.withLocation(ctx, func() Value { compareValues(settled(left), settled(right)); return nil })
+			v.withLocation(ctx, func() Value { cmp = compareValues(settled(left), settled(right)); return nil })
 		}
 		switch op {
 		case "<":
@@ -1319,6 +1319,17 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 			return v.withLocation(ctx, func() Value { panic(TypeMismatch("unary -", "number", val, "")) })
 		}
 		return sub(numInt(0), val) // exact: -(2 ** 70) keeps every digit
+	case ctx.PLUS() != nil:
+		// Unary + converts as Number(x) does: +"42" is 42, +true is 1.
+		// "1:" is an error, not NaN, by the Number rule.
+		val := boolNum(settled(v.eval(ctx.UnaryExpr())))
+		if _, ok := val.(*NumberVal); ok {
+			return val
+		}
+		if def := v.itp.commands.Get("num"); def != nil {
+			return v.withLocation(ctx, func() Value { return def.Fn([]Value{val}) })
+		}
+		return v.withLocation(ctx, func() Value { panic(TypeMismatch("unary +", "number", val, "")) })
 	case ctx.TILDE() != nil:
 		val := settled(v.eval(ctx.UnaryExpr()))
 		return BitNot(val)

@@ -29,3 +29,28 @@ func TestBoolArithmetic(t *testing.T) {
 	}
 	evalErr(t, `null + true`)
 }
+
+// A boolean compares as 1 or 0 against a number, and unary + converts as
+// Number() does, as in JS. The mixed-type comparison path dropped its
+// result once booleans stopped raising: true < 2 was false.
+func TestBoolCompareAndUnaryPlus(t *testing.T) {
+	for src, want := range map[string]string{
+		`true < 2`:                   "true",
+		`false >= true`:              "false",
+		`true > 0`:                   "true",
+		`true <= 1`:                  "true",
+		`+"42"`:                      "42",
+		`+true`:                      "1",
+		`+"3.5" * 2`:                 "7",
+		`1 + +"2"`:                   "3",
+		`-+"4"`:                      "-4",
+		`let a = 1; a` + "\n" + `+2`: "3",
+	} {
+		v, err := toolkit.InstallCore(runtime.NewShell()).Eval(src)
+		if err != nil || v.Display() != want {
+			t.Errorf("%s = %v, %v; want %s", src, v, err, want)
+		}
+	}
+	evalErr(t, `1 < "a"`)
+	evalErr(t, `+"1:"`) // as Number("1:"): an error, not NaN
+}

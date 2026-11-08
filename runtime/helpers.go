@@ -365,6 +365,17 @@ func compareValues(a, b Value) int {
 	if d, ok := b.(*DateVal); ok {
 		b = d.msNumber()
 	}
+	// A boolean is 1 or 0 against a number or a boolean, as in JS
+	// (true < 2), and as in arithmetic.
+	_, aBool := a.(*BoolVal)
+	_, bBool := b.(*BoolVal)
+	if aBool || bBool {
+		_, aNum := a.(*NumberVal)
+		_, bNum := b.(*NumberVal)
+		if (aBool || aNum) && (bBool || bNum) {
+			a, b = boolNum(a), boolNum(b)
+		}
+	}
 	switch x := a.(type) {
 	case *NumberVal:
 		if y, ok := b.(*NumberVal); ok {
