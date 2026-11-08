@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
@@ -548,22 +546,8 @@ func (v *Visitor) applyCompoundOp(op string, current, rhs Value) Value {
 		return divide(current, rhs)
 	case "%=":
 		return modulo(current, rhs)
-	case "&=":
-		return intBitwiseOp(current, rhs, "&", func(a, b int32) int32 { return a & b })
-	case "|=":
-		panic(Runtime("'|=' is not supported. Did you mean:\n" +
-			"  |>   pipe        (value |> function)\n" +
-			"  ||   logical OR  (a || b)"))
-	case "^=":
-		panic(Runtime("'^=' is not supported. Use **= for exponentiation or xor() for bitwise XOR:\n" +
-			"  x **= 2       exponentiation assign\n" +
-			"  xor(x, y)     bitwise XOR"))
-	case "<<=":
-		return intBitwiseOp(current, rhs, "<<", func(a, b int32) int32 { return a << (b & 0x1f) })
-	case ">>=":
-		return intBitwiseOp(current, rhs, ">>", func(a, b int32) int32 { return a >> (b & 0x1f) })
-	case ">>>=":
-		return intBitwiseOp(current, rhs, ">>>", func(a, b int32) int32 { return int32(uint32(a) >> (b & 0x1f)) })
+	case "&=", "|=", "^=", "<<=", ">>=", ">>>=":
+		return Bitwise(strings.TrimSuffix(op, "="), current, rhs)
 	default:
 		panic(Runtime("Unknown assignment operator: " + op))
 	}
@@ -651,10 +635,7 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 				if radix < 2 || radix > 36 {
 					panic(Runtime(fmt.Sprintf("toString: radix must be between 2 and 36, got %d", radix)))
 				}
-				if o.V != math.Trunc(o.V) || math.IsInf(o.V, 0) || math.IsNaN(o.V) {
-					panic(Runtime("toString(radix) supports integers only, got " + o.Display()))
-				}
-				return &StringVal{V: strconv.FormatInt(int64(o.V), radix)}
+				return &StringVal{V: radixString(o, radix)}
 			}}}
 		case "toFixed":
 			return &FuncVal{Name: "toFixed", Params: []string{"digits"}, Body: &NativeBody{Fn: func(args []Value) Value {
@@ -838,8 +819,8 @@ func (v *Visitor) visitPipeExpr(ctx *parser.PipeExprContext) Value {
 			extraArgs = append(append([]Value(nil), pc.args...), rightArgs...)
 		} else {
 			rhsVal := v.eval(rhsExpr)
-			f, ok := rhsVal.(*FuncVal)
-			if !ok {
+			f := asCallable(rhsVal) // also a callable namespace: x |> Number
+			if f == nil {
 				kind := "pipe"
 				if pipeType == parser.McpShellLexerPIPE_SCATTER {
 					kind = "scatter pipe"

@@ -579,7 +579,7 @@ func InstallCore(sh *Shell) *Shell {
 		func(args []Value) Value {
 			switch v := arg(args, 0).(type) {
 			case *NumberVal:
-				return v
+				return PlainNumber(v) // Number(1n) is 1
 			case *StringVal:
 				if n, ok := ParseNumber(strings.TrimSpace(v.V)); ok {
 					return n // exact for big integers and decimals
@@ -1121,7 +1121,7 @@ func InstallCore(sh *Shell) *Shell {
 
 	reg("xor", "a: number, b: number", "bitwise XOR", []string{`xor(5, 3)`},
 		func(args []Value) Value {
-			return Num(float64(int32(requireNumber("xor", args, 0)) ^ int32(requireNumber("xor", args, 1))))
+			return Bitwise("^", arg(args, 0), arg(args, 1))
 		})
 
 	// --- Execution limits ---

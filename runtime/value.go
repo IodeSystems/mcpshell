@@ -57,6 +57,9 @@ type NumberVal struct {
 	i    int64
 	bigI *big.Int
 	rat  *big.Rat
+	// bigint marks a BigInt: an exact integer whose bitwise ops are always
+	// exact and whose / truncates (bitwise.go).
+	bigint bool
 }
 
 func (*NumberVal) isValue()         {}

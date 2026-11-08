@@ -393,10 +393,6 @@ func TestMcpshellFeatureErrors(t *testing.T) {
 		name, src string
 		wantSubs  []string
 	}{
-		{"bitwise OR unsupported", `5 | 3`, []string{"not supported", "|>", "||"}},
-		{"bitwise XOR unsupported", `5 ^ 3`, []string{"not supported", "**", "|."}},
-		{"compound OR unsupported", `let x = 5; x |= 3; x`, []string{"not supported"}},
-		{"compound XOR unsupported", `let x = 5; x ^= 3; x`, []string{"not supported"}},
 		{"runtime errors include line numbers", "let x = 1\nx |> map(n => n)", []string{"at line"}},
 		{"bare ref non-terminal", "function f(x) {\n  x\n  let y = 1\n}\nf(5)", []string{"no effect", "return x"}},
 		{"uncaught throw propagates", `throw "unhandled"`, []string{"unhandled"}},

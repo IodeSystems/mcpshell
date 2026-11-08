@@ -107,9 +107,14 @@ RBRACE      : '}' -> popMode;
 
 // Literals
 // Digits may be grouped with _ (1_000_000), as in JS; the visitor strips it.
+// 0x/0o/0b are integer literals; an n suffix makes an integer a BigInt.
 NUMBER
   : DIGITS ('.' DIGITS)? EXPONENT?
   | '.' DIGITS EXPONENT?
+  | DIGITS 'n'
+  | '0' [xX] [0-9a-fA-F]+ ('_' [0-9a-fA-F]+)* 'n'?
+  | '0' [oO] [0-7]+ ('_' [0-7]+)* 'n'?
+  | '0' [bB] [01]+ ('_' [01]+)* 'n'?
   ;
 
 fragment DIGITS   : [0-9]+ ('_' [0-9]+)* ;

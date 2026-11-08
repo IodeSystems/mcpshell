@@ -111,6 +111,9 @@ func bothIntegers(l, r *NumberVal) (*big.Int, *big.Int, bool) {
 
 func sub(left, right Value) Value {
 	l, r := binNums(left, right, "-")
+	if l.bigint || r.bigint {
+		return bigIntArith("-", l, r)
+	}
 	if a, b, ok := bothInt(l, r); ok {
 		if s, ok := subOvf(a, b); ok {
 			return numInt(s)
@@ -127,6 +130,9 @@ func sub(left, right Value) Value {
 
 func mul(left, right Value) Value {
 	l, r := binNums(left, right, "*")
+	if l.bigint || r.bigint {
+		return bigIntArith("*", l, r)
+	}
 	if a, b, ok := bothInt(l, r); ok {
 		if s, ok := mulOvf(a, b); ok {
 			return numInt(s)
@@ -143,6 +149,9 @@ func mul(left, right Value) Value {
 
 func divide(left, right Value) Value {
 	l, r := binNums(left, right, "/")
+	if l.bigint || r.bigint {
+		return bigIntArith("/", l, r)
+	}
 	if l.isExact() && r.isExact() {
 		rb := r.asRat()
 		if rb.Sign() != 0 {
@@ -154,6 +163,9 @@ func divide(left, right Value) Value {
 
 func modulo(left, right Value) Value {
 	l, r := binNums(left, right, "%")
+	if l.bigint || r.bigint {
+		return bigIntArith("%", l, r)
+	}
 	if a, b, ok := bothInt(l, r); ok && b != 0 && !(a == math.MinInt64 && b == -1) {
 		return numInt(a % b)
 	}
@@ -169,6 +181,9 @@ const ratPowMaxExp = 100000
 
 func power(left, right Value) Value {
 	l, r := binNums(left, right, "**")
+	if l.bigint || r.bigint {
+		return bigIntArith("**", l, r)
+	}
 	if l.isExact() && r.kind != kFloat {
 		if e, ok := r.asBigInt(); ok && e.IsInt64() {
 			n := e.Int64()
@@ -238,19 +253,6 @@ func numbersCmp(x, y *NumberVal) int {
 
 func numbersEqual(x, y *NumberVal) bool { return numbersCmp(x, y) == 0 }
 
-// intBitwiseOp applies fn to two numbers truncated to 32-bit integers.
-func intBitwiseOp(left, right Value, op string, fn func(a, b int32) int32) Value {
-	l, ok := left.(*NumberVal)
-	if !ok {
-		panic(TypeMismatch("'"+op+"'", "number", left, ""))
-	}
-	r, ok := right.(*NumberVal)
-	if !ok {
-		panic(TypeMismatch("'"+op+"'", "number", right, ""))
-	}
-	return &NumberVal{V: float64(fn(int32(l.V), int32(r.V)))}
-}
-
 // add is `+`: string concatenation if either side is a string, else numeric.
 func add(left, right Value) Value {
 	_, ls := left.(*StringVal)
@@ -259,6 +261,9 @@ func add(left, right Value) Value {
 		return &StringVal{V: left.Display() + right.Display()}
 	}
 	l, r := binNums(left, right, "+")
+	if l.bigint || r.bigint {
+		return bigIntArith("+", l, r)
+	}
 	if a, b, ok := bothInt(l, r); ok {
 		if s, ok := addOvf(a, b); ok {
 			return numInt(s)

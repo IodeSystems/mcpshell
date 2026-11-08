@@ -309,7 +309,21 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 		// scientific notation), so 0.1 stays 1/10 and huge integers keep every
 		// digit — auto-promotion with no float64 rounding at the source.
 		var n *NumberVal
-		if r, ok := new(big.Rat).SetString(text); ok {
+		bigint := strings.HasSuffix(text, "n")
+		text = strings.TrimSuffix(text, "n")
+		if len(text) > 2 && text[0] == '0' && strings.ContainsAny(text[1:2], "xXoObB") {
+			i, ok := parseIntLiteral(text)
+			if !ok {
+				panic(Runtime("invalid number literal: " + text))
+			}
+			n = withBigInt(numBigInt(i), bigint)
+		} else if bigint {
+			i, ok := new(big.Int).SetString(text, 10)
+			if !ok {
+				panic(Runtime("invalid BigInt literal: " + text + "n"))
+			}
+			n = withBigInt(numBigInt(i), true)
+		} else if r, ok := new(big.Rat).SetString(text); ok {
 			n = numRat(r)
 		} else if f, err := strconv.ParseFloat(text, 64); err == nil {
 			n = &NumberVal{V: f}
@@ -1086,19 +1100,8 @@ func (v *Visitor) visitBitwiseOrExpr(ctx *parser.BitwiseOrExprContext) Value {
 	result := v.eval(xors[0])
 	for i := 1; i < len(xors); i++ {
 		opText := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
-		if opText == "|" {
-			truncHint := ""
-			if xors[i].GetText() == "0" {
-				truncHint = "\n  floor(x)   integer truncation (replaces x | 0)"
-			}
-			panic(Runtime("'|' is not supported. Did you mean:\n" +
-				"  |>   pipe        (value |> function)\n" +
-				"  |*   scatter     (array |* function)\n" +
-				"  ||   logical OR  (a || b)\n" +
-				"  |:   bitwise OR  (5 |: 3 → 7)" + truncHint))
-		}
 		right := v.eval(xors[i])
-		result = intBitwiseOp(result, right, "|:", func(a, b int32) int32 { return a | b })
+		result = Bitwise(opText, result, right)
 	}
 	return result
 }
@@ -1108,13 +1111,8 @@ func (v *Visitor) visitBitwiseXorExpr(ctx *parser.BitwiseXorExprContext) Value {
 	result := v.eval(ands[0])
 	for i := 1; i < len(ands); i++ {
 		opText := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
-		if opText == "^" {
-			panic(Runtime("'^' is not supported. Did you mean:\n" +
-				"  **   exponentiation  (2 ** 10 → 1024)\n" +
-				"  |.   bitwise XOR    (5 |. 3 → 6)"))
-		}
 		right := v.eval(ands[i])
-		result = intBitwiseOp(result, right, "|.", func(a, b int32) int32 { return a ^ b })
+		result = Bitwise(opText, result, right)
 	}
 	return result
 }
@@ -1124,7 +1122,7 @@ func (v *Visitor) visitBitwiseAndExpr(ctx *parser.BitwiseAndExprContext) Value {
 	result := v.eval(eqs[0])
 	for i := 1; i < len(eqs); i++ {
 		right := v.eval(eqs[i])
-		result = intBitwiseOp(result, right, "&", func(a, b int32) int32 { return a & b })
+		result = Bitwise("&", result, right)
 	}
 	return result
 }
@@ -1220,16 +1218,7 @@ func (v *Visitor) visitShiftExpr(ctx *parser.ShiftExprContext) Value {
 	for i := 1; i < len(pipes); i++ {
 		right := v.eval(pipes[i])
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
-		switch op {
-		case "<<":
-			result = intBitwiseOp(result, right, "<<", func(a, b int32) int32 { return a << (b & 0x1f) })
-		case ">>":
-			result = intBitwiseOp(result, right, ">>", func(a, b int32) int32 { return a >> (b & 0x1f) })
-		case ">>>":
-			result = intBitwiseOp(result, right, ">>>", func(a, b int32) int32 {
-				return int32(uint32(a) >> (b & 0x1f))
-			})
-		}
+		result = Bitwise(op, result, right)
 	}
 	return result
 }
@@ -1298,18 +1287,18 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 		return sub(numInt(0), val) // exact: -(2 ** 70) keeps every digit
 	case ctx.TILDE() != nil:
 		val := settled(v.eval(ctx.UnaryExpr()))
-		n, ok := val.(*NumberVal)
-		if !ok {
-			panic(TypeMismatch("unary ~", "number", val, ""))
-		}
-		return &NumberVal{V: float64(^int32(n.V))}
+		return BitNot(val)
 	case ctx.TYPEOF() != nil:
 		if name, ok := bareIdentifier(ctx.UnaryExpr()); ok && !v.resolves(name) {
 			// As in JS, typeof of an undeclared name is "undefined", not an
 			// error: typeof eval === "function" is how code detects a feature.
 			return &StringVal{V: "undefined"}
 		}
-		return &StringVal{V: settled(v.eval(ctx.UnaryExpr())).TypeName()}
+		val := settled(v.eval(ctx.UnaryExpr()))
+		if n, ok := val.(*NumberVal); ok && n.bigint {
+			return &StringVal{V: "bigint"}
+		}
+		return &StringVal{V: val.TypeName()}
 	case ctx.DELETE() != nil:
 		return v.evalDelete(ctx.UnaryExpr())
 	case ctx.AWAIT() != nil:

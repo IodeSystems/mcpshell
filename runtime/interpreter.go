@@ -237,6 +237,10 @@ func (itp *Interpreter) initBuiltinBindings() {
 		panic(Runtime(args[0].Display()))
 	}))
 	itp.registerNamespace("Promise", promise, false)
+
+	if itp.globals.Get("BigInt") == nil {
+		itp.registerNamespace("BigInt", bigIntNamespace(), false)
+	}
 }
 
 // --- Composition -------------------------------------------------------------

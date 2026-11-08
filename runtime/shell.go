@@ -303,6 +303,8 @@ fn(name: "Alice", age: 30)  // named args
 
 ## Numbers are exact (no float64 rounding)
 2 ** 1000, 100!, and big sums keep every digit; 0.1 + 0.2 === 0.3; 1/3 + 1/3 + 1/3 === 1.
+Bitwise ops (& | ^ ~ << >> >>>) follow JS ToInt32 within ±2^53 and are exact above it, so 64-bit values XOR correctly.
+BigInt(s), 123n, 0xff, 0b101 work; BigInt.asUintN(64, x) wraps to 64 bits.
 Only sqrt/sin/log/non-integer powers are floating-point. So compute exactly — don't hedge about precision.
 profile(() => ...) // returns {result, steps, lines} to see which lines cost the most
 
