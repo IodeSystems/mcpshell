@@ -27,6 +27,11 @@ TYPEOF  : 'typeof';
 DELETE  : 'delete';
 AWAIT   : 'await';
 NEW     : 'new';
+CLASS   : 'class';
+EXTENDS : 'extends';
+SUPER   : 'super';
+THIS    : 'this';
+INSTANCEOF : 'instanceof';
 ASYNC   : 'async';
 TRUE    : 'true';
 FALSE   : 'false';
@@ -136,6 +141,8 @@ RAW_TEMPLATE_START : 'r`' -> pushMode(TEMPLATE_MODE);
 
 // Identifiers
 IDENTIFIER : [a-zA-Z_$] [a-zA-Z0-9_$]*;
+// A class's private member name: #count.
+PRIVATE_NAME : '#' [a-zA-Z_$] [a-zA-Z0-9_$]*;
 
 // Whitespace & comments
 WS          : [ \t\r\n]+ -> skip;

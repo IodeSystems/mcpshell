@@ -19,6 +19,34 @@ func (v *BaseMcpShellParserVisitor) VisitExportStatement(ctx *ExportStatementCon
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseMcpShellParserVisitor) VisitClassDecl(ctx *ClassDeclContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassTail(ctx *ClassTailContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassMethod(ctx *ClassMethodContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassStaticBlock(ctx *ClassStaticBlockContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassField(ctx *ClassFieldContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassEmpty(ctx *ClassEmptyContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassElementName(ctx *ClassElementNameContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseMcpShellParserVisitor) VisitLetDecl(ctx *LetDeclContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -303,6 +331,18 @@ func (v *BaseMcpShellParserVisitor) VisitNewExpr(ctx *NewExprContext) interface{
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseMcpShellParserVisitor) VisitThisExpr(ctx *ThisExprContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitSuperExpr(ctx *SuperExprContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitClassExpr(ctx *ClassExprContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseMcpShellParserVisitor) VisitParenExpr(ctx *ParenExprContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -340,6 +380,10 @@ func (v *BaseMcpShellParserVisitor) VisitNamedField(ctx *NamedFieldContext) inte
 }
 
 func (v *BaseMcpShellParserVisitor) VisitMethodField(ctx *MethodFieldContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseMcpShellParserVisitor) VisitAccessorField(ctx *AccessorFieldContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

@@ -37,6 +37,8 @@ func (b *McpShellLexerBase) prevTokenCouldEndExpr() bool {
 		McpShellLexerTRUE,
 		McpShellLexerFALSE,
 		McpShellLexerNULL,
+		McpShellLexerTHIS,
+		McpShellLexerSUPER,
 		McpShellLexerRPAREN,
 		McpShellLexerRBRACKET,
 		McpShellLexerRBRACE,

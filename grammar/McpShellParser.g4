@@ -6,6 +6,7 @@ program : statement* EOF;
 statement
   : exportStatement
   | fnDecl
+  | classDecl
   | letDecl
   | ifStatement
   | switchStatement
@@ -26,7 +27,20 @@ statement
   | SEMI
   ;
 
-exportStatement   : EXPORT (letDecl | fnDecl | assignStatement);
+exportStatement   : EXPORT (letDecl | fnDecl | classDecl | assignStatement);
+
+// Classes. static, get, set and async are modifiers before a member name;
+// static, get and set stay ordinary identifiers elsewhere, as in JS. The
+// visitor checks the modifiers.
+classDecl         : CLASS (IDENTIFIER | FUNCTION) classTail;
+classTail         : (EXTENDS postfixExpr)? LBRACE classMember* RBRACE;
+classMember
+  : (IDENTIFIER | ASYNC)* classElementName LPAREN paramList? RPAREN (COLON typeAnnotation)? block   # classMethod
+  | IDENTIFIER block                                                                                # classStaticBlock
+  | (IDENTIFIER | ASYNC)* classElementName (COLON typeAnnotation)? (ASSIGN expression)? SEMI?        # classField
+  | SEMI                                                                                            # classEmpty
+  ;
+classElementName  : fieldName | PRIVATE_NAME | LBRACKET expression RBRACKET;
 
 letDecl           : LET letBinding (COMMA letBinding)* SEMI?;
 letBinding        : destructure (COLON typeAnnotation)? (ASSIGN expression)?;
@@ -46,7 +60,7 @@ assignStatement   : assignTarget assignOp expression SEMI?;
 incrDecrStatement : assignTarget (INCREMENT | DECREMENT) SEMI?;
 expressionStatement : expression SEMI?;
 
-assignTarget      : (IDENTIFIER | FUNCTION) (DOT fieldName | LBRACKET expression RBRACKET)*;
+assignTarget      : (IDENTIFIER | FUNCTION | THIS) (DOT fieldName | DOT PRIVATE_NAME | LBRACKET expression RBRACKET)*;
 assignOp          : ASSIGN | PLUS_ASSIGN | MINUS_ASSIGN | STAR_STAR_ASSIGN | STAR_ASSIGN | SLASH_ASSIGN | PERCENT_ASSIGN
                    | AMP_ASSIGN | PIPE_ASSIGN | CARET_ASSIGN | LSHIFT_ASSIGN | RSHIFT_ASSIGN | URSHIFT_ASSIGN
                    | NULLISH_ASSIGN | OR_ASSIGN | AND_ASSIGN;
@@ -83,7 +97,9 @@ destructure
 objectDestructure : LBRACE destructureField (COMMA destructureField)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? COMMA? RBRACE
                   | LBRACE SPREAD (IDENTIFIER | FUNCTION) COMMA? RBRACE;
 destructureField  : (IDENTIFIER | FUNCTION) (COLON destructure)? (ASSIGN expression)?;
-arrayDestructure  : LBRACKET arrayDestructureElem (COMMA arrayDestructureElem)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? COMMA? RBRACKET;
+// An empty element skips a position: const [, second] = xs.
+arrayDestructure  : LBRACKET arrayDestructureElem? (COMMA arrayDestructureElem?)* (COMMA SPREAD (IDENTIFIER | FUNCTION))? RBRACKET
+                  | LBRACKET SPREAD (IDENTIFIER | FUNCTION) RBRACKET;
 arrayDestructureElem : destructure (ASSIGN expression)?;
 
 // Parameters
@@ -108,7 +124,7 @@ bitwiseOrExpr     : bitwiseXorExpr ((PIPE | BITOR) bitwiseXorExpr)*;
 bitwiseXorExpr    : bitwiseAndExpr ((CARET | BITXOR) bitwiseAndExpr)*;
 bitwiseAndExpr    : equalityExpr (AMP equalityExpr)*;
 equalityExpr      : comparisonExpr ((EQ | NEQ | SEQ | SNEQ) comparisonExpr)*;
-comparisonExpr    : shiftExpr ((LT | GT | LTE | GTE | IN) shiftExpr)*;
+comparisonExpr    : shiftExpr ((LT | GT | LTE | GTE | IN | INSTANCEOF) shiftExpr)*;
 shiftExpr         : pipeExpr ((LSHIFT | RSHIFT | URSHIFT) pipeExpr)*;
 pipeExpr          : additiveExpr ((PIPE_RIGHT | PIPE_SCATTER) additiveExpr (PIPE_LEFT additiveExpr)*)*;
 additiveExpr      : multiplicativeExpr ((PLUS | MINUS) multiplicativeExpr)*;
@@ -132,7 +148,9 @@ postfixExpr
 
 postfixOp
   : DOT fieldName
+  | DOT PRIVATE_NAME
   | OPTIONAL_CHAIN fieldName
+  | OPTIONAL_CHAIN PRIVATE_NAME
   | LBRACKET expression RBRACKET
   | OPTIONAL_CHAIN LBRACKET expression RBRACKET
   | LPAREN argumentList? RPAREN
@@ -157,7 +175,10 @@ primaryExpr
   | functionExpr                                        # funcExpr
   | FUNCTION                                            # identifierExpr
   | REGEX                                                # regexExpr
-  | NEW IDENTIFIER (DOT fieldName)* (LPAREN argumentList? RPAREN)?  # newExpr
+  | NEW (IDENTIFIER | THIS) (DOT fieldName)* (LPAREN argumentList? RPAREN)?  # newExpr
+  | THIS                                                # thisExpr
+  | SUPER                                               # superExpr
+  | CLASS (IDENTIFIER | FUNCTION)? classTail            # classExpr
   | LPAREN expression (COMMA expression)* RPAREN         # parenExpr
   ;
 
@@ -179,6 +200,7 @@ objectLiteral     : LBRACE (objectField (COMMA objectField)* COMMA?)? RBRACE;
 objectField
   : fieldName COLON expression                          # namedField
   | ASYNC? (IDENTIFIER | FUNCTION) LPAREN paramList? RPAREN block  # methodField
+  | IDENTIFIER (fieldName | LBRACKET expression RBRACKET) LPAREN paramList? RPAREN block  # accessorField
   | IDENTIFIER                                          # shorthandField
   | FUNCTION                                            # shorthandField
   | SPREAD expression                                   # spreadField
@@ -188,7 +210,7 @@ objectField
 fieldName
   : IDENTIFIER | STRING | NUMBER | LET | FUNCTION | IF | ELSE | WHILE | DO | FOR | OF | IN | RETURN
   | BREAK | CONTINUE | EXPORT | SWITCH | CASE | DEFAULT | TRY | CATCH | FINALLY | THROW | TYPEOF | DELETE | AWAIT | ASYNC
-  | TRUE | FALSE | NULL | NEW
+  | TRUE | FALSE | NULL | NEW | CLASS | EXTENDS | SUPER | THIS | INSTANCEOF
   ;
 
 spreadOrExpr      : SPREAD? expression;

@@ -16,6 +16,27 @@ type McpShellParserVisitor interface {
 	// Visit a parse tree produced by McpShellParser#exportStatement.
 	VisitExportStatement(ctx *ExportStatementContext) interface{}
 
+	// Visit a parse tree produced by McpShellParser#classDecl.
+	VisitClassDecl(ctx *ClassDeclContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classTail.
+	VisitClassTail(ctx *ClassTailContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classMethod.
+	VisitClassMethod(ctx *ClassMethodContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classStaticBlock.
+	VisitClassStaticBlock(ctx *ClassStaticBlockContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classField.
+	VisitClassField(ctx *ClassFieldContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classEmpty.
+	VisitClassEmpty(ctx *ClassEmptyContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classElementName.
+	VisitClassElementName(ctx *ClassElementNameContext) interface{}
+
 	// Visit a parse tree produced by McpShellParser#letDecl.
 	VisitLetDecl(ctx *LetDeclContext) interface{}
 
@@ -229,6 +250,15 @@ type McpShellParserVisitor interface {
 	// Visit a parse tree produced by McpShellParser#newExpr.
 	VisitNewExpr(ctx *NewExprContext) interface{}
 
+	// Visit a parse tree produced by McpShellParser#thisExpr.
+	VisitThisExpr(ctx *ThisExprContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#superExpr.
+	VisitSuperExpr(ctx *SuperExprContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#classExpr.
+	VisitClassExpr(ctx *ClassExprContext) interface{}
+
 	// Visit a parse tree produced by McpShellParser#parenExpr.
 	VisitParenExpr(ctx *ParenExprContext) interface{}
 
@@ -258,6 +288,9 @@ type McpShellParserVisitor interface {
 
 	// Visit a parse tree produced by McpShellParser#methodField.
 	VisitMethodField(ctx *MethodFieldContext) interface{}
+
+	// Visit a parse tree produced by McpShellParser#accessorField.
+	VisitAccessorField(ctx *AccessorFieldContext) interface{}
 
 	// Visit a parse tree produced by McpShellParser#shorthandField.
 	VisitShorthandField(ctx *ShorthandFieldContext) interface{}
