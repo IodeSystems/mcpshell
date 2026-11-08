@@ -118,6 +118,7 @@ exponentiationExpr: unaryExpr (STAR_STAR exponentiationExpr)?;
 unaryExpr
   : NOT unaryExpr
   | MINUS unaryExpr
+  | PLUS unaryExpr
   | TILDE unaryExpr
   | TYPEOF unaryExpr
   | DELETE unaryExpr
