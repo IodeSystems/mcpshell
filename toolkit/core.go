@@ -598,28 +598,31 @@ func InstallCore(sh *Shell) *Shell {
 	reg("bool", "value: any", "→ boolean", []string{`bool(1)`},
 		func(args []Value) Value { return Bln(arg(args, 0).IsTruthy()) })
 
-	reg("load", "name: string", "installs a loadable toolkit by name, or evaluates a .mcpshell file by path (file toolkit only)",
-		[]string{`load("db")`, `load("lib/helpers.mcpshell")`},
+	reg("load", "...names: string", "installs loadable toolkits by name, or evaluates a .mcpshell file by path (file toolkit only); several names load in order",
+		[]string{`load("db")`, `load("db", "solver")`, `load("lib/helpers.mcpshell")`},
 		func(args []Value) Value {
-			name := requireStringArg("load", args, 0)
-			if sh.IsLoadableName(name) {
-				summary, err := sh.Load(name)
+			return loadEach(sh, "load", args, func(name string) Value {
+				if sh.IsLoadableName(name) {
+					summary, err := sh.Load(name)
+					if err != nil {
+						panic(Runtime(err.Error()))
+					}
+					return Str(summary)
+				}
+				return sh.LoadFile(name)
+			})
+		})
+
+	reg("unload", "...names: string", "removes loaded toolkits and their commands",
+		[]string{`unload("db")`, `unload("db", "solver")`},
+		func(args []Value) Value {
+			return loadEach(sh, "unload", args, func(name string) Value {
+				msg, err := sh.Unload(name)
 				if err != nil {
 					panic(Runtime(err.Error()))
 				}
-				return Str(summary)
-			}
-			return sh.LoadFile(name)
-		})
-
-	reg("unload", "name: string", "removes a loaded toolkit and its commands",
-		[]string{`unload("db")`},
-		func(args []Value) Value {
-			msg, err := sh.Unload(requireStringArg("unload", args, 0))
-			if err != nil {
-				panic(Runtime(err.Error()))
-			}
-			return Str(msg)
+				return Str(msg)
+			})
 		})
 
 	reg("toArray", "value: any, mapFn?: (v, i) => T", "array-like→array; supports {length: n} and optional mapFn",
@@ -1476,4 +1479,62 @@ func InstallCore(sh *Shell) *Shell {
 		func(args []Value) Value { return Bln(arg(args, 0).IsTruthy()) })
 
 	return sh
+}
+
+// loadEach runs load or unload for each name, in order. Names may be given
+// as arguments or as one array. One name returns its result as before;
+// several return the summaries joined by lines. It stops at the first
+// failure, and the error names what was already done and what was not
+// tried, so the agent does not have to guess the state.
+func loadEach(sh *Shell, cmd string, args []Value, one func(string) Value) Value {
+	if len(args) == 1 {
+		if arr, ok := args[0].(*ArrayVal); ok {
+			args = arr.Elements
+		}
+	}
+	if len(args) == 0 {
+		panic(Runtime(cmd + ": give at least one toolkit name, e.g. " + cmd + `("db")`))
+	}
+	names := make([]string, len(args))
+	for i, a := range args {
+		s, ok := a.(*StringVal)
+		if !ok {
+			panic(WrongArguments(cmd, "string (a toolkit name or a file path)", args, ""))
+		}
+		names[i] = s.V
+	}
+	if len(names) == 1 {
+		return one(names[0])
+	}
+	var out []string
+	for i, name := range names {
+		v, err := tryOne(func() Value { return one(name) })
+		if err != nil {
+			msg := fmt.Sprintf("%s: %q failed: %s", cmd, name, err.Thrown())
+			if i > 0 {
+				msg += fmt.Sprintf("\n\n  Done before it: %s", strings.Join(names[:i], ", "))
+			}
+			if i < len(names)-1 {
+				msg += fmt.Sprintf("\n  Not tried: %s", strings.Join(names[i+1:], ", "))
+			}
+			panic(Runtime(msg))
+		}
+		out = append(out, v.Display())
+	}
+	return Str(strings.Join(out, "\n"))
+}
+
+// tryOne runs fn and returns a script error it raised. A Go panic that is
+// not a ShellError (a bug) is re-raised, so it is reported as internal.
+func tryOne(fn func() Value) (v Value, err *ShellError) {
+	defer func() {
+		if r := recover(); r != nil {
+			se, ok := r.(*ShellError)
+			if !ok || se.Internal() {
+				panic(r)
+			}
+			err = se
+		}
+	}()
+	return fn(), nil
 }

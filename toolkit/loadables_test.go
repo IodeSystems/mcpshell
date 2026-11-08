@@ -164,3 +164,32 @@ func TestDbLoadCsvLoadsFiles(t *testing.T) {
 		t.Fatalf("without --files-dir: err = %v, want a hint naming --files-dir", err)
 	}
 }
+
+// load and unload take several names, in order, as arguments or one array.
+func TestLoadVariadic(t *testing.T) {
+	sh := mcpLikeShell(false, t.TempDir(), "")
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	toolkit.AddSolver(sh)
+	v, err := sh.Eval(`load("db", "files")`)
+	if err != nil || !strings.Contains(v.Display(), `Loaded "db"`) || !strings.Contains(v.Display(), `Loaded "files"`) {
+		t.Fatalf("load(db, files) = %v, %v", v, err)
+	}
+	if _, err := sh.Eval(`ls(".")`); err != nil {
+		t.Fatalf("files must be loaded: %v", err)
+	}
+	if v, err := sh.Eval(`load(["solver"])`); err != nil || !strings.Contains(v.Display(), `Loaded "solver"`) {
+		t.Fatalf("load([solver]) = %v, %v", v, err)
+	}
+	_, err = sh.Eval(`load("graph", "web", "nope")`)
+	if err == nil || !strings.Contains(err.Error(), `"web" failed`) || !strings.Contains(err.Error(), "Done before it: graph") || !strings.Contains(err.Error(), "Not tried: nope") {
+		t.Fatalf("a failure must name done and not-tried names: %v", err)
+	}
+	if v, err := sh.Eval(`unload("db", "solver")`); err != nil || !strings.Contains(v.Display(), `Unloaded "solver"`) {
+		t.Fatalf("unload(db, solver) = %v, %v", v, err)
+	}
+	for _, bad := range []string{`load()`, `load("db", 5)`} {
+		if _, err := sh.Eval(bad); err == nil {
+			t.Errorf("%s: want an error", bad)
+		}
+	}
+}
