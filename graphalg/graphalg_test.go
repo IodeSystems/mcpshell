@@ -25,11 +25,11 @@ type refs struct {
 		UndirectedCycle bool
 	}
 	Flow []struct {
-		N        int
-		Arcs     [][2]int
-		Cap      []int64
-		S, T     int
-		Value    int64
+		N     int
+		Arcs  [][2]int
+		Cap   []int64
+		S, T  int
+		Value int64
 	}
 	Mincost []struct {
 		N        int
