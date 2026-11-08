@@ -45,11 +45,33 @@ type tab struct {
 	m, n  int
 	T     [][]*big.Rat
 	basis []int
+	// dropped holds the rows dropArtificials removed as redundant. Their
+	// non-artificial entries are 0, so later pivots leave them unchanged.
+	dropped [][]*big.Rat
+}
+
+// lpState is the final tableau of an optimal LP and how it maps back to the
+// model, for sensitivity analysis.
+type lpState struct {
+	t        *tab
+	vm       []vmap
+	artStart int
+	// Per tableau row in build order (constraints of p, then upper-bound rows):
+	// unitCol is the column that starts as +e_i, neg is whether the row was
+	// multiplied by -1 to make its right-hand side >= 0.
+	unitCol []int
+	neg     []bool
 }
 
 // lpSolve solves min cost.x over the constraints of p with the bounds lo, hi
 // (nil = infinite). It returns the values of the original variables.
 func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, error) {
+	st, x, _, err := lpSolveState(bd, p, lo, hi)
+	return st, x, err
+}
+
+// lpSolveState is lpSolve that also returns the final tableau when optimal.
+func lpSolveState(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, *lpState, error) {
 	// Variable substitution to y >= 0.
 	vm := make([]vmap, p.n)
 	ns := 0
@@ -63,7 +85,7 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 		case lo[j] != nil:
 			if hi[j] != nil {
 				if lo[j].Cmp(hi[j]) > 0 {
-					return lpInfeasible, nil, nil
+					return lpInfeasible, nil, nil, nil
 				}
 				ubs = append(ubs, ubRow{ns, new(big.Rat).Sub(hi[j], lo[j])})
 			}
@@ -131,8 +153,11 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 	// Rows with rhs >= 0; count slack and artificial columns.
 	m := len(rows)
 	nslack, nart := 0, 0
+	neg := make([]bool, m)
+	unitCol := make([]int, m)
 	for i := range rows {
 		if rows[i].rhs.Sign() < 0 {
+			neg[i] = true
 			for _, x := range rows[i].a {
 				x.Neg(x)
 			}
@@ -171,16 +196,19 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 		case LE:
 			t.T[i][sc].SetInt64(1)
 			t.basis[i] = sc
+			unitCol[i] = sc
 			sc++
 		case GE:
 			t.T[i][sc].SetInt64(-1)
 			sc++
 			t.T[i][ac].SetInt64(1)
 			t.basis[i] = ac
+			unitCol[i] = ac
 			ac++
 		default:
 			t.T[i][ac].SetInt64(1)
 			t.basis[i] = ac
+			unitCol[i] = ac
 			ac++
 		}
 	}
@@ -193,15 +221,15 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 		}
 		t.setCost(c)
 		if st, err := t.run(bd, n); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		} else if st == lpUnbounded { // cannot happen: phase-1 objective >= 0
-			return lpInfeasible, nil, nil
+			return lpInfeasible, nil, nil, nil
 		}
 		if t.T[m][n].Sign() != 0 { // -objective != 0
-			return lpInfeasible, nil, nil
+			return lpInfeasible, nil, nil, nil
 		}
 		if err := t.dropArtificials(bd, artStart); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 
@@ -213,10 +241,10 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 	t.setCost(c)
 	st, err := t.run(bd, artStart)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if st == lpUnbounded {
-		return lpUnbounded, nil, nil
+		return lpUnbounded, nil, nil, nil
 	}
 
 	y := zeros(ns)
@@ -237,7 +265,7 @@ func lpSolve(bd *budget, p *prob, lo, hi []*big.Rat) (lpStatus, []*big.Rat, erro
 			x[j].Sub(y[v.c1], y[v.c2])
 		}
 	}
-	return lpOptimal, x, nil
+	return lpOptimal, x, &lpState{t: t, vm: vm, artStart: artStart, unitCol: unitCol, neg: neg}, nil
 }
 
 // setCost fills the reduced-cost row for cost vector c and the current basis.
@@ -349,7 +377,8 @@ func (t *tab) dropArtificials(bd *budget, artStart int) error {
 			}
 		}
 		if col < 0 {
-			continue // redundant row
+			t.dropped = append(t.dropped, t.T[i]) // redundant row
+			continue
 		}
 		if err := bd.tick(); err != nil {
 			return err
