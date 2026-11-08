@@ -145,9 +145,25 @@ free it (`unload("db")`, `forget("$r2")`, `export rows = null`), and an eval
 that ends at 80% or more says so in a `note:` line. A tripped limit says which
 argument raises it.
 
+## Classes and collections
+
+The JS object model works as in Node: `class` with `extends`, `super`, `static` members and blocks, `get`/`set`, `#private` fields and methods, class fields; `this` in methods (arrows keep the outer one); constructor functions with `F.prototype.m = …`, `Object.create`, `Object.getPrototypeOf`/`setPrototypeOf`, `call`/`apply`/`bind`; `instanceof`; `Map`, `Set` (with `union`, `intersection`, `difference`, …), `WeakMap`, `WeakSet`, `Map.groupBy`; `Error`, `TypeError`, `RangeError` and the rest, which classes extend. `throw` keeps any value, so `catch (e)` gets the `Error` object back. Map and Set keys compare as in JS: by value for strings and numbers, by identity for objects.
+
+```js
+class NotFound extends Error { constructor(what) { super(what + " not found"); this.name = "NotFound" } }
+class Inventory {
+  #items = new Map()
+  add(sku, n) { this.#items.set(sku, (this.#items.get(sku) ?? 0) + n); return this }
+  get total() { let t = 0; for (const [, n] of this.#items) t += n; return t }
+  take(sku) { if (!this.#items.has(sku)) throw new NotFound(sku); return this.#items.get(sku) }
+}
+```
+
+Two differences from JS stay: `==`/`===` compare plain objects and instances by structure (as they always have here), and an error mcpshell raises itself (a type mismatch, a failed command) is its message string in `catch`, where JS would give a `TypeError`. A Map or Set's `keys()`, `values()` and `entries()` return arrays, not iterators. Not supported: `Symbol`, `Proxy`, `Reflect`, generators, `extends Array`/`Map`/`Set` (keep one in a field), `Object.create` with property descriptors, `#x in obj`.
+
 ## Dates, number formats, tables
 
-`Date` follows JS for what models write by habit: `new Date()`, `Date.now()`, `new Date("2026-11-07")`, `new Date(y, m, d, …)`, `Date.UTC`, the `get…`/`set…`/`getUTC…`/`setUTC…` methods, `toISOString`, comparison and `d2 - d1` in ms. `new` works only for `Date` and `Intl`. Local time is **UTC**, because the sandbox has no ambient time zone; `mcpshell mcp --tz Europe/Berlin` (or `MCPSHELL_TZ`) sets another. `Date.now()` reads the host clock. `Dates.*` adds what JS lacks: `add` (months clamp to the month end), `diff`, `startOf`/`endOf`, `isoWeek`, `businessDaysBetween`/`addBusinessDays` (with holidays), `range`, `format`/`parse` with `yyyy-MM-dd` patterns. Each takes a Date, an ISO or SQL date string, or ms, and gives back the same kind.
+`Date` follows JS for what models write by habit: `new Date()`, `Date.now()`, `new Date("2026-11-07")`, `new Date(y, m, d, …)`, `Date.UTC`, the `get…`/`set…`/`getUTC…`/`setUTC…` methods, `toISOString`, comparison and `d2 - d1` in ms. Local time is **UTC**, because the sandbox has no ambient time zone; `mcpshell mcp --tz Europe/Berlin` (or `MCPSHELL_TZ`) sets another. `Date.now()` reads the host clock. `Dates.*` adds what JS lacks: `add` (months clamp to the month end), `diff`, `startOf`/`endOf`, `isoWeek`, `businessDaysBetween`/`addBusinessDays` (with holidays), `range`, `format`/`parse` with `yyyy-MM-dd` patterns. Each takes a Date, an ISO or SQL date string, or ms, and gives back the same kind.
 
 `n.toLocaleString("en-US", opts)` and `new Intl.NumberFormat("en-US", opts).format(n)` format from the exact decimal: `(0.1 + 0.2)` with two digits is `"0.30"`. Supported: grouping, fraction and significant digits, `currency`, `percent`, `compact`, `signDisplay`. Another locale or an unsupported option is an error that lists what works. `toMarkdown(rows, {columns, header})` turns an array of objects (or of arrays) into a GitHub table. `help("dates")` and `help("format")` have the details.
 

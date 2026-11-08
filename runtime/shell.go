@@ -397,11 +397,12 @@ try/catch/finally, throw, break, continue, labels on loops, destructuring (with 
 rest params, spread, ?., ??, ??=, ||=, &&=, ternary,
 template strings, regex (/pattern/g for global), typeof, delete, ===, **, bitwise. All work as expected.
 Loops support braceless bodies: for (let i = 0; i < n; i++) sum += i;
-Not supported: class, this, import, yield, generators; new works only for Date and Intl.
+class (extends, super, static, get/set, #private), this, new, instanceof, prototypes, call/apply/bind,
+Map, Set, WeakMap, WeakSet, Error and its subclasses work as in JS. Not supported: import, yield, generators, Symbol, Proxy.
 async/await are allowed and do nothing — calls return values directly, run in order. Promise.all/allSettled/race/any([...]),
 Promise.resolve/reject and .then/.catch/.finally work on these values; a failed async call is a rejection for them to catch.
 For parallel calls put functions in the array: Promise.all([() => a(), () => b()]).
-catch (e): e is the error message string (e.message also works).
+catch (e): e is what was thrown (throw new NotFound(…) gives the object back); an error mcpshell raises is its message string (e.message also works).
 Last expression is the output. ` + "`let`" + ` returns null — end with the value you want.
 
 ## Key differences from JS
