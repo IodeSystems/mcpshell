@@ -75,6 +75,7 @@ func binNums(left, right Value, op string) (*NumberVal, *NumberVal) {
 	if d, ok := right.(*DateVal); ok {
 		right = d.msNumber()
 	}
+	left, right = boolNum(left), boolNum(right)
 	l, ok := left.(*NumberVal)
 	if !ok {
 		panic(TypeMismatch("'"+op+"'", "number", left, ""))
@@ -84,6 +85,19 @@ func binNums(left, right Value, op string) (*NumberVal, *NumberVal) {
 		panic(TypeMismatch("'"+op+"'", "number", right, ""))
 	}
 	return l, r
+}
+
+// boolNum is a boolean as the number 1 or 0, as JS arithmetic reads it
+// (`true + true` is 2, the way a count of conditions is written). Other
+// values pass through. null stays an error: it stands for undefined too.
+func boolNum(v Value) Value {
+	if b, ok := v.(*BoolVal); ok {
+		if b.V {
+			return numInt(1)
+		}
+		return numInt(0)
+	}
+	return v
 }
 
 // Overflow-checked int64 ops — the alloc-free fast path. ok=false means the

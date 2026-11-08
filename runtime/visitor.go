@@ -1314,7 +1314,7 @@ func (v *Visitor) visitUnaryExpr(ctx *parser.UnaryExprContext) Value {
 	case ctx.NOT() != nil:
 		return &BoolVal{V: !v.eval(ctx.UnaryExpr()).IsTruthy()}
 	case ctx.MINUS() != nil:
-		val := settled(v.eval(ctx.UnaryExpr()))
+		val := boolNum(settled(v.eval(ctx.UnaryExpr())))
 		if _, ok := val.(*NumberVal); !ok {
 			return v.withLocation(ctx, func() Value { panic(TypeMismatch("unary -", "number", val, "")) })
 		}
