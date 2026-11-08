@@ -2,6 +2,7 @@ package toolkit_test
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,6 +201,120 @@ func TestSQLSingleStatementForms(t *testing.T) {
 		if _, err := sh.Eval(src); err != nil {
 			t.Errorf("%s: %v", src, err)
 		}
+	}
+}
+
+// query() must not write in writable mode either, and execute() must keep
+// working on the same connections afterwards (the mode is restored).
+func TestSQLWritableQueryDoesNotWrite(t *testing.T) {
+	sh := sqlShellAt(t, t.TempDir(), false)
+	for _, src := range []string{
+		`db.query("with c as (select 1) delete from users")`,
+		`db.query("with c as (select 1) insert into users(name) values ('x')")`,
+	} {
+		if _, err := sh.Eval(src); err == nil {
+			t.Errorf("%s: want error", src)
+		}
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := sh.Eval(`db.execute("insert into users(name) values ('a')")`); err != nil {
+			t.Fatalf("execute after query: %v", err)
+		}
+		if _, err := sh.Eval(`db.query("select * from users")`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, _ := sh.Eval(`db.query("select count(*) as n from users")[0].n`)
+	if v.Display() != "5" {
+		t.Errorf("rows = %s, want 5", v.Display())
+	}
+}
+
+// Postgres tests need a server: MCPSHELL_TEST_PG_DSN=postgres://user:pw@host:port/db?sslmode=disable
+func TestSQLPostgres(t *testing.T) {
+	dsn := os.Getenv("MCPSHELL_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("MCPSHELL_TEST_PG_DSN not set")
+	}
+	raw, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	for _, s := range []string{
+		`DROP TABLE IF EXISTS mcpshell_t`,
+		`CREATE TABLE mcpshell_t (id int, name text)`,
+		`INSERT INTO mcpshell_t VALUES (1, 'a;b'), (2, 'c')`,
+	} {
+		if _, err := raw.Exec(s); err != nil {
+			t.Fatalf("seed %q: %v", s, err)
+		}
+	}
+	t.Cleanup(func() { raw.Exec(`DROP TABLE IF EXISTS mcpshell_t`) })
+	count := func() string {
+		var n int
+		if err := raw.QueryRow(`SELECT count(*) FROM mcpshell_t`).Scan(&n); err != nil {
+			return "missing: " + err.Error()
+		}
+		return fmt.Sprint(n)
+	}
+
+	for _, readOnly := range []bool{true, false} {
+		t.Run(fmt.Sprintf("readOnly=%v", readOnly), func(t *testing.T) {
+			sh := toolkit.InstallCore(runtime.NewShell())
+			closer, err := toolkit.InstallSQL(sh, "db", dsn, readOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closer.Close()
+			// None of these may change the table, in either mode, via query().
+			for _, src := range []string{
+				`db.query("select 1; drop table mcpshell_t")`,
+				`db.query("with c as (select 1) delete from mcpshell_t")`,
+				`db.query("with c as (select 1) insert into mcpshell_t values (3, 'x')")`,
+				`db.query("select 1 where 1=1; delete from mcpshell_t")`,
+			} {
+				if _, err := sh.Eval(src); err == nil {
+					t.Errorf("%s: want error", src)
+				}
+			}
+			if got := count(); got != "2" {
+				t.Fatalf("table changed: count=%s", got)
+			}
+			// Accepted: ';' inside dollar quotes and string literals.
+			for _, src := range []string{
+				`db.query("select $$a;b$$ as x")`,
+				`db.query("select $t$a;$$b$t$ as x")`,
+				`db.query("select * from mcpshell_t where name = 'a;b'")`,
+				`db.query("select * from mcpshell_t where name = $1;", ["a;b"])`,
+				`db.query("select 1;")`,
+				`db.query("select * from mcpshell_t where name = E'\\'; delete from mcpshell_t; --'")`,
+				`db.tables()`,
+				`db.columns("mcpshell_t")`,
+				`db.schema()`,
+			} {
+				if _, err := sh.Eval(src); err != nil {
+					t.Errorf("%s: %v", src, err)
+				}
+			}
+			if readOnly {
+				// Even a bare multi-statement execute is not registered; the server also refuses writes.
+				if _, err := sh.Eval(`db.execute("delete from mcpshell_t")`); err == nil {
+					t.Errorf("execute must not exist in read-only mode")
+				}
+			} else {
+				if _, err := sh.Eval(`db.execute("delete from mcpshell_t where id = 1; drop table mcpshell_t")`); err == nil {
+					t.Errorf("multi-statement execute must fail")
+				}
+				if got := count(); got != "2" {
+					t.Fatalf("table changed by execute: count=%s", got)
+				}
+				if _, err := sh.Eval(`db.execute("delete from mcpshell_t where id = 2")`); err != nil {
+					t.Errorf("single execute must work: %v", err)
+				}
+				raw.Exec(`INSERT INTO mcpshell_t VALUES (2, 'c')`)
+			}
+		})
 	}
 }
 

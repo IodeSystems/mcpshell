@@ -52,6 +52,8 @@ Why some behaviour is the way it is. Work items are aw4 issues (project `mcpshel
 ## SQL
 
 - SQLite: the first-word check in `assertStatement` is not a security boundary. The driver runs every statement in a string, so `select 1; attach ...` passed it and created files. Three layers apply: a statement count check (`sqlSingleStatement`), an authorizer on every pooled connection (`sqliteAuthorizer`: ATTACH, DETACH, `load_extension` and non-reporting pragmas always denied; all writes denied when read-only), and `PRAGMA query_only` when read-only. The connection hook is on a private driver, not the global one, so other `sqlite` users in the process are not affected.
+- Postgres: lib/pq uses the simple query protocol when a call has no parameters, and that protocol runs several statements. The same statement count check applies, with Postgres quoting (`$tag$..$tag$`, `E'..'`, nested comments). `query()` and the schema helpers run in a `READ ONLY` transaction that is rolled back, so the server refuses writes whatever the text is. Read-only mode also sets `default_transaction_read_only=on` in the DSN.
+- `query()` never writes, in either mode. A writable SQLite pool switches the borrowed connection to `query_only` plus the read-only authorizer for the call and restores it after. It does not use a second pool because every `:memory:` connection is its own database.
 
 ## Build
 

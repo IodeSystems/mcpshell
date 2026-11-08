@@ -48,6 +48,9 @@ func InstallSQL(sh *Shell, namespace, dsn string, readOnly bool) (io.Closer, err
 		db = openSQLite(dsn, readOnly)
 	} else {
 		var err error
+		if readOnly {
+			dsn = postgresReadOnlyDSN(dsn)
+		}
 		if db, err = sql.Open(driver, dsn); err != nil {
 			return nil, fmt.Errorf("sql: open %q: %w", dsn, err)
 		}
@@ -161,11 +164,11 @@ func (st *sqlToolkit) runUserQuery(query string, params []any) Value {
 func (st *sqlToolkit) runSQL(query string, params []any) Value {
 	ctx, cancel := context.WithTimeout(context.Background(), sqlQueryTimeout)
 	defer cancel()
-	rows, err := st.db.QueryContext(ctx, query, params...)
+	rows, done, err := st.readQuery(ctx, query, params)
 	if err != nil {
 		panic(st.translateErr(err))
 	}
-	defer rows.Close()
+	defer done()
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -398,7 +401,7 @@ func (st *sqlToolkit) suggestTable(requested string) {
 // --- statement validation ----------------------------------------------------
 
 func (st *sqlToolkit) assertStatement(cmd, query string, read bool) {
-	if st.dialect == dialectSQLite && !sqlSingleStatement(query) {
+	if !sqlSingleStatement(query, st.dialect == dialectPostgres) {
 		panic(Runtime(cmd + ": only one SQL statement per call is allowed\n\n" +
 			"  Hint: split the statements into separate calls"))
 	}
