@@ -310,10 +310,8 @@ func (f *dateFormat) timePart(t time.Time) string {
 				parts = append(parts, fmt.Sprint(h))
 			}
 		} else {
-			// ICU's en-US hour12:false prints midnight as 24, and pads the hour.
-			if h == 0 {
-				h = 24
-			}
+			// Node 24 (ICU) with hour12:false pads the hour and prints
+			// midnight as 00 (checked: 00:05:00, 09:05).
 			parts = append(parts, fmt.Sprintf("%02d", h))
 		}
 	}
