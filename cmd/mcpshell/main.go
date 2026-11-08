@@ -49,6 +49,7 @@ mcp flags:
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
   --prompt             print the system prompt for these flags and exit (no upstream tools)
+  --db-max-mb <n>      size cap of the load("db") in-memory database (default 256)
   --max-output <n>     cap eval output bytes (default 16000)
   --connect <spec>     compose an upstream MCP server: 'ns=cmd args', 'cmd args',
                        'ns=https://…', or 'https://…' (streamable HTTP)
@@ -75,6 +76,7 @@ func newShell() *runtime.Shell {
 	toolkit.InstallWeb(sh)
 	toolkit.InstallGraph(sh)
 	toolkit.AddSolver(sh)
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	if wd, err := os.Getwd(); err == nil {
 		toolkit.InstallFile(sh, wd, false)
 	}
@@ -219,6 +221,7 @@ func runMCP(args []string) {
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
 	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
+	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the load(\"db\") in-memory database")
 	var connect, mcpConfigs, sqlSpecs stringSlice
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
 	fs.Var(&mcpConfigs, "mcp", "MCP config: JSON file, inline JSON, or 'name:cmd args' (repeatable)")
@@ -238,6 +241,7 @@ func runMCP(args []string) {
 	// installs them with load().
 	sh.AddLoadable(toolkit.GraphLoadable())
 	toolkit.AddSolver(sh)
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{MaxMB: *dbMaxMB}))
 	if *noLoad != "" {
 		sh.DenyLoadables(strings.Split(*noLoad, ",")...)
 	}

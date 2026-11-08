@@ -93,6 +93,8 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 		}
 	}
 
+	setFileConfiner(sh, cfg.confineRead) // Db.loadCsv resolves paths the way read() does
+
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
 		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
 	}
