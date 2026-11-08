@@ -24,6 +24,7 @@ func TestReferenceSolutions(t *testing.T) {
 		sh := runtime.NewShell()
 		toolkit.InstallCore(sh)
 		toolkit.InstallMath(sh)
+		toolkit.AddSolver(sh)
 		if _, err := toolkit.InstallSQL(sh, "shop", dbPath, true); err != nil {
 			t.Fatal(err)
 		}

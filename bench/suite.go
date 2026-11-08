@@ -311,6 +311,20 @@ Extract just the filename (after the last backslash) from each path using the re
 		FormatHint: "Return ONLY the count as a number.",
 		Validate:   all("14"),
 	},
+	{
+		Name:       "llm_hard_product_mix_lp",
+		Prompt:     "A workshop makes chairs (profit 3 each) and tables (profit 5 each). Each chair uses 1 unit of wood and each table 2 units; 14 units of wood are available. Tables may be at most 3 per chair, and at most 6 chairs can be made. Quantities may be fractional. What is the maximum total profit?",
+		FormatHint: "Return ONLY the number.",
+		Validate:   all("38"),
+		TimeoutSec: 60,
+	},
+	{
+		Name:       "llm_hard_knapsack",
+		Prompt:     "Pick a subset of five items, each at most once, to maximize total value without exceeding a total weight of 15. Items as weight/value: A 12/4, B 2/2, C 1/1, D 1/2, E 4/10. What is the maximum total value?",
+		FormatHint: "Return ONLY the number.",
+		Validate:   all("15"),
+		TimeoutSec: 60,
+	},
 
 	// --- Composition -------------------------------------------------------
 	// These reward composing a whole pipeline into ONE eval rather than

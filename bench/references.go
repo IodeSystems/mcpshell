@@ -40,6 +40,10 @@ var References = []Reference{
 		Code: `"the quick brown fox jumps over the lazy dog" |> split(" ") |> filter(w => w |> contains("o")) |> len()`},
 	{Name: "llm_hard_count_vowels",
 		Code: `"floccinaucinihilipilification" |> chars() |> filter(c => "aeiou" |> contains(c)) |> len()`},
+	{Name: "llm_hard_product_mix_lp",
+		Code: `load("solver"); Solver.lp({maximize: {chair: 3, table: 5}, subjectTo: [{chair: 1, table: 2, le: 14}, {chair: 3, table: -1, ge: 0}, {chair: 1, le: 6}]}).objective`},
+	{Name: "llm_hard_knapsack",
+		Code: `load("solver"); Solver.lp({maximize: {a: 4, b: 2, c: 1, d: 2, e: 10}, subjectTo: [{a: 12, b: 2, c: 1, d: 1, e: 4, le: 15}], bounds: {a: [0, 1], b: [0, 1], c: [0, 1], d: [0, 1], e: [0, 1]}, int: true}).objective`},
 
 	{Name: "compose_core_top_region",
 		Code: `[{region:"North",amt:10},{region:"South",amt:5},{region:"North",amt:7},{region:"East",amt:12},{region:"South",amt:9},{region:"North",amt:3}] |> groupBy(r => r.region) |> entries |> map(e => [e[0], e[1] |> map(r => r.amt) |> sum()]) |> sort((a,b) => b[1] - a[1]) |> at(0) |> (e => e[0] + "=" + str(e[1]))`},
