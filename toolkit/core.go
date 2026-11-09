@@ -689,8 +689,8 @@ func InstallCore(sh *Shell) *Shell {
 			})
 		})
 
-	reg("forget", "...names: string", "drops kept results ($r1, …) to free their memory",
-		[]string{`forget("$r2")`, `forget("$r1", "$r2")`},
+	reg("forget", "...names: string", "drops kept results ($r1, …) or session globals (top-level names) to free their memory",
+		[]string{`forget("$r2")`, `forget("rows", "$r1")`},
 		func(args []Value) Value {
 			if len(args) == 0 {
 				panic(WrongArguments("forget", "...names: string", args, `forget("$r2")`))
@@ -702,7 +702,7 @@ func InstallCore(sh *Shell) *Shell {
 				if !ok {
 					panic(WrongArguments("forget", "...names: string", args, `forget("$r2")`))
 				}
-				n, err := sh.ForgetResult(name.V)
+				n, err := sh.Forget(name.V)
 				if err != nil {
 					panic(Runtime(err.Error()))
 				}

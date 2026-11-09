@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,9 +19,7 @@ type Shell struct {
 	resultSeq int      // last $rN handed out
 	kept      []string // $rN names still bound, oldest first
 
-	// earlierLets are the names earlier EvalExported calls declared without
-	// export: they are gone in later evals, and reading one says so.
-	earlierLets map[string]bool
+	start *startState // before the first session eval; Clear restores it
 
 	// fileProto is File.prototype on globals, for NewFile.
 	fileProto *ObjectVal
@@ -72,6 +71,25 @@ func (t *Shell) TruncationNote(v Value, shown, total int) string {
 
 // KeptResultNames returns the $rN names still kept, oldest first.
 func (t *Shell) KeptResultNames() []string { return slices.Clone(t.kept) }
+
+// Forget drops a kept result ($rN) or a session global (a top-level
+// declaration) and returns the bytes it held, by estimate. A builtin or an
+// unknown name is an error.
+func (t *Shell) Forget(name string) (int64, error) {
+	if strings.HasPrefix(name, "$r") {
+		return t.ForgetResult(name)
+	}
+	v, builtin, ok := t.globals.Binding(name)
+	switch {
+	case builtin:
+		return 0, fmt.Errorf("forget: %q is a builtin, not a session global", name)
+	case !ok:
+		return 0, fmt.Errorf("forget: %q is not a session global or a kept result ($r1, …)", name)
+	}
+	n, _ := EstimateSize(v, memWalkNodes)
+	t.globals.Remove(map[string]struct{}{name: {}})
+	return n, nil
+}
 
 // Warnings returns the last eval's warnings, after success or error. Each
 // starts with "line N:".
@@ -240,8 +258,19 @@ func (t *Shell) Commands() *CommandRegistry { return t.commands }
 func (t *Shell) Limits() *ExecutionLimits { return t.limits }
 
 // Register adds a command, auto-lifting the namespace object into globals.
+// During load, a command or namespace whose name a session global holds
+// fails the load: the global would hide the command, or the namespace would
+// overwrite the global.
 func (t *Shell) Register(def *CommandDef) *Shell {
 	if t.hook != nil {
+		name := def.Namespace
+		if name == "" {
+			name = def.Name
+		}
+		if _, builtin, ok := t.globals.Binding(name); ok && !builtin && !strings.HasPrefix(name, "$r") {
+			panic(Runtime(fmt.Sprintf("the toolkit defines %s, and '%s' is a session global. Free the name with forget(%q) (copy the value first if you need it: let %s = %s), then load again",
+				name, name, name, altName(name), name)))
+		}
 		t.hook.guard(def)
 	}
 	t.commands.Register(def)
@@ -281,8 +310,13 @@ func (t *Shell) EvalWith(source string, opts EvalOptions) (result Value, err err
 	return itp.Eval(source).Value, nil
 }
 
-// EvalExported evaluates source in an isolated child scope, promoting only
-// names marked with `export` into globals. On error nothing is promoted.
+// EvalExported evaluates source as one eval of a session (the MCP server,
+// the REPL): its top-level declarations become session globals that later
+// evals see, as in a notebook. A declaration of a name an earlier eval
+// declared replaces it; a top-level declaration of a builtin, command or
+// toolkit name is an error. `export` is accepted and means the same.
+// Declarations that ran stay also when the eval fails later. vars are bound
+// for this eval only.
 func (t *Shell) EvalExported(source string, vars map[string]Value) (Value, error) {
 	return t.EvalExportedWith(source, vars, EvalOptions{})
 }
@@ -292,40 +326,57 @@ func (t *Shell) EvalExportedWith(source string, vars map[string]Value, opts Eval
 	if err := t.beginEval(opts); err != nil {
 		return Null, err
 	}
-	childEnv := t.globals.Child()
-	itp := NewInterpreter(t.commands, childEnv, t.limits)
-	itp.evalScoped, itp.earlierLets = true, t.earlierLets
+	t.markStart()
+	g := t.globals
+	g.MarkEarlier()
+	itp := NewInterpreter(t.commands, g, t.limits)
+	itp.evalScoped = true
 	// vars bind after the interpreter's builtins, so a var named like a
-	// builtin (all, sum) holds the caller's value instead of being replaced.
-	for name, value := range vars {
-		childEnv.Define(name, value)
+	// builtin (all, sum) holds the caller's value for this eval. What the
+	// name held before comes back after.
+	type saved struct {
+		value       Value
+		builtin, ok bool
 	}
-	var exported map[string]struct{}
+	prior := make(map[string]saved, len(vars))
+	for name, value := range vars {
+		v, b, ok := g.Binding(name)
+		prior[name] = saved{v, b, ok}
+		g.Rebind(name, value, false, true)
+	}
 	defer func() {
+		for name, p := range prior {
+			g.Rebind(name, p.value, p.builtin, p.ok)
+		}
 		t.endEval(itp, opts)
-		if t.earlierLets == nil {
-			t.earlierLets = map[string]bool{}
-		}
-		for _, name := range childEnv.OwnDeclared() {
-			if _, isVar := vars[name]; !isVar && t.globals.Get(name) == nil {
-				t.earlierLets[name] = true
-			}
-		}
-		for name := range exported {
-			delete(t.earlierLets, name)
-		}
 		if r := recover(); r != nil {
 			result, err = Null, AsShellError(r)
 		}
 	}()
-	res := itp.Eval(source)
-	exported = res.ExportedNames
-	for name := range res.ExportedNames {
-		if value := childEnv.Get(name); value != nil {
+	return itp.Eval(source).Value, nil
+}
+
+// EvalModule evaluates a loaded file (load("lib.mcpshell")) in a scope of
+// its own, inside the running eval: limits and diagnostics are the eval's.
+// Only the names the file exports become session globals; its other
+// top-level declarations stay private to it, and its exported functions
+// still see them. An exported builtin, command or toolkit name is an
+// error, and then nothing is exported.
+func (t *Shell) EvalModule(source string) Value {
+	env := t.globals.Child()
+	res := NewInterpreter(t.commands, env, t.limits).Eval(source)
+	names := slices.Sorted(maps.Keys(res.ExportedNames))
+	for _, name := range names {
+		if what := reservedName(t.commands, t.globals, name); what != "" {
+			panic(Runtime("load: the file exports " + reservedNameError(name, what)))
+		}
+	}
+	for _, name := range names {
+		if value := env.Get(name); value != nil {
 			t.globals.DefineOrSet(name, value)
 		}
 	}
-	return res.Value, nil
+	return res.Value
 }
 
 // EvalTransactional evaluates source, restoring global state on error.
@@ -413,7 +464,7 @@ Last expression is the output. ` + "`let`" + ` returns null — end with the val
 
 ## Key differences from JS
 let x = 5                    // REQUIRED: assigning to an undeclared name is an error
-export let x = 10            // persists across eval calls; without export, discarded
+let rows = f()               // top-level let/const/function last for later evals; naming one like a builtin or command (all, keys) is an error
 fn(name: "Alice", age: 30)  // named args
 [1,2,3] |> map(n => n * 10) // pipe: passes left as first arg
 [1,2,3] |* (x => x * 2) |> reduce((a, x) => a + x, 0)  // scatter then pipe
@@ -437,5 +488,5 @@ const ToolDescription = "Execute mcpshell code (JS subset with pipes). " +
 	"as literals in code. Instead pass them via vars. " +
 	"vars are bound as constants before execution. " +
 	"For inline strings with backslashes use r\"...\" or r`...` (raw strings). " +
-	"export persists values across calls; without export, state is discarded. " +
+	"Top-level let/const/function/class persist across calls (no export needed). " +
 	"help() lists commands."

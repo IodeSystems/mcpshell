@@ -401,6 +401,19 @@ func (v *Visitor) eval(tree antlr.Tree) Value {
 
 func (v *Visitor) visitProgram(ctx *parser.ProgramContext) Value {
 	var result Value = Null
+	if v.sessionScope() {
+		// Before any statement runs, so a refused name costs no side effect
+		// (an upstream call in an earlier line).
+		for _, stmt := range ctx.AllStatement() {
+			declared, assigned := topLevelNames(stmt)
+			for _, name := range declared {
+				v.checkTopName(name, stmt)
+			}
+			for _, name := range assigned {
+				v.checkAssignBuiltin(name, stmt)
+			}
+		}
+	}
 	for _, stmt := range ctx.AllStatement() {
 		v.step(stmt)
 		result = v.eval(stmt)
@@ -409,6 +422,82 @@ func (v *Visitor) visitProgram(ctx *parser.ProgramContext) Value {
 		}
 	}
 	return result
+}
+
+// topLevelNames returns the names a top-level statement declares (export
+// `x = …` included), and the bare name a plain assignment assigns.
+func topLevelNames(stmt parser.IStatementContext) (declared, assigned []string) {
+	if stmt.GetChildCount() == 0 {
+		return nil, nil
+	}
+	var v Visitor // collectDestructureNames reads no visitor state
+	names := map[string]struct{}{}
+	switch d := stmt.GetChild(0).(type) {
+	case *parser.AssignStatementContext:
+		at := d.AssignTarget().(*parser.AssignTargetContext)
+		if at.GetChildCount() == 1 && at.THIS() == nil {
+			assigned = []string{identOrFunctionText(at.IDENTIFIER(), at.FUNCTION())}
+		}
+		return nil, assigned
+	case *parser.ExportStatementContext:
+		switch {
+		case d.LetDecl() != nil:
+			for _, b := range d.LetDecl().(*parser.LetDeclContext).AllLetBinding() {
+				v.collectDestructureNames(b.(*parser.LetBindingContext).Destructure(), names)
+			}
+		case d.FnDecl() != nil:
+			names[fnDeclName(d.FnDecl().(*parser.FnDeclContext))] = struct{}{}
+		case d.ClassDecl() != nil:
+			cd := d.ClassDecl().(*parser.ClassDeclContext)
+			names[identOrFunctionText(cd.IDENTIFIER(), cd.FUNCTION())] = struct{}{}
+		case d.AssignStatement() != nil:
+			at := d.AssignStatement().(*parser.AssignStatementContext).AssignTarget().(*parser.AssignTargetContext)
+			if at.GetChildCount() == 1 && at.THIS() == nil {
+				names[identOrFunctionText(at.IDENTIFIER(), at.FUNCTION())] = struct{}{}
+			}
+		}
+	case *parser.LetDeclContext:
+		for _, b := range d.AllLetBinding() {
+			v.collectDestructureNames(b.(*parser.LetBindingContext).Destructure(), names)
+		}
+	case *parser.FnDeclContext:
+		names[fnDeclName(d)] = struct{}{}
+	case *parser.ClassDeclContext:
+		names[identOrFunctionText(d.IDENTIFIER(), d.FUNCTION())] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(names)), nil
+}
+
+// checkAssignBuiltin refuses assigning a builtin binding in a session eval:
+// `all = 1` would replace the builtin for every later eval.
+func (v *Visitor) checkAssignBuiltin(name string, ctx antlr.ParserRuleContext) {
+	if v.itp.evalScoped && v.env.IsBuiltin(name) {
+		panic(&ShellError{Message: fmt.Sprintf("'%s' is a builtin and cannot be assigned; declare a name of your own, e.g. let %s = …\n\n  at line %d:%d",
+			name, altName(name), startLine(ctx), startCol(ctx))})
+	}
+}
+
+// sessionScope reports whether the visitor runs at the top level of a
+// session eval (Shell.EvalExported), where a declaration is a session global.
+func (v *Visitor) sessionScope() bool {
+	return v.itp.evalScoped && v.env == v.itp.globals
+}
+
+// checkTopName refuses a session global under a builtin, command or toolkit
+// name: it would hide that name in every later eval. Elsewhere (a function,
+// a block, a one-shot eval) a declaration that replaces a builtin warns: it
+// works — models name a list `all` by habit — but the builtin is gone for
+// the rest of the scope.
+func (v *Visitor) checkTopName(name string, ctx antlr.ParserRuleContext) {
+	if v.sessionScope() {
+		if what := reservedName(v.itp.commands, v.env, name); what != "" {
+			panic(&ShellError{Message: fmt.Sprintf("%s\n\n  at line %d:%d", reservedNameError(name, what), startLine(ctx), startCol(ctx))})
+		}
+		return
+	}
+	if v.env.IsBuiltin(name) {
+		v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s for the rest of this scope", startLine(ctx), name, name))
+	}
 }
 
 // --- Statements --------------------------------------------------------------
@@ -506,7 +595,7 @@ func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 		}
 		value := last
 		for _, name := range slices.Sorted(maps.Keys(names)) {
-			v.warnShadow(name, bc)
+			v.checkTopName(name, bc)
 		}
 		v.withLocation(bc, func() Value {
 			v.bindDestructure(bc.Destructure(), value)
@@ -530,7 +619,7 @@ func (v *Visitor) visitFnDecl(ctx *parser.FnDeclContext) Value {
 		ParamNodes:    nodes,
 		Async:         ctx.ASYNC() != nil,
 	}
-	v.warnShadow(name, ctx)
+	v.checkTopName(name, ctx)
 	v.env.DefineOrSet(name, fn)
 	return Null
 }
@@ -574,20 +663,6 @@ func (v *Visitor) warnMissingMember(o *ObjectVal, field string, ctx antlr.Parser
 	if len(near) > 0 {
 		v.itp.warn(fmt.Sprintf("line %d: no member '%s', so it read null — did you mean '%s'?", line, field, near[0]))
 	}
-}
-
-// warnShadow warns when a declaration replaces a builtin. The declaration
-// works — models name a list `all` or a total `sum` by habit — but the
-// builtin is gone for the rest of the scope, which the warning says.
-func (v *Visitor) warnShadow(name string, ctx antlr.ParserRuleContext) {
-	if !v.env.IsBuiltin(name) {
-		return
-	}
-	if v.itp.evalScoped && v.env == v.itp.globals {
-		v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s in this eval only: a let lasts one eval, and the next eval sees the builtin (export let keeps a value)", startLine(ctx), name, name))
-		return
-	}
-	v.itp.warn(fmt.Sprintf("line %d: '%s' replaces the builtin %s for the rest of this scope", startLine(ctx), name, name))
 }
 
 // fnDeclName resolves the declared name for a function declaration.
@@ -1789,9 +1864,6 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 			msg += ", and none is kept now"
 		}
 		panic(Runtime(msg))
-	}
-	if v.itp.earlierLets[name] {
-		panic(&ShellError{Message: fmt.Sprintf("'%s' was declared in an earlier eval, and only export lasts beyond one eval (let, const and function do not). Declare it again in this eval, or use export (export let %s = …) to keep it for later evals\n\n  at line %d:%d", name, name, startLine(ctx), startCol(ctx))})
 	}
 	for _, d := range v.declaring {
 		if d.name == name {

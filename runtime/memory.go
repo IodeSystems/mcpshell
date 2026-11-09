@@ -539,8 +539,8 @@ func (t *Shell) memoryReport(used, limit int64) string {
 			h.detail = "kept result; " + h.detail
 			h.free = fmt.Sprintf("forget(%q)", n)
 		} else {
-			h.name = "export " + n
-			h.free = "export " + n + " = null"
+			h.name = n
+			h.free = fmt.Sprintf("forget(%q)", n)
 		}
 		hs = append(hs, h)
 	}
@@ -588,6 +588,9 @@ func (t *Shell) memoryReport(used, limit int64) string {
 		fmt.Fprintf(&b, "  this eval: the rest (~%s) — values the code holds; process in parts (limit, chunk) or drop references", FormatBytes(rest))
 	} else {
 		b.WriteString("  this eval: nothing beyond the holders above")
+	}
+	if t.limits.Hint == HintEvalArg {
+		b.WriteString("\n  all of it: eval with clear: true (unloads toolkits, drops globals and kept results)")
 	}
 	return b.String()
 }

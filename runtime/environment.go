@@ -13,6 +13,9 @@ type Environment struct {
 	gil      *sync.Mutex
 	bindings map[string]Value
 	builtins map[string]bool // names bound by DefineBuiltin
+	// earlier are names bound before the running eval began (MarkEarlier):
+	// declaring one replaces it, as re-running a cell does in a notebook.
+	earlier map[string]bool
 }
 
 // NewEnvironment creates a scope. A child inherits its parent's GIL; a root
@@ -42,19 +45,36 @@ func (e *Environment) getLocked(name string) Value {
 	return nil
 }
 
-// Define binds a new name in this scope; panics if already declared here. A
-// builtin is the exception: declaring its name replaces it for the rest of
-// the scope (the visitor warns, see warnShadow).
+// Define binds a new name in this scope; panics if already declared here.
+// Two exceptions replace the binding: a builtin (the visitor warns or
+// refuses first, see checkTopName) and a name of an earlier eval
+// (MarkEarlier).
 func (e *Environment) Define(name string, value Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
 	if _, ok := e.bindings[name]; ok {
-		if !e.builtins[name] {
+		if !e.builtins[name] && !e.earlier[name] {
 			panic(Runtime("'" + name + "' is already declared in this scope"))
 		}
 		delete(e.builtins, name)
+		delete(e.earlier, name)
 	}
 	e.bindings[name] = value
+}
+
+// MarkEarlier marks every non-builtin binding of this scope as declared
+// before the eval that starts now, so a declaration in it replaces the old
+// binding instead of failing. A second declaration within the eval still
+// fails.
+func (e *Environment) MarkEarlier() {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	e.earlier = make(map[string]bool, len(e.bindings))
+	for name := range e.bindings {
+		if !e.builtins[name] {
+			e.earlier[name] = true
+		}
+	}
 }
 
 // IsBuiltin reports whether name currently resolves to a builtin binding.
@@ -250,8 +270,39 @@ func copyBindings(src map[string]Value) map[string]Value {
 	return maps.Clone(src)
 }
 
+// Binding returns this scope's own binding of name and whether it is a
+// builtin; ok is false when the scope has no own binding.
+func (e *Environment) Binding(name string) (value Value, builtin, ok bool) {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	value, ok = e.bindings[name]
+	return value, e.builtins[name], ok
+}
+
+// Rebind restores a binding read with Binding: absent (ok false), or value
+// with its builtin mark.
+func (e *Environment) Rebind(name string, value Value, builtin, ok bool) {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	delete(e.earlier, name)
+	if !ok {
+		delete(e.bindings, name)
+		delete(e.builtins, name)
+		return
+	}
+	e.bindings[name] = value
+	if builtin {
+		if e.builtins == nil {
+			e.builtins = make(map[string]bool)
+		}
+		e.builtins[name] = true
+	} else {
+		delete(e.builtins, name)
+	}
+}
+
 // UserBindings returns the bindings of this scope that are not builtins:
-// exported values and kept results.
+// session globals (top-level declarations) and kept results.
 func (e *Environment) UserBindings() map[string]Value {
 	e.gil.Lock()
 	defer e.gil.Unlock()

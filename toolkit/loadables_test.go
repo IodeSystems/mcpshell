@@ -95,7 +95,10 @@ func TestFilesLoadable(t *testing.T) {
 
 	okEval(t, sh, `unload("files")`)
 	mustContain(t, "after unload", failEval(t, sh, `read("a.txt")`), `call load("files") first`)
-	mustContain(t, "loader gone", failEval(t, sh, `load("lib.mcpshell")`), "")
+	// The path form installs the toolkit again; the file runs again and
+	// replaces its export (it failed on the second declaration before).
+	okEval(t, sh, `load("lib.mcpshell")`)
+	mustContain(t, "after reload", okEval(t, sh, `[answer, read("a.txt")]`), "42", "hi")
 }
 
 // With an overflow dir the read-only reader is there from the start, whether

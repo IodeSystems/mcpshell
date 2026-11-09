@@ -29,8 +29,8 @@ func TestServerProtocol(t *testing.T) {
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"eval","arguments":{"code":"nope("}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"eval","arguments":{"code":"x * 2","vars":{"x":21}}}}`,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"eval","arguments":{"code":"o","vars":{"o":{"z":12345678901234567890123,"a":0.12345678901234567890}}}}}`,
-		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"eval","arguments":{"code":"let all = 1\nall"}}}`,
-		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"eval","arguments":{"code":"let all = 1\nnope"}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"eval","arguments":{"code":"let o = {name: 1}; o.nmae ?? 1"}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"eval","arguments":{"code":"let o = {name: 1}; o.nmae; nope"}}}`,
 	}, "\n") + "\n"
 
 	var out bytes.Buffer
@@ -78,12 +78,12 @@ func TestServerProtocol(t *testing.T) {
 		t.Errorf("eval with exact vars = %q", got)
 	}
 	// warnings follow the result, and an error
-	want := "1\n\nwarning: line 1: 'all' replaces the builtin"
+	want := "1\n\nwarning: line 1: no member 'nmae'"
 	if got := toolText(t, resps[6]); !strings.HasPrefix(got, want) {
 		t.Errorf("eval with a warning = %q, want prefix %q", got, want)
 	}
 	got := toolText(t, resps[7])
-	for _, sub := range []string{"ERROR:", "warning: line 1: 'all' replaces the builtin", "nope"} {
+	for _, sub := range []string{"ERROR:", "warning: line 1: no member 'nmae'", "nope"} {
 		if !strings.Contains(got, sub) {
 			t.Errorf("failed eval = %q, want %q", got, sub)
 		}

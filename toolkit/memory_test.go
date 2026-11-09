@@ -106,10 +106,10 @@ func TestMemoryGCBeforeFailAvoidsFalsePositive(t *testing.T) {
 	}
 }
 
-func TestMemoryReportNamesExportsAndKeptResults(t *testing.T) {
+func TestMemoryReportNamesGlobalsAndKeptResults(t *testing.T) {
 	sh := memShell()
 	big := room(40 << 20)
-	if _, err := evalMem(sh, big, `export let rows = range(60000) |> map(i => ({id: i, name: "row" + i}))`); err != nil {
+	if _, err := evalMem(sh, big, `let rows = range(60000) |> map(i => ({id: i, name: "row" + i}))`); err != nil {
 		t.Fatal(err)
 	}
 	kept := &rt.ArrayVal{}
@@ -123,7 +123,7 @@ func TestMemoryReportNamesExportsAndKeptResults(t *testing.T) {
 	}
 	msg := err.Error()
 	for _, want := range []string{
-		`export rows: ~`, `export rows = null`,
+		"  rows: ~", `forget("rows")`,
 		`$r1: ~`, `kept result; Array, 50k elements`, `forget("$r1")`,
 		"this eval: the rest",
 	} {
@@ -186,7 +186,7 @@ func TestMemoryNearLimitNote(t *testing.T) {
 	if note == "" {
 		t.Fatalf("want a memory note at >= 80%%, notes: %q", sh.Diagnostics().Notes)
 	}
-	for _, want := range []string{"live heap (", "export s: ~", "export s = null"} {
+	for _, want := range []string{"live heap (", "  s: ~", `forget("s")`} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note lacks %q:\n%s", want, note)
 		}
@@ -252,8 +252,25 @@ func TestForget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not a kept result") || !strings.Contains(err.Error(), "$r2") {
 		t.Errorf("forget of a gone result: %v", err)
 	}
-	if _, err := sh.Eval(`forget("rows")`); err == nil {
-		t.Error("forget must only drop kept results")
+	if _, err := sh.Eval(`forget("rows")`); err == nil || !strings.Contains(err.Error(), "not a session global") {
+		t.Errorf("forget of an unknown name: %v", err)
+	}
+	if _, err := sh.Eval(`forget("all")`); err == nil || !strings.Contains(err.Error(), "is a builtin") {
+		t.Errorf("forget of a builtin: %v", err)
+	}
+	// A session global is freed by name.
+	if _, err := sh.EvalExported(`let rows = range(1000); const k = 1`, nil); err != nil {
+		t.Fatal(err)
+	}
+	v, err = sh.EvalExported(`forget("rows", "k")`, nil)
+	if err != nil || !strings.HasPrefix(v.Display(), "Forgot rows, k (~") {
+		t.Fatalf("forget a global: %v %v", v, err)
+	}
+	if _, err := sh.EvalExported(`rows`, nil); err == nil {
+		t.Error("rows must be gone")
+	}
+	if v, err := sh.EvalExported(`let rows = 2; rows`, nil); err != nil || v.Display() != "2" {
+		t.Errorf("a forgotten name can be declared again: %v %v", v, err)
 	}
 }
 

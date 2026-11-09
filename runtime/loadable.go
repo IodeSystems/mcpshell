@@ -174,6 +174,34 @@ func (d *Loadable) owns(name string) bool {
 	return false
 }
 
+// loadedNames returns the loaded loadables, sorted.
+func (r *CommandRegistry) loadedNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []string
+	for n, l := range r.loadables {
+		if l.loaded != nil {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// LoadableOwning returns the loadable whose namespaces or commands include
+// name exactly, loaded or not, or "". Denied and disabled loadables are
+// skipped: they cannot be loaded.
+func (r *CommandRegistry) LoadableOwning(name string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for n, l := range r.loadables {
+		if !r.denied[n] && l.def.Disabled == "" && l.def.owns(name) {
+			return n
+		}
+	}
+	return ""
+}
+
 // remove drops commands, their emptied namespaces and guides. It returns the
 // namespaces it emptied.
 func (r *CommandRegistry) remove(cmds []*CommandDef, guides []string) (emptied []string) {
