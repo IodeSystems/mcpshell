@@ -539,8 +539,8 @@ func (t *Shell) memoryReport(used, limit int64) string {
 			h.detail = "kept result; " + h.detail
 			h.free = fmt.Sprintf("forget(%q)", n)
 		} else {
-			h.name = "export " + n
-			h.free = "export " + n + " = null"
+			h.name = n
+			h.free = fmt.Sprintf("forget(%q)", n)
 		}
 		hs = append(hs, h)
 	}

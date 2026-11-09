@@ -66,6 +66,25 @@ func (t *Shell) TruncationNote(v Value, shown, total int) string {
 // KeptResultNames returns the $rN names still kept, oldest first.
 func (t *Shell) KeptResultNames() []string { return slices.Clone(t.kept) }
 
+// Forget drops a kept result ($rN) or a session global (a top-level
+// declaration) and returns the bytes it held, by estimate. A builtin or an
+// unknown name is an error.
+func (t *Shell) Forget(name string) (int64, error) {
+	if strings.HasPrefix(name, "$r") {
+		return t.ForgetResult(name)
+	}
+	v, builtin, ok := t.globals.Binding(name)
+	switch {
+	case builtin:
+		return 0, fmt.Errorf("forget: %q is a builtin, not a session global", name)
+	case !ok:
+		return 0, fmt.Errorf("forget: %q is not a session global or a kept result ($r1, …)", name)
+	}
+	n, _ := EstimateSize(v, memWalkNodes)
+	t.globals.Remove(map[string]struct{}{name: {}})
+	return n, nil
+}
+
 // Warnings returns the last eval's warnings, after success or error. Each
 // starts with "line N:".
 func (t *Shell) Warnings() []string { return t.diag.Warnings }
