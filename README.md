@@ -85,8 +85,11 @@ their values directly.
 Code an agent writes from JS habit runs, and the eval result says when it may
 not do what was meant: one block of typed lines follows the result (or the
 error): `warning: line N: …`, `note: …` (a toolkit's notice), `profile: …`,
-`limits: steps 850000/1000000 (85%)`. `let all = []` replaces the builtin `all` for the rest of that
-scope, with a warning. A command given more arguments than its signature lists
+`limits: steps 850000/1000000 (85%)`. Top-level `let`, `const` and `function`
+last for the session (the MCP server, the REPL), as in the Node REPL; there a
+builtin or command name (`let all = []`) is an error that suggests another name.
+Inside a function or block it replaces the builtin for the rest of that scope,
+with a warning. A command given more arguments than its signature lists
 is an error with its signature and an example: `floor(2.7, 9)`. JS arguments
 that mean something (`parseInt(s, 16)`, `split(",", 2)`, `indexOf(x, from)`)
 work; callbacks' `thisArg` is ignored, as in JS.
@@ -141,7 +144,7 @@ step costs) and `limits: {steps, timeout, callDepth, outputBytes, memory}` (this
 only, up to the operator maximums in `--max-limits`); the CLI takes
 `--profile` and `--limits steps=N,timeout=60s,memory=2GB`. `memory` is bytes of Go heap (default 1 GB, maximum 2 GB unless
 `--max-limits memory=4GB`); over it the error lists what holds memory and how to
-free it (`unload("db")`, `forget("$r2")`, `export rows = null`), and an eval
+free it (`unload("db")`, `forget("$r2")`, `forget("rows")`, or `clear: true` for everything), and an eval
 that ends at 80% or more says so in a `note:` line. A tripped limit says which
 argument raises it.
 
@@ -192,7 +195,7 @@ directory) at start.
 | **num** | `load("num")` | float64 numerics: `Num.regress(rows, {y, x})` (OLS with standard errors, t/p, CIs, R², F), `Num.fit` (Levenberg-Marquardt with your model `(x, p) => y`, or built-in Gaussian/Lorentzian/pseudo-Voigt peaks with a baseline; params, standard errors, covariance), `Num.minimize` (Nelder-Mead, bounds), `Num.root` (Brent), `Num.integrate` (adaptive Gauss-Kronrod, infinite ends; trapezoid on samples), `Num.interp` (linear, natural cubic), `Num.solve`/`inv`/`det`/`eig` (symmetric)/`lstsq`/`matmul`, `Num.pdf`/`cdf`/`sf`/`ppf` for 11 distributions, `Num.ttest`, `Num.ci`, `Num.rng(seed)`; `status` says when a method did not converge |
 | **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
-Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file; it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
+Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
 
 ### Large output
 
