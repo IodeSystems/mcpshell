@@ -484,11 +484,8 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		if err != nil {
 			panic(Runtime("load: " + err.Error()))
 		}
-		v, evalErr := sh.Eval(string(data))
-		if evalErr != nil {
-			panic(evalErr)
-		}
-		return v
+		// A module: only its exports become session globals.
+		return sh.EvalModule(string(data))
 	})
 
 	return sh

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -249,8 +250,19 @@ func (t *Shell) Commands() *CommandRegistry { return t.commands }
 func (t *Shell) Limits() *ExecutionLimits { return t.limits }
 
 // Register adds a command, auto-lifting the namespace object into globals.
+// During load, a command or namespace whose name a session global holds
+// fails the load: the global would hide the command, or the namespace would
+// overwrite the global.
 func (t *Shell) Register(def *CommandDef) *Shell {
 	if t.hook != nil {
+		name := def.Namespace
+		if name == "" {
+			name = def.Name
+		}
+		if _, builtin, ok := t.globals.Binding(name); ok && !builtin && !strings.HasPrefix(name, "$r") {
+			panic(Runtime(fmt.Sprintf("the toolkit defines %s, and '%s' is a session global. Free the name with forget(%q) (copy the value first if you need it: let %s = %s), then load again",
+				name, name, name, altName(name), name)))
+		}
 		t.hook.guard(def)
 	}
 	t.commands.Register(def)
@@ -333,6 +345,29 @@ func (t *Shell) EvalExportedWith(source string, vars map[string]Value, opts Eval
 		}
 	}()
 	return itp.Eval(source).Value, nil
+}
+
+// EvalModule evaluates a loaded file (load("lib.mcpshell")) in a scope of
+// its own, inside the running eval: limits and diagnostics are the eval's.
+// Only the names the file exports become session globals; its other
+// top-level declarations stay private to it, and its exported functions
+// still see them. An exported builtin, command or toolkit name is an
+// error, and then nothing is exported.
+func (t *Shell) EvalModule(source string) Value {
+	env := t.globals.Child()
+	res := NewInterpreter(t.commands, env, t.limits).Eval(source)
+	names := slices.Sorted(maps.Keys(res.ExportedNames))
+	for _, name := range names {
+		if what := reservedName(t.commands, t.globals, name); what != "" {
+			panic(Runtime("load: the file exports " + reservedNameError(name, what)))
+		}
+	}
+	for _, name := range names {
+		if value := env.Get(name); value != nil {
+			t.globals.DefineOrSet(name, value)
+		}
+	}
+	return res.Value
 }
 
 // EvalTransactional evaluates source, restoring global state on error.

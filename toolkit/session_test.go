@@ -1,6 +1,9 @@
 package toolkit_test
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,4 +133,55 @@ func TestOneShotBuiltinShadowWarns(t *testing.T) {
 			t.Errorf("eval(%q) warnings = %q, want %q", c.src, w, c.warn)
 		}
 	}
+}
+
+// TestLoadedFileIsAModule: load("lib.mcpshell") makes only the file's
+// exports session globals. Its other top-level names stay private, and its
+// exported functions still see them. An exported builtin or command name
+// fails the load, and nothing is exported then.
+func TestLoadedFileIsAModule(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"lib.mcpshell":  "let helper = n => n * 3\nconst all = 1\nexport function triple(n) { return helper(n) }\nexport let answer = 42",
+		"bad.mcpshell":  "export let fine = 1\nexport function sum(xs) { return 0 }",
+		"bad2.mcpshell": "export let Map = 1",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sh := toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), dir, false)
+	sessionSteps(t, sh, []struct{ src, want string }{
+		{`load("lib.mcpshell"); [triple(2), answer]`, "[6, 42]"},
+		{`[triple(3), answer]`, "[9, 42]"},
+		{`helper`, "ERR:Unknown command 'helper'"},
+		{`all`, "function all()"},
+		{`load("bad.mcpshell")`, "ERR:the file exports 'sum' is a command"},
+		{`fine`, "ERR:Unknown command 'fine'"},
+		{`load("bad2.mcpshell")`, "ERR:'Map' is a builtin"},
+		{`new Map().size`, "0"},
+	})
+}
+
+// TestLoadRefusesASessionGlobal: a toolkit command or namespace whose name a
+// session global holds fails the load and names how to free the name;
+// after forget the load works.
+func TestLoadRefusesASessionGlobal(t *testing.T) {
+	sh := toolkit.InstallCore(runtime.NewShell())
+	sh.AddLoadable(runtime.Loadable{
+		Name: "zapper", Summary: "zaps",
+		Install: func(sh *runtime.Shell) (io.Closer, error) {
+			sh.Register(&runtime.CommandDef{Name: "zap", Description: "zaps",
+				Fn: func([]runtime.Value) runtime.Value { return runtime.Str("zapped") }})
+			return nil, nil
+		},
+	})
+	sessionSteps(t, sh, []struct{ src, want string }{
+		{`let zap = 1`, "1"},
+		{`load("zapper")`, `ERR:'zap' is a session global. Free the name with forget("zap")`},
+		{`zap`, "1"},
+		{`let Zapper = 2`, `ERR:'Zapper' is a name of the "zapper" toolkit`},
+		{`forget("zap"); load("zapper"); zap()`, "zapped"},
+	})
 }
