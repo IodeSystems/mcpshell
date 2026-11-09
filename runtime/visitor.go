@@ -1706,7 +1706,11 @@ func (v *Visitor) visitPostfixExpr(ctx *parser.PostfixExprContext) Value {
 					fn := asCallable(current)
 					if fn == nil {
 						if prevMemberOf != nil {
-							panic(NotCallable(receiverText(ctx, ops[:opIdx-1]), prevMemberOf, prevMember, current))
+							recv := receiverText(ctx, ops[:opIdx-1])
+							if out, ok := v.namespaceHelp(recv, prevMember, current, ca.positional); ok {
+								return out
+							}
+							panic(NotCallable(recv, prevMemberOf, prevMember, current))
 						}
 						panic(TypeMismatch("call", "function", current, ""))
 					}
@@ -2063,6 +2067,25 @@ func (v *Visitor) visitMultiParamArrowBlock(ctx *parser.MultiParamArrowBlockCont
 
 // receiverText is the source text of a postfix chain's primary expression
 // followed by ops, for naming a receiver in errors.
+// namespaceHelp answers Ns.help() and Ns.help("cmd") for a command
+// namespace that has no help member: models write it for every namespace, and
+// the help text is the one help("Ns") gives. A plain object keeps the error.
+func (v *Visitor) namespaceHelp(recv, member string, got Value, args []Value) (Value, bool) {
+	if member != "help" || got != Null || len(v.itp.commands.NamespaceCommands(recv)) == 0 {
+		return nil, false
+	}
+	search := recv
+	if len(args) > 0 {
+		if s, ok := args[0].(*StringVal); ok && s.V != "" {
+			search = s.V
+			if v.itp.commands.Get(recv+"."+s.V) != nil {
+				search = recv + "." + s.V
+			}
+		}
+	}
+	return Str(v.itp.commands.Help(search)), true
+}
+
 func receiverText(ctx *parser.PostfixExprContext, ops []parser.IPostfixOpContext) string {
 	var b strings.Builder
 	b.WriteString(ctx.PrimaryExpr().GetText())

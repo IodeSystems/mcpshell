@@ -407,6 +407,19 @@ func TestErrorQualityNamespaceHelp(t *testing.T) {
 	if msg := evalErr(t, `Math.help({})`); !strings.Contains(msg, `help is a global: help("Math")`) {
 		t.Errorf("Math.help error = %q", msg)
 	}
+	// A command namespace answers Ns.help() as help("Ns"), and
+	// Ns.help("cmd") as help("Ns.cmd").
+	sh := toolkit.InstallCore(runtime.NewShell())
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	for src, want := range map[string]string{
+		`load("db"); Db.help({})`:      "Db.query(sql",
+		`load("db"); Db.help("query")`: "runs one read-only SELECT",
+	} {
+		v, err := sh.Eval(src)
+		if err != nil || !strings.Contains(v.Display(), want) {
+			t.Errorf("%s = %v, %v; want it to contain %q", src, v, err, want)
+		}
+	}
 }
 
 // TestNonFiniteNumbers: ±Infinity and NaN print as JS prints them, read back
