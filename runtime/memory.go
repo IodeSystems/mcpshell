@@ -598,6 +598,9 @@ func describeValue(v Value) string {
 	case *ArrayVal:
 		return fmt.Sprintf("Array, %s elements", Count(len(x.Elements)))
 	case *ObjectVal:
+		if x.file != nil {
+			return fileInspect(x)
+		}
 		return fmt.Sprintf("Object, %d keys", x.Len())
 	case *StringVal:
 		return fmt.Sprintf("String, %s characters", Count(len(x.V)))

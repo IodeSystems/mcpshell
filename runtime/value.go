@@ -220,6 +220,9 @@ type ObjectVal struct {
 	// errorBase marks Error.prototype, so an object whose chain reaches it
 	// prints and throws as an error.
 	errorBase bool
+	// file is the path of a File value (file_obj.go), shared with its path
+	// field; nil for any other object.
+	file *StringVal
 }
 
 func NewObject() *ObjectVal {
@@ -259,6 +262,9 @@ func (o *ObjectVal) HasOwn(k string) bool {
 // setter is an error; otherwise k becomes an own property, keeping
 // first-insertion order.
 func (o *ObjectVal) Set(k string, v Value) {
+	if o.file != nil && isFileField(k) {
+		panic(readOnlyFileField(k))
+	}
 	if cur, ok := o.m[k]; ok {
 		if acc, isAcc := cur.(*accessorVal); isAcc {
 			acc.put(o.receiver(), k, v)
@@ -282,6 +288,9 @@ func (o *ObjectVal) Set(k string, v Value) {
 func (o *ObjectVal) Delete(k string) {
 	if _, ok := o.m[k]; !ok {
 		return
+	}
+	if o.file != nil && isFileField(k) {
+		panic(readOnlyFileField(k))
 	}
 	delete(o.m, k)
 	if o.hidden[k] {

@@ -247,7 +247,7 @@ func (itp *Interpreter) initBuiltinBindings() {
 
 // initObjectModel defines the classes and collections once per shell, on the
 // root scope, so a class's identity (instanceof, an exported instance) holds
-// across evals: Error and its subclasses, Map, Set, WeakMap, WeakSet, and
+// across evals: Error and its subclasses, File, Map, Set, WeakMap, WeakSet, and
 // Object.create / getPrototypeOf / setPrototypeOf.
 func (itp *Interpreter) initObjectModel() {
 	root := itp.globals
@@ -266,6 +266,9 @@ func (itp *Interpreter) initObjectModel() {
 		root.DefineBuiltin("Set", collectionNamespace(kindSet))
 		root.DefineBuiltin("WeakMap", collectionNamespace(kindWeakMap))
 		root.DefineBuiltin("WeakSet", collectionNamespace(kindWeakSet))
+	}
+	if root.Get("File") == nil { // a Shell defines it first, for NewFile
+		root.DefineBuiltin("File", fileClass())
 	}
 	obj, ok := itp.globals.Get("Object").(*ObjectVal)
 	if !ok {

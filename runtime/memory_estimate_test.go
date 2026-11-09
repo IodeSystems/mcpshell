@@ -32,6 +32,7 @@ func TestEstimateSizeNearMeasured(t *testing.T) {
 		`let m = new Map(); for (let i = 0; i < 200000; i++) m.set("k" + i, {i}); m`,
 		`let s = new Set(); for (let i = 0; i < 200000; i++) s.add("v" + i); s`,
 		`class P { #id; constructor(i) { this.#id = i; this.x = i; this.y = "p" + i } }; range(0, 200000).map(i => new P(i))`,
+		`range(0, 200000).map(i => new File("dir/f" + i + ".txt"))`,
 	} {
 		sh := mr.NewShell()
 		toolkit.InstallCore(sh)

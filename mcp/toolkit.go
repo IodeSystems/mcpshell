@@ -452,6 +452,9 @@ func jsonValueIn(v runtime.Value, anc *runtime.Ancestors) any {
 		}
 		return out
 	case *runtime.ObjectVal:
+		if p, ok := runtime.AsPath(x); ok { // a File is its path string
+			return p
+		}
 		out := make(map[string]any, x.Len())
 		for _, k := range x.Keys() {
 			e, _ := x.Get(k)

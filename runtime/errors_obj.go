@@ -121,6 +121,9 @@ func ToDisplayString(v Value) string {
 	case *StringVal:
 		return x.V
 	case *ObjectVal:
+		if x.file != nil { // a File: its path, without calling toString
+			return x.file.V
+		}
 		if x.proto != nil {
 			if f, ok := x.proto.rawOwnChain("toString"); ok {
 				if fn, isFn := f.(*FuncVal); isFn {

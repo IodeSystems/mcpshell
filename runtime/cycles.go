@@ -50,6 +50,9 @@ func inspectIn(v Value, anc *Ancestors) string {
 		defer anc.Leave()
 		return x.inspect(anc)
 	case *ObjectVal:
+		if x.file != nil {
+			return fileInspect(x)
+		}
 		if !anc.Enter(x) {
 			return "[Circular]"
 		}

@@ -617,7 +617,11 @@ func (v *Visitor) mutateInPlace(parent Value, step any, value Value) {
 			case *NumberVal:
 				key = idx.Display()
 			default:
-				panic(TypeMismatch("index assignment", "string key", s.value, nullIndexHint(s.value)))
+				p, ok := AsPath(idx)
+				if !ok {
+					panic(TypeMismatch("index assignment", "string key", s.value, nullIndexHint(s.value)))
+				}
+				key = p
 			}
 			p.Set(key, value)
 		case *ArrayVal:
@@ -699,6 +703,15 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 		}
 		if val, ok := o.Get(field); ok {
 			return val
+		}
+		if o.file != nil { // a File passes string members to its path
+			if field == "length" {
+				return &NumberVal{V: float64(len([]rune(o.file.V)))}
+			}
+			if m := v.bindMethodOrHint(o.file, "string", field); m != Null {
+				return m
+			}
+			return Null
 		}
 		if m := objectProtoMethod(o, field); m != nil {
 			return m
@@ -875,7 +888,11 @@ func (v *Visitor) accessIndex(obj, index Value) Value {
 		case *NumberVal:
 			key = k.Display()
 		default:
-			panic(TypeMismatch("index", "string", index, nullIndexHint(index)))
+			p, ok := AsPath(k) // obj[file] is obj[file.path], as JS gives obj[String(file)]
+			if !ok {
+				panic(TypeMismatch("index", "string", index, nullIndexHint(index)))
+			}
+			key = p
 		}
 		if val, ok := o.Get(key); ok {
 			return val

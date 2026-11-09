@@ -543,7 +543,7 @@ func (v *Visitor) visitFnDecl(ctx *parser.FnDeclContext) Value {
 // existing one (o.nmae for o.name). Either one otherwise surfaces later, far
 // from the cause, as a null in a comparison or a sum.
 func (v *Visitor) warnMissingMember(o *ObjectVal, field string, ctx antlr.ParserRuleContext) {
-	if o.Has(field) || field == "hasOwnProperty" {
+	if o.Has(field) || field == "hasOwnProperty" || o.file != nil { // a File has the string members
 		return
 	}
 	line := startLine(ctx)
@@ -1167,9 +1167,13 @@ func (v *Visitor) visitEqualityExpr(ctx *parser.EqualityExprContext) Value {
 		}
 		op := v.opText(ctx.GetChild(2*i - 1).(antlr.TerminalNode))
 		switch op {
-		case "==", "===":
+		case "==":
+			result = &BoolVal{V: LooseEqual(result, right)}
+		case "===":
 			result = &BoolVal{V: valueEquals(result, right)}
-		case "!=", "!==":
+		case "!=":
+			result = &BoolVal{V: !LooseEqual(result, right)}
+		case "!==":
 			result = &BoolVal{V: !valueEquals(result, right)}
 		default:
 			result = &BoolVal{V: false}
@@ -1867,7 +1871,9 @@ func (v *Visitor) visitObjectLiteral(ctx *parser.ObjectLiteralContext) Value {
 			key := v.eval(exprs[0])
 			ks, ok := key.(*StringVal)
 			if !ok {
-				panic(TypeMismatch("computed key", "string", key, ""))
+				if ks, ok = asPathStr(key); !ok {
+					panic(TypeMismatch("computed key", "string", key, ""))
+				}
 			}
 			obj.Set(ks.V, v.eval(exprs[1]))
 		case *parser.MethodFieldContext:

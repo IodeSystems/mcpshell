@@ -284,6 +284,12 @@ func add(left, right Value) Value {
 	if ls || rs || ld || rd { // Date + x is a string concatenation, as in JS
 		return &StringVal{V: ToDisplayString(left) + ToDisplayString(right)}
 	}
+	if _, lf := AsPath(left); lf {
+		return &StringVal{V: ToDisplayString(left) + ToDisplayString(right)}
+	}
+	if _, rf := AsPath(right); rf { // a File + x is its path + x
+		return &StringVal{V: ToDisplayString(left) + ToDisplayString(right)}
+	}
 	l, r := binNums(left, right, "+")
 	if l.bigint || r.bigint {
 		return bigIntArith("+", l, r)
@@ -304,6 +310,22 @@ func add(left, right Value) Value {
 
 // Equal is exported structural (deep) equality, for toolkit commands.
 func Equal(a, b Value) bool { return valueEquals(a, b) }
+
+// LooseEqual is `==`: valueEquals, except that a File equals the string of
+// its path (f == "a.txt"); `===` stays valueEquals, so a File is never
+// === a string.
+func LooseEqual(a, b Value) bool {
+	if p, ok := AsPath(a); ok {
+		if s, isStr := b.(*StringVal); isStr {
+			return p == s.V
+		}
+	} else if p, ok := AsPath(b); ok {
+		if s, isStr := a.(*StringVal); isStr {
+			return p == s.V
+		}
+	}
+	return valueEquals(a, b)
+}
 
 // valueEquals is structural (deep) equality, matching mcpshell's `==`.
 func valueEquals(a, b Value) bool { return equalsIn(a, b, nil) }
@@ -386,6 +408,12 @@ func compareValues(a, b Value) int {
 	}
 	if d, ok := b.(*DateVal); ok {
 		b = d.msNumber()
+	}
+	if s, ok := asPathStr(a); ok { // a File compares as its path
+		a = s
+	}
+	if s, ok := asPathStr(b); ok {
+		b = s
 	}
 	// A boolean is 1 or 0 against a number or a boolean, as in JS
 	// (true < 2), and as in arithmetic.

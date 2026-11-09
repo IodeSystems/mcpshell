@@ -114,6 +114,9 @@ func propertyKey(k Value, what string) string {
 	case *BoolVal, *NullVal:
 		return x.Display()
 	}
+	if p, ok := AsPath(k); ok {
+		return p
+	}
 	panic(TypeMismatch(what, "string or number", k, ""))
 }
 

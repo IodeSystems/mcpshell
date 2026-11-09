@@ -22,6 +22,9 @@ type Shell struct {
 	// export: they are gone in later evals, and reading one says so.
 	earlierLets map[string]bool
 
+	// fileProto is File.prototype on globals, for NewFile.
+	fileProto *ObjectVal
+
 	loaders
 }
 
@@ -182,6 +185,9 @@ func NewShell() *Shell {
 		limits:   NewExecutionLimits(),
 		globals:  NewEnvironment(nil),
 	}
+	file := fileClass()
+	t.globals.DefineBuiltin("File", file)
+	t.fileProto = file.prototypeObj()
 	t.limits.memReport = t.memoryReport
 	t.commands.Register(&CommandDef{
 		Name:        "help",

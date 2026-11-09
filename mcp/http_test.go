@@ -410,6 +410,15 @@ func TestToolArgsKeepExactNumbers(t *testing.T) {
 	}
 }
 
+func TestToolArgFileIsItsPath(t *testing.T) {
+	srv := fakeHTTPServer(t, fakeOpts{rawArgs: true})
+	defer srv.Close()
+	sh := connectHTTP(t, mcp.ServerConfig{URL: srv.URL})
+	if got := evalString(t, sh, `remote.raw("echo", {message: new File("data/x.json")})`); got != `{"message":"data/x.json"}` {
+		t.Errorf("args sent upstream = %s", got)
+	}
+}
+
 func TestRawRejectsUnknownTool(t *testing.T) {
 	srv := fakeHTTPServer(t, fakeOpts{})
 	defer srv.Close()
