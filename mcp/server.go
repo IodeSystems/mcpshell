@@ -205,11 +205,12 @@ func (s *Server) toolDefs() []toolDef {
 			Name:        "eval",
 			Description: s.evalDescription(),
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-				`"code":{"type":"string","description":"mcpshell source code"},` +
+				`"code":{"type":"string","description":"mcpshell source code; top-level let/const/function persist to later calls"},` +
 				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true},` +
 				`"profile":{"type":"boolean","description":"Add per-line step costs to the result."},` +
 				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"},"memory":{"type":["integer","string"],"description":"bytes of heap, or a size such as \"2GB\""}},"additionalProperties":false}` +
-				`},"required":["code"]}`),
+				`,"clear":{"type":"boolean","description":"Reset the session before code (code is optional then): unload toolkits, drop globals and kept results."}` +
+				`}}`),
 		},
 	}
 }
@@ -244,11 +245,15 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		Vars    json.RawMessage `json:"vars"`
 		Profile bool            `json:"profile"`
 		Limits  json.RawMessage `json:"limits"`
+		Clear   bool            `json:"clear"`
 	}
-	if json.Unmarshal(rawArgs, &args) != nil || args.Code == nil {
-		return toolResult("ERROR: missing 'code' argument", true)
+	if json.Unmarshal(rawArgs, &args) != nil || args.Code == nil && !args.Clear {
+		return toolResult("ERROR: missing 'code' argument (or clear: true to reset the session)", true)
 	}
-	code := *args.Code
+	code := ""
+	if args.Code != nil {
+		code = *args.Code
+	}
 	// vars are parsed like tool output: exact numbers, source key order.
 	vars := map[string]runtime.Value{}
 	if len(args.Vars) > 0 {
@@ -266,8 +271,22 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		}
 		opts.Limits = spec
 	}
+	// clear runs before the code, so the code starts from the start state.
+	cleared := ""
+	if args.Clear {
+		cleared = s.shell.Clear()
+		if args.Code == nil {
+			return toolResult(cleared, false)
+		}
+	}
 	value, err := s.shell.EvalExportedWith(code, vars, opts)
 	warnings := s.shell.Diagnostics().Format()
+	if cleared != "" {
+		if warnings == "" {
+			warnings = "\n"
+		}
+		warnings += "\nnote: " + cleared
+	}
 	if se, ok := err.(*runtime.ShellError); ok && se.Internal() {
 		logInternalError(se, code, args.Vars)
 	}

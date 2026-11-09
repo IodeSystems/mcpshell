@@ -589,6 +589,9 @@ func (t *Shell) memoryReport(used, limit int64) string {
 	} else {
 		b.WriteString("  this eval: nothing beyond the holders above")
 	}
+	if t.limits.Hint == HintEvalArg {
+		b.WriteString("\n  all of it: eval with clear: true (unloads toolkits, drops globals and kept results)")
+	}
 	return b.String()
 }
 

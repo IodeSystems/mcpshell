@@ -174,6 +174,20 @@ func (d *Loadable) owns(name string) bool {
 	return false
 }
 
+// loadedNames returns the loaded loadables, sorted.
+func (r *CommandRegistry) loadedNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []string
+	for n, l := range r.loadables {
+		if l.loaded != nil {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // LoadableOwning returns the loadable whose namespaces or commands include
 // name exactly, loaded or not, or "". Denied and disabled loadables are
 // skipped: they cannot be loaded.

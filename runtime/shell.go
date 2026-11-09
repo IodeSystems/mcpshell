@@ -19,6 +19,8 @@ type Shell struct {
 	resultSeq int      // last $rN handed out
 	kept      []string // $rN names still bound, oldest first
 
+	start *startState // before the first session eval; Clear restores it
+
 	loaders
 }
 
@@ -318,6 +320,7 @@ func (t *Shell) EvalExportedWith(source string, vars map[string]Value, opts Eval
 	if err := t.beginEval(opts); err != nil {
 		return Null, err
 	}
+	t.markStart()
 	g := t.globals
 	g.MarkEarlier()
 	itp := NewInterpreter(t.commands, g, t.limits)

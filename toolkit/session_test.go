@@ -185,3 +185,18 @@ func TestLoadRefusesASessionGlobal(t *testing.T) {
 		{`forget("zap"); load("zapper"); zap()`, "zapped"},
 	})
 }
+
+// TestClearForgetsKeptResults: Clear drops the kept results with the
+// session globals.
+func TestClearForgetsKeptResults(t *testing.T) {
+	sh := toolkit.InstallCore(runtime.NewShell())
+	sessionSteps(t, sh, []struct{ src, want string }{{`let a = 1`, "1"}})
+	sh.TruncationNote(runtime.Str("long"), 1, 4)
+	if got := sh.Clear(); got != "cleared: forgot 1 kept result(s); dropped 1 global(s): a" {
+		t.Errorf("Clear = %q", got)
+	}
+	if len(sh.KeptResultNames()) != 0 {
+		t.Errorf("kept = %v", sh.KeptResultNames())
+	}
+	sessionSteps(t, sh, []struct{ src, want string }{{`$r1`, "ERR:not kept"}, {`a`, "ERR:Unknown command 'a'"}})
+}
