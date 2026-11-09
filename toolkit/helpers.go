@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/dlclark/regexp2/v2"
 
@@ -866,13 +867,18 @@ func parseJSONString(s string, pos *int) string {
 			case 'f':
 				sb.WriteByte('\f')
 			case 'u':
-				hex := s[*pos+1 : min(*pos+5, len(s))]
-				n, err := strconv.ParseInt(hex, 16, 32)
-				if err != nil {
-					panic(Runtime("parseJson: invalid unicode escape"))
-				}
-				sb.WriteRune(rune(n))
+				r := jsonHex4(s, *pos+1)
 				*pos += 4
+				// A high surrogate followed by an escaped low surrogate is one
+				// character (JSON writes non-BMP characters this way); a lone
+				// surrogate stays U+FFFD.
+				if utf16.IsSurrogate(r) && r < 0xDC00 && *pos+6 < len(s) && s[*pos+1] == '\\' && s[*pos+2] == 'u' {
+					if lo := jsonHex4(s, *pos+3); lo >= 0xDC00 && lo <= 0xDFFF {
+						r = utf16.DecodeRune(r, lo)
+						*pos += 6
+					}
+				}
+				sb.WriteRune(r)
 			default:
 				sb.WriteByte('\\')
 				sb.WriteByte(s[*pos])
@@ -883,6 +889,18 @@ func parseJSONString(s string, pos *int) string {
 		*pos++
 	}
 	panic(Runtime("parseJson: unterminated string"))
+}
+
+// jsonHex4 reads the four hex digits of a \u escape starting at i.
+func jsonHex4(s string, i int) rune {
+	if i+4 > len(s) {
+		panic(Runtime("parseJson: invalid unicode escape"))
+	}
+	n, err := strconv.ParseUint(s[i:i+4], 16, 16)
+	if err != nil {
+		panic(Runtime("parseJson: invalid unicode escape"))
+	}
+	return rune(n)
 }
 
 func parseJSONNumber(s string, pos *int) Value {

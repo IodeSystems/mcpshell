@@ -114,6 +114,9 @@ func TestCoreToolkit(t *testing.T) {
 		{"parseJson object", `parseJson("{\"a\": 1, \"b\": [2, 3]}")`, "{a: 1, b: [2, 3]}"},
 		{"toJson", `toJson({a: 1, b: [2, 3]})`, `{"a":1,"b":[2,3]}`},
 		{"json roundtrip", `toJson(parseJson("{\"x\": [1, 2]}"))`, `{"x":[1,2]}`},
+		{"parseJson surrogate pair", `parseJson('"a \\ud83d\\udd27 b"')`, "a 🔧 b"},
+		{"parseJson lone surrogate", `parseJson('"\\ud83d \\udd27\\u0041"') |> len`, "4"},
+		{"parseJson BMP escape", `parseJson('"\\u00e9\\u0041"')`, "éA"},
 		// Method-syntax sugar resolving to commands
 		{"method upper", `"hello".toUpperCase()`, "HELLO"},
 		{"method chain", `"hello world".split(" ").map(w => w.toUpperCase()).join(" ")`, "HELLO WORLD"},
