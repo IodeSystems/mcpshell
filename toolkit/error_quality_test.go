@@ -148,53 +148,6 @@ func TestErrorQualityRuntimeErrors(t *testing.T) {
 	}
 }
 
-// TestBuiltinShadowWarns: declaring a builtin's name works, as in JS, and
-// the result carries a warning with the line. Models name a list `all` by
-// habit; refusing cost a turn each time. (A command name such as sum was
-// always declarable, without a warning.)
-func TestBuiltinShadowWarns(t *testing.T) {
-	cases := []struct{ name, src, want, warn string }{
-		{"let replaces all", "let x = 1\nlet all = [x, 2]\nall", "[1, 2]", "line 2: 'all' replaces the builtin all"},
-		{"let replaces Math", "let Math = 3; Math", "3", "line 1: 'Math' replaces the builtin Math"},
-		{"function replaces all", "function all(a) { return 7 }\nall([1])", "7", "line 1: 'all' replaces the builtin all"},
-		{"destructure replaces race", "let {race} = {race: 4}; race", "4", "line 1: 'race' replaces the builtin race"},
-		{"an ordinary name has no warning", "let total = 1; total", "1", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			sh := toolkit.InstallCore(runtime.NewShell())
-			v, err := sh.EvalExported(c.src, nil)
-			if err != nil {
-				t.Fatalf("eval(%q): %v", c.src, err)
-			}
-			if got := v.Display(); got != c.want {
-				t.Errorf("eval(%q) = %q, want %q", c.src, got, c.want)
-			}
-			warnings := strings.Join(sh.Warnings(), "\n")
-			if c.warn == "" && warnings != "" || !strings.Contains(warnings, c.warn) {
-				t.Errorf("eval(%q) warnings = %q, want %q", c.src, warnings, c.warn)
-			}
-		})
-	}
-	// An exported value named like a builtin is still there in the next eval.
-	sh := toolkit.InstallCore(runtime.NewShell())
-	if _, err := sh.EvalExported("export let all = 5", nil); err != nil {
-		t.Fatal(err)
-	}
-	if v, err := sh.EvalExported("all", nil); err != nil || v.Display() != "5" {
-		t.Errorf("exported all in the next eval = %v, %v; want 5", v, err)
-	}
-	if v, err := sh.EvalExported("race", nil); err != nil || !strings.Contains(v.Display(), "race") {
-		t.Errorf("race = %v, %v; want the builtin", v, err)
-	}
-	// A var named like a builtin holds the caller's value.
-	sh = toolkit.InstallCore(runtime.NewShell())
-	v, err := sh.EvalExported("all", map[string]runtime.Value{"all": &runtime.StringVal{V: "mine"}})
-	if err != nil || v.Display() != "mine" {
-		t.Errorf("var all = %v, %v; want mine", v, err)
-	}
-}
-
 // TestRoundAndDroppedArgs: round takes digits, rounds a half up as JS does,
 // and rounds exact values exactly. A command given more arguments than its
 // signature lists is an error (TestExtraArgumentsError).
@@ -493,42 +446,5 @@ func TestOwnInitializer(t *testing.T) {
 	v, err := toolkit.InstallCore(runtime.NewShell()).Eval(`let f = n => n < 1 ? 0 : f(n - 1); f(3)`)
 	if err != nil || v.Display() != "0" {
 		t.Errorf("recursive let = %v, %v", v, err)
-	}
-}
-
-// TestLetLastsOneEval: in eval-scoped mode (the MCP server), a let lasts one
-// eval. Reading it in a later eval says so, and declaring a builtin's name
-// warns that the next eval sees the builtin. Found in a live dun session: the
-// model read `all` after `let all = []` and got the builtin function.
-func TestLetLastsOneEval(t *testing.T) {
-	sh := toolkit.InstallCore(runtime.NewShell())
-	steps := []struct{ src, want, warn string }{
-		{`let x = [1]; let all = []; export let y = 2`, "2", "in this eval only"},
-		{`x`, "ERR:'x' was declared in an earlier eval", ""},
-		{`1`, "1", ""},
-		{`const k = 1; function g() { return 2 }; 3`, "3", ""},
-		{`k`, "ERR:'k' was declared in an earlier eval", ""},
-		{`g()`, "ERR:Declare it again in this eval", ""},
-		{`const k = 4; k`, "4", ""},
-		{`x`, "ERR:export let x", ""},
-		{`y`, "2", ""},
-		{`all`, "function all()", ""},
-		{`export let x = 9`, "9", ""},
-		{`x`, "9", ""},
-	}
-	for _, s := range steps {
-		v, err := sh.EvalExported(s.src, nil)
-		got := ""
-		if err != nil {
-			got = "ERR:" + err.Error()
-		} else {
-			got = v.Display()
-		}
-		if !strings.HasPrefix(got, s.want) && !(strings.HasPrefix(s.want, "ERR:") && strings.Contains(got, strings.TrimPrefix(s.want, "ERR:"))) {
-			t.Errorf("%s = %q, want %q", s.src, got, s.want)
-		}
-		if w := strings.Join(sh.Warnings(), "\n"); !strings.Contains(w, s.warn) {
-			t.Errorf("%s warnings = %q, want %q", s.src, w, s.warn)
-		}
 	}
 }

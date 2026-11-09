@@ -27,7 +27,7 @@ func reservedName(commands *CommandRegistry, env *Environment, name string) stri
 // reservedNameError is the message for a session global under a reserved
 // name.
 func reservedNameError(name, what string) string {
-	return fmt.Sprintf("'%s' is %s; pick another name, e.g. %s. A top-level name lasts for the session, so it would hide the %s in every later eval (inside a function or block a name may shadow it)",
+	return fmt.Sprintf("'%s' is %s; pick another name, e.g. %s. A top-level name lasts for the session, so it would hide %s in every later eval (inside a function or block a name may shadow it)",
 		name, what, altName(name), name)
 }
 

@@ -52,7 +52,7 @@ func (v *Visitor) currentThis() Value {
 func (v *Visitor) visitClassDecl(ctx *parser.ClassDeclContext) Value {
 	name := identOrFunctionText(ctx.IDENTIFIER(), ctx.FUNCTION())
 	cls := v.evalClass(name, ctx.ClassTail().(*parser.ClassTailContext))
-	v.warnShadow(name, ctx)
+	v.checkTopName(name, ctx)
 	v.env.DefineOrSet(name, cls)
 	return Null
 }

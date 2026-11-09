@@ -23,11 +23,10 @@ type Interpreter struct {
 	globals  *Environment
 	limits   *ExecutionLimits
 
-	// evalScoped: globals is one eval's scope (Shell.EvalExported), so a
-	// top-level let lasts this eval only. earlierLets are the names an
-	// earlier eval declared without export.
-	evalScoped  bool
-	earlierLets map[string]bool
+	// evalScoped: globals is the session scope (Shell.EvalExported), so a
+	// top-level declaration is a session global, and one under a builtin,
+	// command or toolkit name is an error (checkTopName).
+	evalScoped bool
 }
 
 // warn records a warning for the eval result. Warnings live on the limits,

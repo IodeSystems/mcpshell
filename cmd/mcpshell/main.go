@@ -219,9 +219,10 @@ func takeEvalFlags(args []string) []string {
 	return args
 }
 
-// repl runs a line-based read-eval-print loop. Use `export` to persist state.
+// repl runs a line-based read-eval-print loop. Each line is one session eval,
+// as an MCP eval call is: its top-level declarations last for the session.
 func repl() {
-	fmt.Fprintln(os.Stderr, "mcpshell REPL — Ctrl-D to exit. Use `export` to persist values across lines.")
+	fmt.Fprintln(os.Stderr, "mcpshell REPL — Ctrl-D to exit. Top-level let, const and function last across lines.")
 	sh := newShell()
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -235,7 +236,7 @@ func repl() {
 		if line == "" {
 			continue
 		}
-		v, err := sh.Eval(line)
+		v, err := sh.EvalExported(line, nil)
 		printWarnings(sh)
 		if err != nil {
 			printStack(err)

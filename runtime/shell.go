@@ -18,10 +18,6 @@ type Shell struct {
 	resultSeq int      // last $rN handed out
 	kept      []string // $rN names still bound, oldest first
 
-	// earlierLets are the names earlier EvalExported calls declared without
-	// export: they are gone in later evals, and reading one says so.
-	earlierLets map[string]bool
-
 	loaders
 }
 
@@ -275,8 +271,13 @@ func (t *Shell) EvalWith(source string, opts EvalOptions) (result Value, err err
 	return itp.Eval(source).Value, nil
 }
 
-// EvalExported evaluates source in an isolated child scope, promoting only
-// names marked with `export` into globals. On error nothing is promoted.
+// EvalExported evaluates source as one eval of a session (the MCP server,
+// the REPL): its top-level declarations become session globals that later
+// evals see, as in a notebook. A declaration of a name an earlier eval
+// declared replaces it; a top-level declaration of a builtin, command or
+// toolkit name is an error. `export` is accepted and means the same.
+// Declarations that ran stay also when the eval fails later. vars are bound
+// for this eval only.
 func (t *Shell) EvalExported(source string, vars map[string]Value) (Value, error) {
 	return t.EvalExportedWith(source, vars, EvalOptions{})
 }
@@ -286,40 +287,33 @@ func (t *Shell) EvalExportedWith(source string, vars map[string]Value, opts Eval
 	if err := t.beginEval(opts); err != nil {
 		return Null, err
 	}
-	childEnv := t.globals.Child()
-	itp := NewInterpreter(t.commands, childEnv, t.limits)
-	itp.evalScoped, itp.earlierLets = true, t.earlierLets
+	g := t.globals
+	g.MarkEarlier()
+	itp := NewInterpreter(t.commands, g, t.limits)
+	itp.evalScoped = true
 	// vars bind after the interpreter's builtins, so a var named like a
-	// builtin (all, sum) holds the caller's value instead of being replaced.
-	for name, value := range vars {
-		childEnv.Define(name, value)
+	// builtin (all, sum) holds the caller's value for this eval. What the
+	// name held before comes back after.
+	type saved struct {
+		value       Value
+		builtin, ok bool
 	}
-	var exported map[string]struct{}
+	prior := make(map[string]saved, len(vars))
+	for name, value := range vars {
+		v, b, ok := g.Binding(name)
+		prior[name] = saved{v, b, ok}
+		g.Rebind(name, value, false, true)
+	}
 	defer func() {
+		for name, p := range prior {
+			g.Rebind(name, p.value, p.builtin, p.ok)
+		}
 		t.endEval(itp, opts)
-		if t.earlierLets == nil {
-			t.earlierLets = map[string]bool{}
-		}
-		for _, name := range childEnv.OwnDeclared() {
-			if _, isVar := vars[name]; !isVar && t.globals.Get(name) == nil {
-				t.earlierLets[name] = true
-			}
-		}
-		for name := range exported {
-			delete(t.earlierLets, name)
-		}
 		if r := recover(); r != nil {
 			result, err = Null, AsShellError(r)
 		}
 	}()
-	res := itp.Eval(source)
-	exported = res.ExportedNames
-	for name := range res.ExportedNames {
-		if value := childEnv.Get(name); value != nil {
-			t.globals.DefineOrSet(name, value)
-		}
-	}
-	return res.Value, nil
+	return itp.Eval(source).Value, nil
 }
 
 // EvalTransactional evaluates source, restoring global state on error.
@@ -407,7 +401,7 @@ Last expression is the output. ` + "`let`" + ` returns null — end with the val
 
 ## Key differences from JS
 let x = 5                    // REQUIRED: assigning to an undeclared name is an error
-export let x = 10            // persists across eval calls; without export, discarded
+let rows = f()               // top-level let/const/function last for later evals; naming one like a builtin or command (all, keys) is an error
 fn(name: "Alice", age: 30)  // named args
 [1,2,3] |> map(n => n * 10) // pipe: passes left as first arg
 [1,2,3] |* (x => x * 2) |> reduce((a, x) => a + x, 0)  // scatter then pipe
@@ -431,5 +425,5 @@ const ToolDescription = "Execute mcpshell code (JS subset with pipes). " +
 	"as literals in code. Instead pass them via vars. " +
 	"vars are bound as constants before execution. " +
 	"For inline strings with backslashes use r\"...\" or r`...` (raw strings). " +
-	"export persists values across calls; without export, state is discarded. " +
+	"Top-level let/const/function/class persist across calls (no export needed). " +
 	"help() lists commands."

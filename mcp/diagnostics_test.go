@@ -98,7 +98,7 @@ func TestEvalSchemaHasProfileAndLimits(t *testing.T) {
 
 func TestDiagnosticsBlockHasWarningNoteAndProfile(t *testing.T) {
 	texts, errs := evalCalls(t, noteShell(),
-		codeArgs("let all = 1\nnoteme()\nnoteme()\nlet s = 0\nfor (let i = 0; i < 50; i++) { s += i }\ns", `"profile":true`))
+		codeArgs("let o = {name: 1}; o.nmae\nnoteme()\nnoteme()\nlet s = 0\nfor (let i = 0; i < 50; i++) { s += i }\ns", `"profile":true`))
 	if errs[0] {
 		t.Fatalf("error: %s", texts[0])
 	}

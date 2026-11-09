@@ -504,6 +504,9 @@ func (v *Visitor) performAssign(target *parser.AssignTargetContext, op string, r
 			}
 			finalValue = v.applyCompoundOp(op, current, rhs)
 		}
+		if v.sessionScope() {
+			v.checkAssignBuiltin(rootName, target)
+		}
 		v.env.Set(rootName, finalValue)
 		return
 	}
@@ -937,6 +940,7 @@ func (v *Visitor) visitPipeExpr(ctx *parser.PipeExprContext) Value {
 					if idx < len(arr.Elements) {
 						val = arr.Elements[idx]
 					}
+					v.checkTopName(name, ctx)
 					v.env.DefineOrSet(name, val)
 				}
 				continue
