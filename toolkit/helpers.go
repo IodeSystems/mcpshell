@@ -119,6 +119,9 @@ func requireString(cmd string, v Value) string {
 	if s, ok := v.(*StringVal); ok {
 		return s.V
 	}
+	if p, ok := AsPath(v); ok { // a File is its path
+		return p
+	}
 	hint := ""
 	if _, ok := v.(*ArrayVal); ok {
 		hint = "use |* to apply " + cmd + " to each element, or |> join() first"
@@ -138,6 +141,9 @@ func requireStringArg(cmd string, args []Value, idx int) string {
 	if idx < len(args) {
 		if s, ok := args[idx].(*StringVal); ok {
 			return s.V
+		}
+		if p, ok := AsPath(args[idx]); ok { // a File (ls, glob) is its path
+			return p
 		}
 	}
 	panic(WrongArguments(cmd, "string", args, ""))
@@ -173,6 +179,9 @@ func optString(args []Value, i int, def string) string {
 	if i < len(args) {
 		if s, ok := args[i].(*StringVal); ok {
 			return s.V
+		}
+		if p, ok := AsPath(args[i]); ok {
+			return p
 		}
 	}
 	return def
@@ -217,6 +226,12 @@ func clamp(x, lo, hi int) int {
 // compareShellValues is the toolkit's total order: numbers, strings, and
 // booleans compare naturally, anything else by display string.
 func compareShellValues(a, b Value) int {
+	if p, ok := AsPath(a); ok { // a File sorts by its path
+		a = Str(p)
+	}
+	if p, ok := AsPath(b); ok {
+		b = Str(p)
+	}
 	switch x := a.(type) {
 	case *NumberVal:
 		if y, ok := b.(*NumberVal); ok {
@@ -272,8 +287,15 @@ func cmpBool(a, b bool) int {
 }
 
 // valuesEqual is the toolkit's shallow equality (scalars only) — used by
-// contains, indexOf, and the set operations.
+// contains, indexOf, and the set operations. A File compares as its path, as
+// the strings glob() returned before did.
 func valuesEqual(a, b Value) bool {
+	if p, ok := AsPath(a); ok {
+		a = Str(p)
+	}
+	if p, ok := AsPath(b); ok {
+		b = Str(p)
+	}
 	switch x := a.(type) {
 	case *NullVal:
 		_, ok := b.(*NullVal)
@@ -316,6 +338,9 @@ func objField(v Value, key string) Value {
 func keyString(v Value) string {
 	if s, ok := v.(*StringVal); ok {
 		return s.V
+	}
+	if p, ok := AsPath(v); ok {
+		return p
 	}
 	return v.Display()
 }
@@ -689,6 +714,9 @@ func copyIn(v Value, done map[Value]Value) Value {
 		}
 		return out
 	case *ObjectVal:
+		if _, ok := AsPath(x); ok {
+			return v // a File is read-only, as a string is
+		}
 		out := NewObject()
 		done[v] = out
 		for _, k := range x.Keys() {
@@ -997,6 +1025,9 @@ func jsonIn(v Value, anc *Ancestors) string {
 		}
 		return "[" + strings.Join(parts, ",") + "]"
 	case *ObjectVal:
+		if p, ok := AsPath(x); ok { // a File is its path string
+			return "\"" + escapeJSONString(p) + "\""
+		}
 		var parts []string
 		for _, k := range x.Keys() {
 			vv, _ := x.Get(k)

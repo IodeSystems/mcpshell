@@ -276,6 +276,10 @@ func TestDbLoadCsvFile(t *testing.T) {
 	if got := dbEval(t, sh, `Db.query("SELECT sum(b) AS s FROM o2")[0].s`); got != "5" {
 		t.Errorf("tsv sum = %s", got)
 	}
+	// a File from glob is a path; its .tsv extension picks the tab
+	if got := dbEval(t, sh, `Db.loadCsv("o2", glob("*.tsv")[0], {append: true}).rows`); got != "1" {
+		t.Errorf("File path rows = %s", got)
+	}
 	// confinement is the file toolkit's
 	dbFails(t, sh, `Db.loadCsv("x", "../`+filepath.Base(filepath.Dir(outside))+`/secret.csv")`, "Access denied")
 	dbFails(t, sh, `Db.loadCsv("x", "`+outside+`")`, "cannot read") // an absolute path is taken under the root

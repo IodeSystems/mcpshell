@@ -98,6 +98,9 @@ func jsParseFloat(s string) Value {
 func replaceJSON(fn *FuncVal, key string, v Value) Value { return replaceIn(fn, key, v, &Ancestors{}) }
 
 func replaceIn(fn *FuncVal, key string, v Value, anc *Ancestors) Value {
+	if p, ok := AsPath(v); ok { // a File's JSON is its path, before the replacer sees it, as toJSON
+		v = Str(p)
+	}
 	v = Call(fn, []Value{Str(key), v})
 	switch v.(type) {
 	case *ArrayVal, *ObjectVal:
@@ -129,6 +132,9 @@ func replaceIn(fn *FuncVal, key string, v Value, anc *Ancestors) Value {
 func filterJSONKeys(list *ArrayVal, v Value) Value { return filterIn(list, v, &Ancestors{}) }
 
 func filterIn(list *ArrayVal, v Value, anc *Ancestors) Value {
+	if _, ok := AsPath(v); ok {
+		return v // a File's JSON is its path string
+	}
 	switch v.(type) {
 	case *ArrayVal, *ObjectVal:
 		if !anc.Enter(v) {

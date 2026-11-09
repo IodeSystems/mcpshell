@@ -221,7 +221,11 @@ func InstallCore(sh *Shell) *Shell {
 			sep := optString(args, 1, ",")
 			parts := make([]string, len(a.Elements))
 			for i, el := range a.Elements {
-				parts[i] = el.Display()
+				if p, ok := AsPath(el); ok { // a File joins as its path
+					parts[i] = p
+				} else {
+					parts[i] = el.Display()
+				}
 			}
 			return Str(strings.Join(parts, sep))
 		})
@@ -1654,7 +1658,11 @@ func loadEach(sh *Shell, cmd string, args []Value, one func(string) Value) Value
 	for i, a := range args {
 		s, ok := a.(*StringVal)
 		if !ok {
-			panic(WrongArguments(cmd, "string (a toolkit name or a file path)", args, ""))
+			p, isFile := AsPath(a)
+			if !isFile {
+				panic(WrongArguments(cmd, "string (a toolkit name or a file path)", args, ""))
+			}
+			s = Str(p)
 		}
 		names[i] = s.V
 	}

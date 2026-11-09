@@ -70,18 +70,22 @@ func fileGuide(readOnly bool) string {
 Commands are bare: read("a.txt"), ls("."). Files.read("a.txt") also works.
 read() is for looking: it numbers lines (" 1: …") and stops at 200 lines.
 To parse a file use readLines(path) (raw lines) or readLines(path).join("\n").
+ls() and glob() return File values: {path, name, base, dir, ext, type, size}, shown as
+File("src/a.go"). A File is its path string: pass it to any command (readLines(f)),
+use it in ${f}, f + "", f == "a.txt", toJson, or call string methods (f.endsWith(".go")).
 
 TYPICAL: Read and inspect files
   read("config.json")             // full file with line numbers
   read("big.log", 100, 20)        // 20 lines starting at line 100
   readLines("data.csv") |> len()  // count lines
   exists("output.txt")
-  ls("src") |> filter(f => f.type == "file") |> map(f => f.name)
-  ls("data") |> map(f => parseJson(readLines(f).join("\n")))  // an ls() row works as a path
+  ls("src") |> filter(f => f.type == "file") |> map(f => f.base)
+  ls("data") |> map(f => parseJson(readLines(f).join("\n")))  // a File is a path
 
 TYPICAL: Search files and content
-  glob("src/**/*.go")             // find files by pattern
-  glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}]
+  glob("src/**/*.go")             // find files by pattern → [File]
+  glob("**/*.go") |> filter(f => f.size > 10000)  // fields: size, ext, dir, base
+  glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}], file a File
   grep("app.go", {match: "TODO", context: 2})
 
 TYPICAL: Write and edit files
@@ -132,7 +136,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	sh.RegisterGuide("files", fileGuide(readOnly))
 
 	reg("glob", "pattern: string, opts?: {grep?: string, depth?: number, dirs?: boolean, hidden?: boolean}",
-		"finds files matching glob pattern. Skips hidden and build dirs by default. "+
+		"finds files matching glob pattern, as File values (each is its path string). Skips hidden and build dirs by default. "+
 			"{grep: pattern} searches content returning {file, num, line} hits",
 		[]string{`glob("src/**/*.go")`, `glob("**/*.go", {grep: "TODO"})`},
 		func(args []Value) Value {
@@ -151,15 +155,18 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			if hasGrep {
 				grepRe := compileRegex(grepPat)
 				var hits []Value
-				for _, rel := range matched {
-					info, err := os.Stat(filepath.Join(cfg.root, rel))
-					if err != nil || info.IsDir() {
+				for _, e := range matched {
+					if e.dir {
 						continue
 					}
-					for i, line := range cfg.readLinesOrEmpty(rel) {
+					var file Value // one File per matching file, shared by its hits
+					for i, line := range cfg.readLinesOrEmpty(e.rel) {
 						if regexMatch(grepRe, line) {
+							if file == nil {
+								file = e.file(sh)
+							}
 							o := NewObject()
-							o.Set("file", Str(rel))
+							o.Set("file", file)
 							o.Set("num", Num(float64(i+1)))
 							o.Set("line", Str(line))
 							hits = append(hits, o)
@@ -168,7 +175,11 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 				}
 				return &ArrayVal{Elements: hits}
 			}
-			return strArr(matched)
+			out := make([]Value, len(matched))
+			for i, e := range matched {
+				out[i] = e.file(sh)
+			}
+			return &ArrayVal{Elements: out}
 		})
 
 	reg("read", "path: string, start?: number, lines?: number",
@@ -176,7 +187,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			"Large files truncated to %d lines. For viewing; to parse, use readLines(path)", cfg.maxReadLines),
 		[]string{`read("config.json")`, `read("big.log", 100, 20)`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("read", args, 0)
 			start := optInt(args, 1)
 			count := optInt(args, 2)
@@ -209,7 +219,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("readLines", "path: string", "reads file as array of lines",
 		[]string{`readLines("data.txt")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("readLines", args, 0)
 			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
@@ -221,14 +230,12 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("exists", "path: string", "checks if file or directory exists",
 		[]string{`exists("config.json")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			return Bln(pathExists(cfg.confineRead(requireStringArg("exists", args, 0))))
 		})
 
-	reg("ls", "path?: string", "lists directory contents as array of {name, type, size}; a row works as a path argument",
+	reg("ls", "path?: string", "lists directory contents as File values {path, name, base, dir, ext, type, size}; a File is its path string",
 		[]string{`ls()`, `ls("src")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := optString(args, 0, "")
 			resolved := cfg.confineRead(path)
 			info, err := os.Stat(resolved)
@@ -243,19 +250,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			for _, e := range entries {
 				full := filepath.Join(resolved, e.Name())
 				rel, _ := filepath.Rel(cfg.root, full)
-				o := NewObject()
-				o.Set("name", Str(filepath.ToSlash(rel)))
-				size := 0.0
-				if e.IsDir() {
-					o.Set("type", Str("dir"))
-				} else {
-					o.Set("type", Str("file"))
-					if fi, err := e.Info(); err == nil {
-						size = float64(fi.Size())
-					}
-				}
-				o.Set("size", Num(size))
-				out = append(out, o)
+				out = append(out, entryFile(sh, filepath.ToSlash(rel), e))
 			}
 			return &ArrayVal{Elements: out}
 		})
@@ -264,7 +259,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"shows directory tree. Default: dirs with file counts, depth 4. Skips hidden/build dirs",
 		[]string{`tree()`, `tree("src", {depth: 6, files: true})`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := optString(args, 0, "")
 			opts, _ := argOpt(args, 1).(*ObjectVal)
 			maxDepth := 4
@@ -288,7 +282,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"searches file for pattern. mode: \"count\" → count, \"files\" → boolean, else [{line, num}]",
 		[]string{`grep("app.go", {match: "TODO"})`, `grep("app.go", "import")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("grep", args, 0)
 			var match, mode string
 			contextLines := 0
@@ -374,7 +367,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("write", "path: string, content: string", "writes content to file, creates parent directories",
 		[]string{`write("out.txt", "hello")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("write", args, 0)
 			content := requireStringArg("write", args, 1)
 			resolved := cfg.confine(path)
@@ -388,7 +380,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("append", "path: string, content: string", "appends content to file",
 		[]string{`append("log.txt", "entry\n")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("append", args, 0)
 			content := requireStringArg("append", args, 1)
 			resolved := cfg.confine(path)
@@ -408,7 +399,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"replaces exact string match in file. Fails if not found, or ambiguous unless all=true",
 		[]string{`edit("app.go", "const x = 1", "const x = 42")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("edit", args, 0)
 			oldStr := requireStringArg("edit", args, 1)
 			newStr := requireStringArg("edit", args, 2)
@@ -447,7 +437,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("deletePath", "path: string", "deletes a file or empty directory",
 		[]string{`deletePath("temp.txt")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			path := requireStringArg("deletePath", args, 0)
 			resolved := cfg.confine(path)
 			if !pathExists(resolved) {
@@ -462,7 +451,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("mv", "from: string, to: string", "moves/renames a file or directory",
 		[]string{`mv("old.txt", "new.txt")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0, 1)
 			from := requireStringArg("mv", args, 0)
 			to := requireStringArg("mv", args, 1)
 			resolvedFrom := cfg.confine(from)
@@ -480,7 +468,6 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("mkdir", "path: string", "creates directory and any parent directories",
 		[]string{`mkdir("output/reports")`},
 		func(args []Value) Value {
-			args = pathArgs(args, 0)
 			resolved := cfg.confine(requireStringArg("mkdir", args, 0))
 			if err := os.MkdirAll(resolved, 0o755); err != nil {
 				panic(Runtime("mkdir: " + err.Error()))
@@ -612,9 +599,31 @@ func globToRegex(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(b.String())
 }
 
-// walk traverses the root, returning slash-relative paths accepted by match.
-func (c fileCfg) walk(maxDepth *int, includeHidden, includeDirs bool, match func(rel string, isDir bool) bool) []string {
-	var out []string
+// walkHit is a path walk accepted: slash-relative to the root.
+type walkHit struct {
+	rel string
+	dir bool
+	d   os.DirEntry
+}
+
+func (h walkHit) file(sh *Shell) Value { return entryFile(sh, h.rel, h.d) }
+
+// entryFile is the File value of a directory entry at rel; a directory's
+// size is 0.
+func entryFile(sh *Shell, rel string, d os.DirEntry) Value {
+	var size int64
+	if !d.IsDir() {
+		if fi, err := d.Info(); err == nil {
+			size = fi.Size()
+		}
+	}
+	return sh.NewFile(rel, d.IsDir(), size)
+}
+
+// walk traverses the root, returning the slash-relative paths accepted by
+// match, sorted.
+func (c fileCfg) walk(maxDepth *int, includeHidden, includeDirs bool, match func(rel string, isDir bool) bool) []walkHit {
+	var out []walkHit
 	_ = filepath.WalkDir(c.root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || path == c.root {
 			return nil
@@ -647,11 +656,11 @@ func (c fileCfg) walk(maxDepth *int, includeHidden, includeDirs bool, match func
 			return nil
 		}
 		if match(rel, d.IsDir()) {
-			out = append(out, rel)
+			out = append(out, walkHit{rel, d.IsDir(), d})
 		}
 		return nil
 	})
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out
 }
 
@@ -805,32 +814,4 @@ func renderTree(root, rootName string, maxDepth int, showFiles bool) string {
 	b.WriteString(rootName + "/\n")
 	walk(root, "", 1)
 	return strings.TrimRight(b.String(), "\n ")
-}
-
-// pathArgs replaces an ls() row ({name, type: "file" | "dir"}) at the given
-// argument positions with its name, so ls(dir).map(f => readLines(f)) works.
-func pathArgs(args []Value, idx ...int) []Value {
-	var out []Value
-	for _, i := range idx {
-		if i >= len(args) {
-			continue
-		}
-		o, ok := args[i].(*ObjectVal)
-		if !ok {
-			continue
-		}
-		name, ok1 := optObjStr(o, "name")
-		typ, ok2 := optObjStr(o, "type")
-		if !ok1 || !ok2 || (typ != "file" && typ != "dir") {
-			continue
-		}
-		if out == nil {
-			out = append([]Value(nil), args...)
-		}
-		out[i] = Str(name)
-	}
-	if out == nil {
-		return args
-	}
-	return out
 }
