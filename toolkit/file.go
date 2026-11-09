@@ -77,6 +77,7 @@ TYPICAL: Read and inspect files
   readLines("data.csv") |> len()  // count lines
   exists("output.txt")
   ls("src") |> filter(f => f.type == "file") |> map(f => f.name)
+  ls("data") |> map(f => parseJson(readLines(f).join("\n")))  // an ls() row works as a path
 
 TYPICAL: Search files and content
   glob("src/**/*.go")             // find files by pattern
@@ -175,6 +176,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			"Large files truncated to %d lines. For viewing; to parse, use readLines(path)", cfg.maxReadLines),
 		[]string{`read("config.json")`, `read("big.log", 100, 20)`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("read", args, 0)
 			start := optInt(args, 1)
 			count := optInt(args, 2)
@@ -207,6 +209,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("readLines", "path: string", "reads file as array of lines",
 		[]string{`readLines("data.txt")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("readLines", args, 0)
 			resolved := cfg.confineRead(path)
 			if !pathExists(resolved) {
@@ -218,12 +221,14 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("exists", "path: string", "checks if file or directory exists",
 		[]string{`exists("config.json")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			return Bln(pathExists(cfg.confineRead(requireStringArg("exists", args, 0))))
 		})
 
-	reg("ls", "path?: string", "lists directory contents as array of {name, type, size}",
+	reg("ls", "path?: string", "lists directory contents as array of {name, type, size}; a row works as a path argument",
 		[]string{`ls()`, `ls("src")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := optString(args, 0, "")
 			resolved := cfg.confineRead(path)
 			info, err := os.Stat(resolved)
@@ -259,6 +264,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"shows directory tree. Default: dirs with file counts, depth 4. Skips hidden/build dirs",
 		[]string{`tree()`, `tree("src", {depth: 6, files: true})`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := optString(args, 0, "")
 			opts, _ := argOpt(args, 1).(*ObjectVal)
 			maxDepth := 4
@@ -282,6 +288,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"searches file for pattern. mode: \"count\" → count, \"files\" → boolean, else [{line, num}]",
 		[]string{`grep("app.go", {match: "TODO"})`, `grep("app.go", "import")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("grep", args, 0)
 			var match, mode string
 			contextLines := 0
@@ -367,6 +374,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("write", "path: string, content: string", "writes content to file, creates parent directories",
 		[]string{`write("out.txt", "hello")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("write", args, 0)
 			content := requireStringArg("write", args, 1)
 			resolved := cfg.confine(path)
@@ -380,6 +388,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("append", "path: string, content: string", "appends content to file",
 		[]string{`append("log.txt", "entry\n")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("append", args, 0)
 			content := requireStringArg("append", args, 1)
 			resolved := cfg.confine(path)
@@ -399,6 +408,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		"replaces exact string match in file. Fails if not found, or ambiguous unless all=true",
 		[]string{`edit("app.go", "const x = 1", "const x = 42")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("edit", args, 0)
 			oldStr := requireStringArg("edit", args, 1)
 			newStr := requireStringArg("edit", args, 2)
@@ -437,6 +447,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("deletePath", "path: string", "deletes a file or empty directory",
 		[]string{`deletePath("temp.txt")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			path := requireStringArg("deletePath", args, 0)
 			resolved := cfg.confine(path)
 			if !pathExists(resolved) {
@@ -451,6 +462,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("mv", "from: string, to: string", "moves/renames a file or directory",
 		[]string{`mv("old.txt", "new.txt")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0, 1)
 			from := requireStringArg("mv", args, 0)
 			to := requireStringArg("mv", args, 1)
 			resolvedFrom := cfg.confine(from)
@@ -468,6 +480,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("mkdir", "path: string", "creates directory and any parent directories",
 		[]string{`mkdir("output/reports")`},
 		func(args []Value) Value {
+			args = pathArgs(args, 0)
 			resolved := cfg.confine(requireStringArg("mkdir", args, 0))
 			if err := os.MkdirAll(resolved, 0o755); err != nil {
 				panic(Runtime("mkdir: " + err.Error()))
@@ -792,4 +805,32 @@ func renderTree(root, rootName string, maxDepth int, showFiles bool) string {
 	b.WriteString(rootName + "/\n")
 	walk(root, "", 1)
 	return strings.TrimRight(b.String(), "\n ")
+}
+
+// pathArgs replaces an ls() row ({name, type: "file" | "dir"}) at the given
+// argument positions with its name, so ls(dir).map(f => readLines(f)) works.
+func pathArgs(args []Value, idx ...int) []Value {
+	var out []Value
+	for _, i := range idx {
+		if i >= len(args) {
+			continue
+		}
+		o, ok := args[i].(*ObjectVal)
+		if !ok {
+			continue
+		}
+		name, ok1 := optObjStr(o, "name")
+		typ, ok2 := optObjStr(o, "type")
+		if !ok1 || !ok2 || (typ != "file" && typ != "dir") {
+			continue
+		}
+		if out == nil {
+			out = append([]Value(nil), args...)
+		}
+		out[i] = Str(name)
+	}
+	if out == nil {
+		return args
+	}
+	return out
 }

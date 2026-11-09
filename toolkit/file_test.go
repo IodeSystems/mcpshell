@@ -37,6 +37,9 @@ func TestFileToolkit(t *testing.T) {
 		{"grep files", `write("n.txt", "has match"); grep("n.txt", {match: "match", mode: "files"})`, "true"},
 		{"deletePath", `write("o.txt", "1"); deletePath("o.txt"); exists("o.txt")`, "false"},
 		{"mv", `write("p.txt", "moved"); mv("p.txt", "q.txt"); read("q.txt")`, "1: moved"},
+		{"ls row as path", `mkdir("d"); write("d/r.txt", "x\ny"); ls("d") |> map(f => readLines(f))`, `[["x", "y"]]`},
+		{"ls dir row as path", `mkdir("d/e"); write("d/e/s.txt", "1"); ls("d") |> map(f => ls(f) |> map(g => g.name))`, `[["d/e/s.txt"]]`},
+		{"ls row mv", `write("t.txt", "1"); mv(ls(".")[0], "u.txt"); exists("u.txt")`, "true"},
 		{"load", `write("lib.mcpshell", "export function triple(n) { return n * 3 }"); load("lib.mcpshell"); triple(7)`, "21"},
 	}
 	for _, c := range cases {
