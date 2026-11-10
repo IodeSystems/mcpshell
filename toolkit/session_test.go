@@ -200,3 +200,22 @@ func TestClearForgetsKeptResults(t *testing.T) {
 	}
 	sessionSteps(t, sh, []struct{ src, want string }{{`$r1`, "ERR:not kept"}, {`a`, "ERR:Unknown command 'a'"}})
 }
+
+// const is enforced within an eval and across evals; a later eval may declare
+// the name again (as for let), and the value a const holds may still change.
+func TestConstEnforced(t *testing.T) {
+	sessionSteps(t, omShell(), []struct{ src, want string }{
+		{`const c = 1; c = 5`, "ERR:Assignment to constant variable 'c'"},
+		{`c += 1`, "ERR:Assignment to constant variable 'c'"},
+		{`c++`, "ERR:Assignment to constant variable 'c'"},
+		{`function bump() { c = 2 }; bump()`, "ERR:Assignment to constant variable 'c'"},
+		{`const [a, b] = [1, 2]; b = 3`, "ERR:constant variable 'b'"},
+		{`c`, "1"},
+		{`const c = 7; c`, "7"},
+		{`let c = 8; c = 9; c`, "9"},
+		{`const o = {n: 0, l: []}; o.n++; o.l.push(1); o`, "{n: 1, l: [1]}"},
+		{`let s = 0; for (const i of [1, 2, 3]) { const d = i * 2; s += d }; s`, "12"},
+		{`const k = 1; if (true) { let k = 2; k = 3 }; k`, "1"},
+		{`const q = 1; let r; try { q = 2 } catch (e) { r = e.message }; r`, "Assignment to constant variable 'q'"},
+	})
+}

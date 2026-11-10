@@ -577,6 +577,7 @@ func (v *Visitor) collectDestructureNames(ctx parser.IDestructureContext, names 
 
 func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 	var last Value = Null
+	isConst := ctx.LET().GetText() == "const"
 	for _, b := range ctx.AllLetBinding() {
 		bc := b.(*parser.LetBindingContext)
 		names := map[string]struct{}{}
@@ -601,6 +602,9 @@ func (v *Visitor) visitLetDecl(ctx *parser.LetDeclContext) Value {
 			v.bindDestructure(bc.Destructure(), value)
 			return nil
 		})
+		if isConst {
+			v.env.MarkConst(slices.Collect(maps.Keys(names))...)
+		}
 	}
 	return last
 }

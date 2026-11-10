@@ -16,6 +16,8 @@ type Environment struct {
 	// earlier are names bound before the running eval began (MarkEarlier):
 	// declaring one replaces it, as re-running a cell does in a notebook.
 	earlier map[string]bool
+	// consts are names declared with const here: assignment fails.
+	consts map[string]bool
 }
 
 // NewEnvironment creates a scope. A child inherits its parent's GIL; a root
@@ -59,7 +61,23 @@ func (e *Environment) Define(name string, value Value) {
 		delete(e.builtins, name)
 		delete(e.earlier, name)
 	}
+	delete(e.consts, name)
 	e.bindings[name] = value
+}
+
+// MarkConst marks names of this scope as const: a later assignment fails.
+// A later eval's declaration of the name replaces it (Define), as for let.
+func (e *Environment) MarkConst(names ...string) {
+	e.gil.Lock()
+	defer e.gil.Unlock()
+	if e.consts == nil {
+		e.consts = make(map[string]bool)
+	}
+	for _, n := range names {
+		if _, ok := e.bindings[n]; ok {
+			e.consts[n] = true
+		}
+	}
 }
 
 // MarkEarlier marks every non-builtin binding of this scope as declared
@@ -98,6 +116,10 @@ func (e *Environment) Set(name string, value Value) {
 
 func (e *Environment) setLocked(name string, value Value) {
 	if _, ok := e.bindings[name]; ok {
+		if e.consts[name] {
+			panic(Runtime("Assignment to constant variable '" + name + "'" +
+				"\n\n  Hint: declare it with let to change it — `let " + name + " = ...`"))
+		}
 		e.bindings[name] = value
 		return
 	}
@@ -236,6 +258,7 @@ func (e *Environment) Restore(state map[string]Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
 	e.bindings = copyBindings(state)
+	e.consts = nil
 }
 
 // Remove deletes the named bindings from this scope.
@@ -244,6 +267,7 @@ func (e *Environment) Remove(names map[string]struct{}) {
 	defer e.gil.Unlock()
 	for name := range names {
 		delete(e.bindings, name)
+		delete(e.consts, name)
 	}
 }
 
@@ -251,6 +275,7 @@ func (e *Environment) Remove(names map[string]struct{}) {
 func (e *Environment) DefineOrSet(name string, value Value) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
+	delete(e.consts, name)
 	e.bindings[name] = value
 }
 
@@ -285,6 +310,7 @@ func (e *Environment) Rebind(name string, value Value, builtin, ok bool) {
 	e.gil.Lock()
 	defer e.gil.Unlock()
 	delete(e.earlier, name)
+	delete(e.consts, name)
 	if !ok {
 		delete(e.bindings, name)
 		delete(e.builtins, name)
