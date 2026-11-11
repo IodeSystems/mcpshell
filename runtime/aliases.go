@@ -41,6 +41,11 @@ var mutatingArrayMethods = map[string]bool{
 	"push": true, "pop": true, "shift": true, "unshift": true, "splice": true,
 }
 
+// inPlaceArrayMethods change the array they are called on and return it, as
+// in JS; the command of the same name (sort(xs), xs |> sort) returns a copy.
+// toSorted and toReversed are the copying forms.
+var inPlaceArrayMethods = map[string]bool{"sort": true, "reverse": true, "fill": true}
+
 // jsMethodAliases maps JS method names to mcpshell command names, keyed by receiver type.
 var jsMethodAliases = map[string]map[string]string{
 	"array": {

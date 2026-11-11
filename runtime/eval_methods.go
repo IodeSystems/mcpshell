@@ -847,6 +847,24 @@ func (v *Visitor) bindMethodOrHint(receiver Value, typ, field string) Value {
 		}
 	}
 	if cmd := v.itp.commands.Get(cmdName); cmd != nil {
+		if arr, ok := receiver.(*ArrayVal); ok && inPlaceArrayMethods[field] {
+			return &FuncVal{
+				Name: cmdName,
+				Body: &NativeBody{Cmd: cmd, Bound: 1, Fn: func(args []Value) Value {
+					// The command returns a new array (and may call a
+					// comparator), so it runs unlocked; the write-back is
+					// under the GIL, as push is.
+					out, ok := cmd.Fn(append([]Value{receiver}, args...)).(*ArrayVal)
+					if !ok {
+						return out
+					}
+					v.env.gil.Lock()
+					arr.Elements = append([]Value(nil), out.Elements...)
+					v.env.gil.Unlock()
+					return arr
+				}},
+			}
+		}
 		return &FuncVal{
 			Name: cmdName,
 			Body: &NativeBody{Cmd: cmd, Bound: 1, Fn: func(args []Value) Value {
