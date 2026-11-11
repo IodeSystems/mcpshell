@@ -292,3 +292,31 @@ func TestOverflowArrayIsJSONLines(t *testing.T) {
 		t.Errorf("overflow file should be JSON Lines, got %d lines, line 2 = %q", len(lines), lines[1])
 	}
 }
+
+// An upstream server's namespace answers ns.help() and ns.help("tool") as
+// help("ns") and help for the tool, a hyphenated tool name included.
+func TestUpstreamNamespaceHelp(t *testing.T) {
+	sh := coreShell()
+	cmd, env := helperCommand("widgets", "search-docs")
+	closers := mcp.InstallClients(sh, []mcp.NamedServer{
+		{Namespace: "vay", Config: mcp.ServerConfig{Command: cmd, Env: env}},
+	})
+	for _, c := range closers {
+		defer c.Close()
+	}
+	if len(closers) != 1 {
+		t.Fatalf("expected the upstream to connect, got %d", len(closers))
+	}
+	want, _ := sh.Eval(`help("vay")`)
+	for _, src := range []string{`vay.help()`, `vay.help({})`} {
+		v, err := sh.Eval(src)
+		if err != nil || v.Display() != want.Display() {
+			t.Errorf("%s = %v, %v; want help(\"vay\") = %q", src, v, err, want.Display())
+		}
+	}
+	v, err := sh.Eval(`vay.help("search-docs")`)
+	if err != nil || !strings.Contains(v.Display(), "search-docs") || strings.Contains(v.Display(), "No commands matching") {
+		t.Errorf(`vay.help("search-docs") = %v, %v`, v, err)
+	}
+	t.Logf("help(vay) = %s\nvay.help(search-docs) = %s", want.Display(), v.Display())
+}
