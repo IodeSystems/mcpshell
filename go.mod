@@ -3,7 +3,7 @@ module github.com/iodesystems/mcpshell
 go 1.26.0
 
 require (
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/chromedp/chromedp v0.23.1
 	github.com/dlclark/regexp2/v2 v2.13.0
