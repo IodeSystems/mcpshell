@@ -73,10 +73,10 @@ func TestToolDescriptionListsLoadables(t *testing.T) {
 	if lines[0] != strings.Replace(lines[2], `"id":3`, `"id":1`, 1) {
 		t.Errorf("tools/list changed after load:\n%s\n%s", lines[0], lines[2])
 	}
-	if !strings.Contains(lines[0], `Available (load first): load(\"demo\") — demo summary`) {
-		t.Errorf("description lacks the Available line: %s", lines[0])
+	if !strings.Contains(lines[0], `Toolkits (load(\"name\") first; help() describes them): demo`) {
+		t.Errorf("description lacks the Toolkits line: %s", lines[0])
 	}
-	for _, bad := range []string{"secret", "web summary"} {
+	for _, bad := range []string{"secret", "web", "demo summary"} {
 		if strings.Contains(lines[0], bad) {
 			t.Errorf("description lists %q: %s", bad, lines[0])
 		}

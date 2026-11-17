@@ -486,7 +486,7 @@ chain(() => getData(), d => transform(d)) // sequential`
 const ToolDescription = "Execute mcpshell code (JS subset with pipes). " +
 	"IMPORTANT: LLMs are bad at double-escaping. Never embed complex strings (paths, regex, user data) " +
 	"as literals in code. Instead pass them via vars. " +
-	"vars are bound as constants before execution. " +
+	"vars are bound as names for that call only. " +
 	"For inline strings with backslashes use r\"...\" or r`...` (raw strings). " +
 	"Top-level let/const/function/class persist across calls (no export needed). " +
 	"help() lists commands."

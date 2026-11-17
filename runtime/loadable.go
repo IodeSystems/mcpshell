@@ -106,6 +106,19 @@ func (r *CommandRegistry) AvailableLine() string {
 	return r.availableLine(true)
 }
 
+// ToolkitsLine names every allowed loadable on one short line, for the MCP
+// eval tool description, which clients send on every request: the summaries
+// are in help() and help("name").
+func (r *CommandRegistry) ToolkitsLine() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := r.loadableNames(func(*loadable) bool { return true })
+	if len(names) == 0 {
+		return ""
+	}
+	return "Toolkits (load(\"name\") first; help() describes them): " + strings.Join(names, ", ")
+}
+
 // NotLoadedHint returns the error text for a global that belongs to a
 // loadable toolkit that is not loaded, or "".
 func (r *CommandRegistry) NotLoadedHint(name string) string {

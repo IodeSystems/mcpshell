@@ -186,13 +186,14 @@ type toolDef struct {
 }
 
 // evalDescription is the eval tool description: ToolDescription plus the
-// Available line (the allowed loadable toolkits, loaded or not). It is fixed
+// Toolkits line (the names of the allowed loadable toolkits, loaded or not;
+// help() has their summaries). It is fixed
 // at the first tools/list, so a load never changes it. Clients that show the
 // model only this description learn from it which toolkits load() offers.
 func (s *Server) evalDescription() string {
 	s.descOnce.Do(func() {
 		s.toolDesc = runtime.ToolDescription
-		if line := s.shell.Commands().AvailableLine(); line != "" {
+		if line := s.shell.Commands().ToolkitsLine(); line != "" {
 			s.toolDesc += "\n" + line
 		}
 	})
