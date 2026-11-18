@@ -288,7 +288,7 @@ func cmpBool(a, b bool) int {
 
 // valuesEqual is the toolkit's shallow equality (scalars only) — used by
 // contains, indexOf, and the set operations. A File compares as its path, as
-// the strings glob() returned before did.
+// the strings Files.glob() returned before did.
 func valuesEqual(a, b Value) bool {
 	if p, ok := AsPath(a); ok {
 		a = Str(p)

@@ -404,7 +404,7 @@ func limitInt(name string, n *json.Number) (*int, error) {
 }
 
 // overflowContent renders an over-limit value for its overflow file so that
-// line-based read()/grep() can page it: an array as JSON Lines (one element
+// line-based Files.read()/Files.grep() can page it: an array as JSON Lines (one element
 // per line), an object as JSON with one key per line, a string as itself.
 func overflowContent(v runtime.Value) (content, format string) {
 	switch x := v.(type) {

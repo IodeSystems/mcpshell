@@ -129,7 +129,7 @@ func (t *Shell) NewFile(p string, dir bool, size int64) *ObjectVal {
 }
 
 // fileInspect is how a File prints: File("data/x.json"), and File("src",
-// dir) for a directory, so an ls() listing still tells the two apart.
+// dir) for a directory, so a Files.ls() listing still tells the two apart.
 func fileInspect(o *ObjectVal) string {
 	if t, ok := o.m["type"].(*StringVal); ok && t.V == "dir" {
 		return "File(" + o.file.Inspect() + ", dir)"
