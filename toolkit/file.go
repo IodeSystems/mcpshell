@@ -105,8 +105,8 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 
 // InstallOverflowReader installs the read-only file commands on the
 // over-limit output directory, so the agent can page a saved result ($rN)
-// without load("files"). notFound tells an agent that reads one of its own
-// files here what to do instead (load("files"), or that the operator has not
+// without --files-dir. notFound tells an agent that reads one of its own
+// files here what to do instead (that the operator has not
 // enabled file access); without it, read("data.csv") said only "file not
 // found" with a path under the overflow directory.
 func InstallOverflowReader(sh *Shell, dir, notFound string) *Shell {

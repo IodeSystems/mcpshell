@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/iodesystems/mcpshell/runtime"
 	"github.com/iodesystems/mcpshell/toolkit"
@@ -69,18 +70,18 @@ func TestLoadAndUnload(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
 
-	got := okEval(t, sh, `load("demo")`)
-	// The first load returns the usage block: signatures and the guide.
-	mustContain(t, "load result", got, `Demo.add(a: number, b: number) — adds two numbers`, `Demo.twice(n: number)`, `Demo toolkit — adds numbers.`, `help("demo")`)
+	// The first reference loads the toolkit; Ns.help() is the usage block:
+	// signatures and the guide.
+	got := okEval(t, sh, `Demo.help()`)
+	mustContain(t, "Demo.help()", got, `The "demo" toolkit (Demo)`, `Demo.add(a: number, b: number) — adds two numbers`, `Demo.twice(n: number)`, `Demo toolkit — adds numbers.`, `Demo.unload()`)
+	if strings.Contains(got, "  Demo.unload(") {
+		t.Error("Demo.unload is listed as a command")
+	}
 	if okEval(t, sh, `Demo.add(2, 3)`) != "5" {
-		t.Error("Demo.add should work after load")
+		t.Error("Demo.add should work after the first reference")
 	}
-	// Loading again does nothing and returns a one-line reminder.
-	if again := okEval(t, sh, `load("demo")`); strings.Contains(again, "\n") || !strings.Contains(again, `"demo" is already loaded: Demo.add, Demo.twice`) {
-		t.Errorf("second load = %q, want a one-line reminder", again)
-	}
-	if n := len(sh.Commands().NamespaceCommands("Demo")); n != 2 {
-		t.Errorf("reload must not duplicate commands: %d in Demo", n)
+	if n := len(sh.Commands().NamespaceCommands("Demo")); n != 3 { // add, twice, unload
+		t.Errorf("a second reference must not load again: %d in Demo", n)
 	}
 
 	// Load state lasts across evals (the MCP session keeps one shell).
@@ -88,43 +89,42 @@ func TestLoadAndUnload(t *testing.T) {
 		t.Error("loaded toolkit should persist across evals")
 	}
 
-	mustContain(t, "unload result", okEval(t, sh, `unload("demo")`), "Unloaded")
+	mustContain(t, "unload result", okEval(t, sh, `Demo.unload()`), "Unloaded")
 	if closed != 1 {
 		t.Errorf("closer called %d times, want 1", closed)
 	}
-	mustContain(t, "call after unload", failEval(t, sh, `Demo.add(1, 2)`), `call load("demo") first`)
 	if strings.Contains(okEval(t, sh, `help()`), "Demo.add") {
 		t.Error("help() still lists Demo.add after unload")
 	}
-	mustContain(t, "unload twice", okEval(t, sh, `unload("demo")`), "not loaded")
-	if closed != 1 {
-		t.Errorf("a no-op unload closed again: %d", closed)
-	}
 
-	// Load after unload installs a fresh copy.
-	okEval(t, sh, `load("demo")`)
+	// A reference after unload installs a fresh copy.
 	if okEval(t, sh, `Demo.add(1, 1)`) != "2" {
 		t.Error("reload after unload should work")
 	}
+	if closed != 1 {
+		t.Errorf("a reload closed again: %d", closed)
+	}
+	mustContain(t, "load(name)", failEval(t, sh, `load("demo")`), `load("demo"): toolkits load on first use; Demo.help() describes it`)
+	mustContain(t, "unload(name)", failEval(t, sh, `unload("demo")`), `unload("demo") is gone: Demo.unload() unloads the toolkit`)
 }
 
 func TestStaleReferenceAfterUnload(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
-	okEval(t, sh, `load("demo")`)
 	okEval(t, sh, `export let f = Demo.add; export let ns = Demo; export let g = (a, b) => Demo.add(a, b)`)
-	okEval(t, sh, `unload("demo")`)
-	// g reads the global Demo at call time; it is gone, so the load hint applies.
-	mustContain(t, "closure over the namespace", failEval(t, sh, `g(1, 2)`), `call load("demo") first`)
+	okEval(t, sh, `Demo.unload()`)
 	for _, src := range []string{`f(1, 2)`, `ns.add(1, 2)`} {
 		msg := failEval(t, sh, src)
-		mustContain(t, src, msg, "Demo.add", "was unloaded", `load("demo")`)
+		mustContain(t, src, msg, "Demo.add", "was unloaded", "a new reference to its namespace loads it again")
 		if strings.Contains(msg, "panic") || strings.Contains(msg, "internal") {
 			t.Errorf("%s: want a plain error, got:\n%s", src, msg)
 		}
 	}
-	// A reload does not revive the old reference.
-	okEval(t, sh, `load("demo")`)
+	// g reads the global Demo at call time, so it loads the toolkit again; a
+	// reload does not revive the old references.
+	if okEval(t, sh, `g(1, 2)`) != "3" {
+		t.Error("a closure over the namespace must reload it")
+	}
 	mustContain(t, "stale after reload", failEval(t, sh, `f(1, 2)`), "was unloaded")
 }
 
@@ -132,66 +132,61 @@ func TestHelpBeforeAndAfterLoad(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
 
-	before := okEval(t, sh, `help("demo")`)
-	mustContain(t, "help before load", before, "Demo toolkit", `call load("demo") first`)
+	for _, q := range []string{"demo", "Demo"} {
+		mustContain(t, "help before load", okEval(t, sh, `help("`+q+`")`), "Demo toolkit", "Loads on first use: Demo.help() lists its commands")
+	}
 	list := okEval(t, sh, `help()`)
-	mustContain(t, "help() before load", list, `Available (load first): load("demo") — adds numbers`)
+	mustContain(t, "help() before load", list, `Toolkits (load on first use; Ns.help() describes one): Demo — adds numbers`)
 
-	okEval(t, sh, `load("demo")`)
+	okEval(t, sh, `Demo.add(1, 2)`)
 	after := okEval(t, sh, `help("demo")`)
 	mustContain(t, "help after load", after, "Demo toolkit")
-	if strings.Contains(after, "first") {
+	if strings.Contains(after, "first use") {
 		t.Errorf("help after load must not carry the load hint:\n%s", after)
 	}
 	list = okEval(t, sh, `help()`)
 	mustContain(t, "help() after load", list, "Demo.add")
-	if strings.Contains(list, "Available (load first)") {
-		t.Errorf("help() lists a loaded toolkit as available:\n%s", list)
+	if strings.Contains(list, "Demo — adds numbers") {
+		t.Errorf("help() lists a loaded toolkit as not loaded:\n%s", list)
 	}
 }
 
-func TestErrorBeforeLoadHint(t *testing.T) {
+func TestUnknownNamespace(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
-	msg := failEval(t, sh, `Demo.add(1, 2)`)
-	mustContain(t, "not-loaded error", msg, `call load("demo") first`)
-	if strings.Contains(msg, "Unknown command") {
-		t.Errorf("want the load hint, not unknown-command:\n%s", msg)
-	}
 	// An unrelated unknown name keeps the old error.
 	mustContain(t, "unknown", failEval(t, sh, `Nope.add(1, 2)`), "Unknown command")
 }
 
 func TestLoadPathForm(t *testing.T) {
 	var closed int
-	// With the file toolkit: a path still loads a file, and a toolkit name loads the toolkit.
+	// With the file toolkit: a path still loads a file; a toolkit name is an error.
 	sh := toolkit.InstallFile(loadShell(&closed), t.TempDir(), false)
 	got := okEval(t, sh, `Files.write("lib.mcpshell", "export function triple(n) { return n * 3 }"); load("lib.mcpshell"); triple(7)`)
 	if got != "21" {
 		t.Errorf("path form = %s, want 21", got)
 	}
-	mustContain(t, "toolkit via load", okEval(t, sh, `load("demo")`), "Demo.add")
+	mustContain(t, "toolkit via load", failEval(t, sh, `load("demo")`), "Demo.help()")
 	mustContain(t, "confined", failEval(t, sh, `load("../outside.mcpshell")`), "outside")
 
 	// Without the file toolkit the path form errors and names the cause.
 	bare := loadShell(&closed)
 	msg := failEval(t, bare, `load("lib.mcpshell")`)
 	mustContain(t, "path without file toolkit", msg, "no file toolkit", "Toolkits: demo")
-	mustContain(t, "unknown bare name", failEval(t, bare, `load("nothing")`), "no toolkit named 'nothing'", "Toolkits: demo")
+	mustContain(t, "unknown bare name", failEval(t, bare, `load("nothing")`), "no toolkit named 'nothing'", "Toolkits (Ns.help() describes one): Demo")
 }
 
 func TestNoLoad(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
 	sh.DenyLoadables("demo")
-	mustContain(t, "denied load", failEval(t, sh, `load("demo")`), "disabled by the operator")
-	if strings.Contains(okEval(t, sh, `help()`), "demo") {
+	if strings.Contains(okEval(t, sh, `help()`), "Demo") {
 		t.Error("help() advertises a denied toolkit")
 	}
-	if strings.Contains(sh.ToPrompt(false), `load("demo")`) {
+	if strings.Contains(sh.ToPrompt(false), "Demo") {
 		t.Error("prompt advertises a denied toolkit")
 	}
-	mustContain(t, "denied ns", failEval(t, sh, `Demo.add(1, 2)`), "Unknown command")
+	mustContain(t, "denied ns", failEval(t, sh, `Demo.add(1, 2)`), `toolkit "demo" is disabled by the operator`)
 	if got := okEval(t, sh, `help("demo")`); strings.Contains(got, "Demo toolkit") {
 		t.Errorf("help shows the guide of a denied toolkit:\n%s", got)
 	}
@@ -206,43 +201,68 @@ func TestLoadFailureRollsBack(t *testing.T) {
 			return nil, errors.New("no database")
 		},
 	})
-	mustContain(t, "failed load", failEval(t, sh, `load("bad")`), "no database")
+	mustContain(t, "failed load", failEval(t, sh, `Bad.x()`), `toolkit "bad" failed to load: no database`)
 	if n := len(sh.Commands().NamespaceCommands("Bad")); n != 0 {
 		t.Errorf("failed load left %d commands", n)
 	}
-	mustContain(t, "after failed load", failEval(t, sh, `Bad.x()`), `call load("bad") first`)
+	mustContain(t, "again", failEval(t, sh, `typeof Bad`), "no database")
 }
 
 func TestPromptLineStable(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
-	const line = `Available (load first): load("demo") — adds numbers`
+	const line = `Toolkits (load on first use; Ns.help() describes one): Demo — adds numbers`
 	before := sh.ToPrompt(false)
 	mustContain(t, "prompt", before, line)
 	if again := sh.ToPrompt(false); again != before {
 		t.Error("two prompts with no load between differ")
 	}
-	if c := sh.ToPrompt(true); !strings.Contains(c, `load("demo")`) {
+	if c := sh.ToPrompt(true); !strings.Contains(c, line) {
 		t.Errorf("compact prompt lacks the line:\n%s", c)
 	}
-	okEval(t, sh, `load("demo")`)
+	okEval(t, sh, `Demo.add(1, 2)`)
 	// The command listing grows after a load (the MCP server builds the prompt
-	// once, at start); the Available line stays the same.
+	// once, at start); the Toolkits line stays the same.
 	mustContain(t, "prompt after load", sh.ToPrompt(false), line)
-	okEval(t, sh, `unload("demo")`)
+	okEval(t, sh, `Demo.unload()`)
 	if after := sh.ToPrompt(false); after != before {
 		t.Error("prompt after unload differs from the prompt before load")
 	}
 }
 
-// Parallel branches read the registry (help, commands) while others load and
-// unload. Run with -race.
+// Parallel branches reference a toolkit, read the registry (help, commands)
+// and unload while others load. Run with -race.
 func TestLoadRace(t *testing.T) {
 	var closed int
 	sh := loadShell(&closed)
 	for range 20 {
 		okEval(t, sh, `allSettled(
-			() => load("demo"), () => help(), () => commands("Demo"), () => unload("demo"),
-			() => load("demo"), () => help("demo"), () => Demo.add(1, 2), () => help("add"))`)
+			() => Demo.add(1, 2), () => help(), () => commands("Demo"), () => Demo.unload(),
+			() => Demo.twice(2), () => help("demo"), () => Demo.add(1, 2), () => help("add"))`)
+	}
+}
+
+// Parallel branches that reference a toolkit not loaded yet load it once, and
+// every branch sees all its commands.
+func TestParallelFirstUseLoadsOnce(t *testing.T) {
+	installs := 0
+	sh := toolkit.InstallCore(runtime.NewShell())
+	sh.AddLoadable(runtime.Loadable{
+		Name: "slow", Summary: "slow to install",
+		Install: func(sh *runtime.Shell) (io.Closer, error) {
+			installs++ // under loadMu
+			for _, n := range []string{"a", "b", "c", "d"} {
+				sh.Register(&runtime.CommandDef{Namespace: "Slow", Name: n, Fn: func([]runtime.Value) runtime.Value { return runtime.Str(n) }})
+				time.Sleep(2 * time.Millisecond) // a branch may read Slow mid-install
+			}
+			return nil, nil
+		},
+	})
+	got := okEval(t, sh, `all(() => Slow.d(), () => Slow.d(), () => Slow.a(), () => Slow.d(), () => typeof Slow.c) |> join(",")`)
+	if got != "d,d,a,d,function" {
+		t.Errorf("branches = %s", got)
+	}
+	if installs != 1 {
+		t.Errorf("installed %d times, want 1", installs)
 	}
 }

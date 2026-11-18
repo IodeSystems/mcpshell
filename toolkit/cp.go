@@ -36,7 +36,7 @@ func AddCP(sh *Shell) *Shell {
 	})
 }
 
-const cpGuide = `Cp — constraint programming over integers. load("cp") first.
+const cpGuide = `Cp — constraint programming over integers.
 One command: Cp.solve(model). Variables have integer domains; constraints narrow them; search
 tries values and backtracks. With an objective it keeps improving the best solution and
 proves it best when the search finishes. For linear models with real numbers use Solver.lp.

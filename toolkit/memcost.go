@@ -16,7 +16,7 @@ import (
 // outside the Go heap, so the memory limit does not count them; --db-max-mb
 // caps them. Per-table sizes come from dbstat; without it the total stands.
 func (st *dbState) MemCost() MemCost {
-	mc := MemCost{OffHeap: true, Free: `Db.drop("table") or unload("db")`}
+	mc := MemCost{OffHeap: true, Free: `Db.drop("table") or Db.unload()`}
 	if !st.mu.TryRLock() {
 		mc.Detail = "busy"
 		return mc
@@ -62,10 +62,10 @@ func (st *dbState) MemCost() MemCost {
 		mc.Detail = "no tables"
 	case 1:
 		mc.Detail = fmt.Sprintf("1 table %q", top)
-		mc.Free = fmt.Sprintf(`Db.drop(%q) or unload("db")`, top)
+		mc.Free = fmt.Sprintf(`Db.drop(%q) or Db.unload()`, top)
 	default:
 		mc.Detail = fmt.Sprintf("%d tables; largest %q %s", tables, top, FormatBytes(topBytes))
-		mc.Free = fmt.Sprintf(`Db.drop(%q) or unload("db")`, top)
+		mc.Free = fmt.Sprintf(`Db.drop(%q) or Db.unload()`, top)
 	}
 	return mc
 }
@@ -86,7 +86,7 @@ const (
 // properties by walking them.
 func (g graphCloser) MemCost() MemCost {
 	gt := g.gt
-	mc := MemCost{Free: `unload("graph")`}
+	mc := MemCost{Free: `Graph.unload()`}
 	if !gt.mu.TryLock() {
 		mc.Detail = "busy"
 		return mc

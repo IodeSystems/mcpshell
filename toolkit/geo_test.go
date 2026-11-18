@@ -18,7 +18,6 @@ func geoShell(t *testing.T) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.AddGeo(toolkit.AddRoute(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell()))))
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
-	okEval(t, sh, `load("geo")`)
 	t.Cleanup(func() { sh.Unload("db") })
 	return sh
 }
@@ -34,8 +33,7 @@ func num(t *testing.T, s string) float64 {
 
 func TestGeoLoadAndHelp(t *testing.T) {
 	sh := toolkit.AddGeo(toolkit.InstallCore(runtime.NewShell()))
-	mustContain(t, "before load", failEval(t, sh, `Geo.distance({lat: 0, lon: 0}, {lat: 0, lon: 1})`), `load("geo")`)
-	first := okEval(t, sh, `load("geo")`)
+	first := okEval(t, sh, `Geo.help()`)
 	for _, c := range []string{"distance", "bearing", "destination", "bbox", "nearest", "length", "area", "centroid",
 		"contains", "intersects", "within", "hull", "circle", "toGeoJSON", "fromGeoJSON", "kmeans", "dbscan"} {
 		mustContain(t, "load", first, "Geo."+c+"(")
@@ -97,7 +95,6 @@ func TestGeoBBox(t *testing.T) {
 // The R-tree prefilter of the guide: a box query, then the exact distance.
 func TestGeoWithDbRTree(t *testing.T) {
 	sh := geoShell(t)
-	okEval(t, sh, `load("db")`)
 	got := okEval(t, sh, `
 	let shops = [{id: 1, lat: 52.5200, lon: 13.4050}, {id: 2, lat: 52.5300, lon: 13.4100}, {id: 3, lat: 52.6000, lon: 13.5000}, {id: 4, lat: 48.14, lon: 11.58}]
 	Db.exec("CREATE VIRTUAL TABLE idx USING rtree(id, minLon, maxLon, minLat, maxLat)")
@@ -325,7 +322,6 @@ func TestGeoDBSCAN(t *testing.T) {
 // The guide's routing example: k-means areas, then a TSP per area.
 func TestGeoGuideSplitThenRoute(t *testing.T) {
 	sh := geoShell(t)
-	okEval(t, sh, `load("route")`)
 	got := okEval(t, sh, `let depot = {id: "hub", lat: 52.52, lon: 13.40}
 	let stops = [{id: "a", lat: 52.53, lon: 13.41}, {id: "b", lat: 52.54, lon: 13.42}, {id: "c", lat: 52.45, lon: 13.30},
 	  {id: "d", lat: 52.44, lon: 13.31}, {id: "e", lat: 52.60, lon: 13.55}, {id: "f", lat: 52.61, lon: 13.56}]

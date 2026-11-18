@@ -49,10 +49,10 @@ func TestEvalClear(t *testing.T) {
 			return closeCount{&closed}, nil
 		}})
 	texts, errs := evalCalls(t, sh,
-		codeArgs(`let rows = [1]; function f() { return 2 }; load("demo"); Demo.one()`, ""),
+		codeArgs(`let rows = [1]; function f() { return 2 }; Demo.one()`, ""),
 		`{"clear":true}`,
 		codeArgs("rows", ""),
-		codeArgs("let rows = [9]; [hostVar, typeof Demo]", ""),
+		codeArgs("let rows = [9]; [hostVar, typeof f]", ""),
 		codeArgs("let rows = 5; rows", `"clear":true`),
 		`{}`)
 	want := []struct {

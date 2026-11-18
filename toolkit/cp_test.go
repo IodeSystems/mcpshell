@@ -11,13 +11,12 @@ import (
 func cpShell(t *testing.T) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.AddCP(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell())))
-	okEval(t, sh, `load("cp")`)
 	return sh
 }
 
 func TestCPLoadAndHelp(t *testing.T) {
 	sh := toolkit.AddCP(toolkit.InstallCore(runtime.NewShell()))
-	mustContain(t, "before load", failEval(t, sh, `Cp.solve({})`), `load("cp")`)
+	mustContain(t, "Cp.help", okEval(t, sh, `Cp.help()`), "Cp.solve(", "TYPICAL: Shift roster")
 	mustContain(t, "help", okEval(t, cpShell(t), `help("cp")`), "Cp.solve", "TYPICAL: Shift roster", "TYPICAL: Job shop", "TYPICAL: Assignment")
 }
 

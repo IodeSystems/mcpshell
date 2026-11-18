@@ -9,20 +9,21 @@ import (
 	"sync/atomic"
 )
 
-// Loadable is a toolkit that load("name") installs on demand. A toolkit that
-// reaches outside the process (files, network) is operator tier: the operator
-// flag registers it enabled, and without the flag it is registered with
-// Disabled set, so load() names the flag instead of installing it.
+// Loadable is a toolkit that is installed on demand: the first reference to
+// one of its namespaces (Graph, Db) loads it. A toolkit that reaches outside
+// the process (files, network) is operator tier: the operator flag registers
+// it enabled, and without the flag it is registered with Disabled set, so a
+// reference names the flag instead of installing it.
 type Loadable struct {
 	Name    string // bare: no "/" and no "."
 	Summary string // one line, shown in the Available list
 	Guide   string // help("name") text, shown before and after load
-	// Namespaces are the globals Install defines. Calling one before load
-	// fails with "call load first". Default: Name with the first letter upper-cased.
+	// Namespaces are the globals Install defines; a reference to one loads
+	// the toolkit. Default: Name with the first letter upper-cased.
 	Namespaces []string
 	// Disabled, if not empty, is the operator flag that enables this toolkit
-	// (for example "--web"). The toolkit is then not advertised, and load
-	// fails naming the flag.
+	// (for example "--web"). The toolkit is then not advertised, and a
+	// reference fails naming the flag.
 	Disabled string
 	// Install registers the toolkit's commands on sh. The closer, if not nil,
 	// is closed by unload.
@@ -40,16 +41,17 @@ type loadState struct {
 	cmds     []*CommandDef
 	guides   []string
 	closer   io.Closer
-	summary  string // what the first load returned: the usage block
-	reminder string // what a second load returns: one line
+	summary  string // the usage block: Ns.help()
+	reminder string // what a second Load returns: one line
 }
 
 // loadHook collects what Shell.Register and RegisterGuide add while Install runs.
 type loadHook struct {
-	name   string
-	alive  *atomic.Bool
-	cmds   []*CommandDef
-	guides []string
+	name       string
+	alive      *atomic.Bool
+	cmds       []*CommandDef
+	guides     []string
+	namespaces []string // defined as globals after Install
 }
 
 func (d *Loadable) namespaces() []string {
@@ -90,9 +92,10 @@ func (r *CommandRegistry) availableLine(all bool) string {
 	}
 	parts := make([]string, len(names))
 	for i, n := range names {
-		parts[i] = "load(\"" + n + "\") — " + r.loadables[n].def.Summary
+		d := r.loadables[n].def
+		parts[i] = strings.Join(d.namespaces(), ", ") + " — " + d.Summary
 	}
-	return "Available (load first): " + strings.Join(parts, " · ")
+	return "Toolkits (load on first use; Ns.help() describes one): " + strings.Join(parts, " · ")
 }
 
 // AvailableLine is the Available line for system prompts: every allowed
@@ -109,11 +112,16 @@ func (r *CommandRegistry) AvailableLine() string {
 func (r *CommandRegistry) ToolkitsLine() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := r.loadableNames(func(*loadable) bool { return true })
-	if len(names) == 0 {
+	var nss []string
+	for _, n := range r.loadableNames(func(*loadable) bool { return true }) {
+		d := r.loadables[n].def
+		nss = append(nss, d.namespaces()...)
+	}
+	if len(nss) == 0 {
 		return ""
 	}
-	return "Toolkits (load(\"name\") first; help() describes them): " + strings.Join(names, ", ")
+	sort.Strings(nss)
+	return "Toolkits (Ns.help() describes one): " + strings.Join(nss, ", ")
 }
 
 // NotLoadedHint returns the error text for a global that belongs to a
@@ -134,7 +142,7 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		if l.def.Disabled != "" {
 			return fmt.Sprintf("'%s' is part of the %q toolkit, which the operator did not enable (%s)", name, n, l.def.Disabled)
 		}
-		return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded: call load(%q) first. help(%q) shows its usage", name, n, n, n)
+		return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded", name, n)
 	}
 	// A wrong-case guess at a toolkit's namespace: files.ls for Files.ls,
 	// db.query for Db.query.
@@ -150,11 +158,7 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		if !match {
 			continue
 		}
-		msg := fmt.Sprintf("'%s' is not defined. The %q toolkit's namespace is %s: %s.<command>", name, n, strings.Join(nss, ", "), nss[0])
-		if l.loaded == nil {
-			msg += fmt.Sprintf(". Call load(%q) first", n)
-		}
-		return msg + fmt.Sprintf(". help(%q) shows its usage", n)
+		return fmt.Sprintf("'%s' is not defined. The %q toolkit's namespace is %s: %s.<command>. %s.help() describes it", name, n, strings.Join(nss, ", "), nss[0], nss[0])
 	}
 	return ""
 }
@@ -187,8 +191,6 @@ func (r *CommandRegistry) movedHint(name, ns string) string {
 			return ""
 		case l.def.Disabled != "":
 			return msg + fmt.Sprintf(" (the %q toolkit, which the operator did not enable: %s)", n, l.def.Disabled)
-		case l.loaded == nil:
-			return msg + fmt.Sprintf(" after load(%q)", n)
 		}
 	}
 	return msg
@@ -288,7 +290,7 @@ type loaders struct {
 	fileLoader func(path string) Value
 }
 
-// AddLoadable registers a toolkit for load(). It is not installed.
+// AddLoadable registers a toolkit; a reference to its namespace installs it.
 func (t *Shell) AddLoadable(l Loadable) *Shell {
 	if l.Name == "" || strings.ContainsAny(l.Name, "/.") || (l.Install == nil && l.Disabled == "") {
 		panic("AddLoadable: name must be bare (no / or .) and Install set: " + l.Name)
@@ -300,7 +302,7 @@ func (t *Shell) AddLoadable(l Loadable) *Shell {
 	return t
 }
 
-// DenyLoadables hides the named loadables and makes load() refuse them. The
+// DenyLoadables hides the named loadables and makes a reference refuse them. The
 // order against AddLoadable does not matter.
 func (t *Shell) DenyLoadables(names ...string) *Shell {
 	r := t.commands
@@ -310,14 +312,6 @@ func (t *Shell) DenyLoadables(names ...string) *Shell {
 		r.denied[strings.TrimSpace(n)] = true
 	}
 	return t
-}
-
-// IsLoadableName reports whether name is a registered loadable, denied or not.
-func (t *Shell) IsLoadableName(name string) bool {
-	r := t.commands
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.loadables[name] != nil
 }
 
 // SetFileLoader sets how load("path") evaluates a file; the file toolkit
@@ -341,7 +335,7 @@ const FilesToolkit = "files"
 // not loaded. It returns "" when the file toolkit can be used, or the reason
 // it cannot: the operator flag that enables it, or "" for disabled with no
 // flag known. Commands that read files through the file toolkit (load of a
-// path, Db.loadCsv) call it, so an agent does not pay a turn for load("files").
+// path, Db.loadCsv) call it, so an agent does not pay a turn for a Files reference.
 func (t *Shell) EnsureFiles() (enabled bool, flag string) {
 	if t.getFileLoader() != nil {
 		return true, ""
@@ -380,8 +374,15 @@ func (t *Shell) LoadFile(path string) Value {
 	return t.getFileLoader()(path)
 }
 
-// Load installs a loadable and returns its summary. Loading again does
-// nothing and returns the same summary.
+// NotPermittedError is a load the operator did not permit: a toolkit without
+// its flag, or one --no-load denied.
+type NotPermittedError struct{ msg string }
+
+func (e *NotPermittedError) Error() string { return e.msg }
+
+// Load installs a loadable and returns its usage. Loading again does
+// nothing and returns one line. Scripts do not call it: a reference to the
+// toolkit's namespace does (autoLoad).
 func (t *Shell) Load(name string) (string, error) {
 	t.loadMu.Lock()
 	defer t.loadMu.Unlock()
@@ -397,9 +398,9 @@ func (t *Shell) Load(name string) (string, error) {
 	case l == nil:
 		return "", fmt.Errorf("load: no toolkit named %q", name)
 	case l.def.Disabled != "":
-		return "", fmt.Errorf("load: toolkit %q is not enabled: the operator did not pass %s", name, l.def.Disabled)
+		return "", &NotPermittedError{fmt.Sprintf("toolkit %q is not enabled: the operator did not pass %s", name, l.def.Disabled)}
 	case denied:
-		return "", fmt.Errorf("load: toolkit %q is disabled by the operator", name)
+		return "", &NotPermittedError{fmt.Sprintf("toolkit %q is disabled by the operator", name)}
 	case done != nil:
 		return done.reminder, nil
 	}
@@ -411,36 +412,97 @@ func (t *Shell) Load(name string) (string, error) {
 	var err error
 	func() {
 		defer func() {
-			t.hook = nil
 			if p := recover(); p != nil {
 				err = fmt.Errorf("%v", p)
 			}
 		}()
 		closer, err = l.def.Install(t)
+		if err == nil {
+			for _, ns := range hook.namespaces {
+				t.registerUnload(ns, name)
+			}
+		}
 	}()
+	t.hook = nil
 	if err != nil {
 		hook.alive.Store(false)
 		t.dropRegistered(hook.cmds, hook.guides)
 		if closer != nil {
 			_ = closer.Close()
 		}
-		return "", fmt.Errorf("load: %q: %w", name, err)
+		return "", fmt.Errorf("toolkit %q failed to load: %w", name, err)
+	}
+	for _, ns := range hook.namespaces {
+		if obj := r.BuildNamespaceObject(ns); obj != nil {
+			t.globals.DefineBuiltin(ns, obj)
+		}
 	}
 
-	names := make([]string, len(hook.cmds))
-	for i, c := range hook.cmds {
-		names[i] = c.CallName()
-	}
-	summary := loadUsage(name, hook.cmds, l.def.Guide)
-	reminder := fmt.Sprintf("%q is already loaded. help(%q) repeats its usage.", name, name)
-	if len(names) > 0 {
-		reminder = fmt.Sprintf("%q is already loaded: %s. help(%q) repeats its usage.", name, strings.Join(names, ", "), name)
-	}
+	nss := l.def.namespaces()
+	summary := loadUsage(name, nss, hook.cmds, l.def.Guide)
+	reminder := fmt.Sprintf("%q is already loaded. %s.help() describes it.", name, nss[0])
 	st := &loadState{alive: hook.alive, cmds: hook.cmds, guides: hook.guides, closer: closer, summary: summary, reminder: reminder}
 	r.mu.Lock()
 	l.loaded = st
 	r.mu.Unlock()
 	return summary, nil
+}
+
+// registerUnload adds the hidden ns.unload() of a loading toolkit.
+func (t *Shell) registerUnload(ns, name string) {
+	t.Register(&CommandDef{Namespace: ns, Name: "unload", Hidden: true,
+		Description: fmt.Sprintf("unloads the %q toolkit and frees what it holds; the next reference to %s loads it again", name, ns),
+		Fn: func([]Value) Value {
+			msg, err := t.Unload(name)
+			if err != nil {
+				panic(Runtime(err.Error()))
+			}
+			return Str(msg)
+		}})
+}
+
+// autoLoad loads the toolkit that has the namespace ns, for a reference to
+// ns that is not defined. owned is false when no loadable has ns; a toolkit
+// that is loaded already is owned with no error.
+func (t *Shell) autoLoad(ns string) (owned bool, err error) {
+	r := t.commands
+	r.mu.RLock()
+	name := ""
+	for n, l := range r.loadables {
+		if l.def.owns(ns) {
+			name = n
+			break
+		}
+	}
+	r.mu.RUnlock()
+	if name == "" {
+		return false, nil
+	}
+	_, err = t.Load(name)
+	return true, err
+}
+
+// ToolkitUsage is what ns.help() gives for a loaded toolkit's namespace: its
+// commands with signatures, then its guide. "" when no loaded toolkit has ns.
+func (r *CommandRegistry) ToolkitUsage(ns string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, l := range r.loadables {
+		if l.loaded != nil && l.def.owns(ns) {
+			return l.loaded.summary
+		}
+	}
+	return ""
+}
+
+// ToolkitNamespace returns the first namespace of the loadable name, or "".
+func (r *CommandRegistry) ToolkitNamespace(name string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if l := r.loadables[name]; l != nil {
+		return l.def.namespaces()[0]
+	}
+	return ""
 }
 
 // Unload removes a loaded toolkit's commands and closes its closer. Held
@@ -489,7 +551,7 @@ func (h *loadHook) guard(def *CommandDef) {
 	orig, alive, name := def.Fn, h.alive, h.name
 	def.Fn = func(args []Value) Value {
 		if !alive.Load() {
-			panic(Runtime(fmt.Sprintf("%s: toolkit %q was unloaded: call load(%q) and use the new commands", def.DisplayName(), name, name)))
+			panic(Runtime(fmt.Sprintf("%s: toolkit %q was unloaded: a new reference to its namespace loads it again; use the new commands", def.DisplayName(), name)))
 		}
 		defer func() {
 			if p := recover(); p != nil {
@@ -505,8 +567,8 @@ func (h *loadHook) guard(def *CommandDef) {
 }
 
 // usageLine is what an error from a loaded toolkit's command ends with: the
-// right call and one example. A model learns a toolkit from its load result
-// and its errors; it rarely calls help().
+// right call and one example. A model learns a toolkit from its errors; it
+// rarely calls help().
 func usageLine(def *CommandDef, withSignature bool) string {
 	var b strings.Builder
 	if withSignature {
@@ -521,13 +583,11 @@ func usageLine(def *CommandDef, withSignature bool) string {
 	return b.String()
 }
 
-// loadUsage is what the first load of a toolkit returns: one line per
+// loadUsage is what Ns.help() gives for a loaded toolkit: one line per
 // command with its signature, then the toolkit's guide (examples, notes).
-// It costs tokens once, in the result of the call that needs them, instead
-// of in every prompt; models in benchmark runs did not call help().
-func loadUsage(name string, cmds []*CommandDef, guide string) string {
+func loadUsage(name string, nss []string, cmds []*CommandDef, guide string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Loaded %q.", name)
+	fmt.Fprintf(&b, "The %q toolkit (%s).", name, strings.Join(nss, ", "))
 	if len(cmds) > 0 {
 		b.WriteString(" Commands:\n")
 		for _, c := range cmds {
@@ -540,6 +600,6 @@ func loadUsage(name string, cmds []*CommandDef, guide string) string {
 	if g := strings.TrimSpace(guide); g != "" {
 		b.WriteString("\n" + g + "\n")
 	}
-	fmt.Fprintf(&b, "\nhelp(%q) shows this again.", name)
+	fmt.Fprintf(&b, "\n%s.unload() unloads it; the next reference loads it again.", nss[0])
 	return b.String()
 }

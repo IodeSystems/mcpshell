@@ -189,7 +189,7 @@ type toolDef struct {
 // Toolkits line (the names of the allowed loadable toolkits, loaded or not;
 // help() has their summaries). It is fixed
 // at the first tools/list, so a load never changes it. Clients that show the
-// model only this description learn from it which toolkits load() offers.
+// model only this description learn from it which toolkits it can reference.
 func (s *Server) evalDescription() string {
 	s.descOnce.Do(func() {
 		s.toolDesc = runtime.ToolDescription

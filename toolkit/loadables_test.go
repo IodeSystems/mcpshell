@@ -1,6 +1,8 @@
 package toolkit_test
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,64 +12,102 @@ import (
 	"github.com/iodesystems/mcpshell/toolkit"
 )
 
+// mcpLikeShell builds the shell cmd/mcpshell builds for mcp: the overflow
+// reader is installed at start only when files is not permitted.
 func mcpLikeShell(web bool, filesDir string, overflow string) *runtime.Shell {
 	sh := runtime.NewShell()
 	toolkit.InstallCore(sh)
 	toolkit.InstallMath(sh)
 	sh.AddLoadable(toolkit.GraphLoadable())
 	sh.AddLoadable(toolkit.WebLoadable(web))
-	var restore func(*runtime.Shell)
 	var roots []string
 	if overflow != "" {
-		reader := func(sh *runtime.Shell) {
-			toolkit.InstallFile(sh, overflow, true)
+		if filesDir == "" {
+			toolkit.InstallOverflowReader(sh, overflow, "")
 			sh.SetFileLoader(nil)
 			toolkit.ClearFileConfiner(sh)
 		}
-		reader(sh)
-		restore = reader
 		roots = []string{overflow}
 	}
-	sh.AddLoadable(toolkit.FilesLoadable(filesDir, false, roots, restore))
+	sh.AddLoadable(toolkit.FilesLoadable(filesDir, false, roots))
 	sh.AddLoadable(toolkit.BrowserLoadable(false))
 	return sh
 }
 
-func TestGraphIsLoadable(t *testing.T) {
+// A reference to a toolkit's namespace loads it: called, in a pipe, typeof,
+// Ns.help(). Its commands are not in the prompt.
+func TestGraphLoadsOnFirstUse(t *testing.T) {
 	sh := mcpLikeShell(false, "", "")
-	// The namespace gives the hint, called and in a pipe.
-	for _, src := range []string{`Graph.addNode({})`, `Graph.root()`, `[1] |> Graph.nodes()`} {
-		mustContain(t, src, failEval(t, sh, src), `call load("graph") first`)
-	}
-	mustContain(t, "prompt", sh.ToPrompt(false), `load("graph")`)
+	mustContain(t, "prompt", sh.ToPrompt(false), `Graph — graph store`)
 	if strings.Contains(sh.ToPrompt(false), "Graph.addNode(") {
-		t.Error("graph commands are listed before load")
+		t.Error("graph commands are listed in the prompt")
 	}
-	okEval(t, sh, `load("graph")`)
-	okEval(t, sh, `Graph.root()`)
+	mustContain(t, "help", okEval(t, sh, `Graph.help()`), `The "graph" toolkit (Graph)`, "Graph.addNode(", "TYPICAL: Build a graph", "Graph.unload()")
+	for _, src := range []string{`Graph.root().type`, `[Graph.root()] |> Graph.out("x") |> len()`, `typeof Graph`} {
+		okEval(t, mcpLikeShell(false, "", ""), src)
+	}
+	if got := okEval(t, mcpLikeShell(false, "", ""), `typeof Graph`); got != "object" {
+		t.Errorf("typeof Graph = %s", got)
+	}
+	mustContain(t, "load", failEval(t, sh, `load("graph")`), `load("graph"): toolkits load on first use; Graph.help() describes it`)
+	mustContain(t, "unload", failEval(t, sh, `unload("graph")`), `Graph.unload() unloads the toolkit`)
 }
 
+// Ns.unload() unloads the toolkit and closes it; a later reference loads it
+// again, empty. Either namespace of a toolkit with two unloads it.
+func TestNamespaceUnloadThenReload(t *testing.T) {
+	sh := mcpLikeShell(true, "", "")
+	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
+	okEval(t, sh, `Db.load("t", [{a: 1}]); Graph.addNode(Graph.root(), "p")`)
+	mustContain(t, "unload", okEval(t, sh, `Db.unload()`), `Unloaded "db"`)
+	if got := okEval(t, sh, `Db.tables()`); got != `[]` {
+		t.Errorf("reloaded Db kept its tables: %s", got)
+	}
+	okEval(t, sh, `Graph.unload()`)
+	if got := okEval(t, sh, `Graph.nodes("p").length`); got != "0" {
+		t.Errorf("reloaded Graph kept its nodes: %s", got)
+	}
+	okEval(t, sh, `Html.text("<p>x</p>")`)
+	mustContain(t, "Html.unload", okEval(t, sh, `Html.unload()`), `Unloaded "web"`)
+	if _, err := sh.Eval(`typeof Web.fetch`); err != nil {
+		t.Errorf("Web after Html.unload: %v", err)
+	}
+	mustContain(t, "old unload", failEval(t, sh, `unload("db")`), "Db.unload()")
+}
+
+// A toolkit the operator did not permit is an error at the reference that
+// names the flag, as load gave; typeof is "undefined". An install error is an
+// error at the reference.
 func TestOperatorTierDisabled(t *testing.T) {
 	sh := mcpLikeShell(false, "", "")
-	mustContain(t, "load web", failEval(t, sh, `load("web")`), "--web")
-	mustContain(t, "Web call", failEval(t, sh, `Web.fetch("http://x")`), "--web", "did not enable")
+	mustContain(t, "Web", failEval(t, sh, `Web.fetch("http://x")`), `toolkit "web" is not enabled: the operator did not pass --web`)
+	mustContain(t, "Html", failEval(t, sh, `Html.text("<p>x</p>")`), "--web")
 	mustContain(t, "read", failEval(t, sh, `Files.read("a")`), "--files-dir")
-	mustContain(t, "load files", failEval(t, sh, `load("files")`), "--files-dir")
+	mustContain(t, "load files", failEval(t, sh, `load("files")`), "Files.help()")
 	mustContain(t, "load path", failEval(t, sh, `load("a.mcpshell")`), "--files-dir")
-	mustContain(t, "load browser", failEval(t, sh, `load("browser")`), "--browser")
+	mustContain(t, "Browser", failEval(t, sh, `Browser.open("x")`), "--browser")
+	if got := okEval(t, sh, `typeof Web`); got != "undefined" {
+		t.Errorf("typeof Web = %s", got)
+	}
 	p := sh.ToPrompt(false)
-	for _, bad := range []string{`load("web")`, `load("files")`, `load("browser")`} {
-		if strings.Contains(p, bad) {
+	for _, bad := range []string{"Web", "Files", "Browser"} {
+		if strings.Contains(p, bad+" — ") {
 			t.Errorf("prompt advertises %s", bad)
 		}
 	}
+	denied := mcpLikeShell(false, "", "")
+	denied.DenyLoadables("graph")
+	mustContain(t, "denied", failEval(t, denied, `Graph.root()`), `toolkit "graph" is disabled by the operator`)
+	broken := mcpLikeShell(false, "", "")
+	broken.AddLoadable(runtime.Loadable{Name: "bad", Install: func(sh *runtime.Shell) (io.Closer, error) {
+		return nil, errors.New("no backend")
+	}})
+	mustContain(t, "install error", failEval(t, broken, `Bad.x()`), `toolkit "bad" failed to load: no backend`)
 }
 
 func TestWebLoadableWhenEnabled(t *testing.T) {
 	sh := mcpLikeShell(true, "", "")
-	mustContain(t, "prompt", sh.ToPrompt(false), `load("web")`)
-	mustContain(t, "before", failEval(t, sh, `Html.text("<p>x</p>")`), `call load("web") first`)
-	okEval(t, sh, `load("web")`)
+	mustContain(t, "prompt", sh.ToPrompt(false), `Web, Html — `)
 	if got := okEval(t, sh, `Html.text("<p>x</p>")`); !strings.Contains(got, "x") {
 		t.Errorf("Html.text = %q", got)
 	}
@@ -82,9 +122,7 @@ func TestFilesLoadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := mcpLikeShell(false, dir, "")
-	mustContain(t, "prompt", sh.ToPrompt(false), `load("files")`)
-	mustContain(t, "before", failEval(t, sh, `Files.read("a.txt")`), `call load("files") first`)
-	mustContain(t, "write before", failEval(t, sh, `Files.write("b.txt", "x")`), `call load("files") first`)
+	mustContain(t, "prompt", sh.ToPrompt(false), `Files — `)
 
 	// The path form of load installs the toolkit when it is permitted.
 	okEval(t, sh, `load("lib.mcpshell")`)
@@ -93,16 +131,18 @@ func TestFilesLoadable(t *testing.T) {
 		t.Error("file did not run")
 	}
 
-	okEval(t, sh, `unload("files")`)
-	mustContain(t, "after unload", failEval(t, sh, `Files.read("a.txt")`), `call load("files") first`)
+	okEval(t, sh, `Files.unload()`)
 	// The path form installs the toolkit again; the file runs again and
 	// replaces its export (it failed on the second declaration before).
 	okEval(t, sh, `load("lib.mcpshell")`)
 	mustContain(t, "after reload", okEval(t, sh, `[answer, Files.read("a.txt")]`), "42", "hi")
+	okEval(t, sh, `Files.unload()`)
+	okEval(t, sh, `Files.write("b.txt", "x")`)
 }
 
-// With an overflow dir the read-only reader is there from the start, whether
-// or not --files-dir is set, and unload of files puts it back.
+// With an overflow dir and no --files-dir, the read-only reader is Files.*
+// from the start. With --files-dir, Files is the full toolkit, which reads
+// the overflow dir too.
 func TestOverflowReaderStaysAvailable(t *testing.T) {
 	ovf, dir := t.TempDir(), t.TempDir()
 	spill := filepath.Join(ovf, "eval-1.txt")
@@ -113,17 +153,15 @@ func TestOverflowReaderStaysAvailable(t *testing.T) {
 		sh := mcpLikeShell(false, filesDir, ovf)
 		mustContain(t, "read spill", okEval(t, sh, `Files.read(`+quote(spill)+`, 2, 1)`), "l2")
 		mustContain(t, "grep spill", okEval(t, sh, `Files.grep(`+quote(spill)+`, {match: "l3"})`), "l3")
-		mustContain(t, "no write", failEval(t, sh, `Files.write(`+quote(spill)+`, "x")`), "write")
-		// The reader is not the files toolkit: it cannot load a .mcpshell file.
-		failEval(t, sh, `load("x.mcpshell")`)
 		if filesDir == "" {
+			mustContain(t, "no write", failEval(t, sh, `Files.write(`+quote(spill)+`, "x")`), "write")
+			// The reader is not the files toolkit: it cannot load a .mcpshell file.
+			failEval(t, sh, `load("x.mcpshell")`)
 			continue
 		}
-		okEval(t, sh, `load("files")`)
 		okEval(t, sh, `Files.write("n.txt", "x")`)
-		mustContain(t, "read spill", okEval(t, sh, `Files.read(`+quote(spill)+`, 1, 1)`), "l1")
-		okEval(t, sh, `unload("files")`)
-		mustContain(t, "reader restored", okEval(t, sh, `Files.read(`+quote(spill)+`, 3, 1)`), "l3")
+		okEval(t, sh, `Files.unload()`)
+		mustContain(t, "reloaded", okEval(t, sh, `Files.read(`+quote(spill)+`, 3, 1)`), "l3")
 	}
 }
 
@@ -153,7 +191,7 @@ func TestDbLoadCsvLoadsFiles(t *testing.T) {
 		}
 		sh := mcpLikeShell(false, ws, ov)
 		sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
-		v, err := sh.Eval(`load("db"); Db.loadCsv("p", "p.csv"); Db.query("select sum(amt) s from p")[0].s`)
+		v, err := sh.Eval(`Db.loadCsv("p", "p.csv"); Db.query("select sum(amt) s from p")[0].s`)
 		if err != nil {
 			t.Fatalf("overflow=%v: %v", overflow, err)
 		}
@@ -163,34 +201,29 @@ func TestDbLoadCsvLoadsFiles(t *testing.T) {
 	}
 	sh := mcpLikeShell(false, "", "")
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
-	if _, err := sh.Eval(`load("db"); Db.loadCsv("p", "p.csv")`); err == nil || !strings.Contains(err.Error(), "--files-dir") {
+	if _, err := sh.Eval(`Db.loadCsv("p", "p.csv")`); err == nil || !strings.Contains(err.Error(), "--files-dir") {
 		t.Fatalf("without --files-dir: err = %v, want a hint naming --files-dir", err)
 	}
 }
 
-// load and unload take several names, in order, as arguments or one array.
+// load takes several paths, in order; a toolkit name among them is an error
+// that names what ran.
 func TestLoadVariadic(t *testing.T) {
-	sh := mcpLikeShell(false, t.TempDir(), "")
-	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
-	toolkit.AddSolver(sh)
-	v, err := sh.Eval(`load("db", "files")`)
-	if err != nil || !strings.Contains(v.Display(), `Loaded "db"`) || !strings.Contains(v.Display(), `Loaded "files"`) {
-		t.Fatalf("load(db, files) = %v, %v", v, err)
+	dir := t.TempDir()
+	for name, src := range map[string]string{"a.mcpshell": `export let a = 1`, "b.mcpshell": `export let b = 2`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := sh.Eval(`Files.ls(".")`); err != nil {
-		t.Fatalf("files must be loaded: %v", err)
+	sh := mcpLikeShell(false, dir, "")
+	if got := okEval(t, sh, `load("a.mcpshell", "b.mcpshell"); a + b`); got != "3" {
+		t.Fatalf("load(a, b) = %s", got)
 	}
-	if v, err := sh.Eval(`load(["solver"])`); err != nil || !strings.Contains(v.Display(), `Loaded "solver"`) {
-		t.Fatalf("load([solver]) = %v, %v", v, err)
-	}
-	_, err = sh.Eval(`load("graph", "web", "nope")`)
-	if err == nil || !strings.Contains(err.Error(), `"web" failed`) || !strings.Contains(err.Error(), "Done before it: graph") || !strings.Contains(err.Error(), "Not tried: nope") {
+	_, err := sh.Eval(`load("a.mcpshell", "graph", "b.mcpshell")`)
+	if err == nil || !strings.Contains(err.Error(), "toolkits load on first use") || !strings.Contains(err.Error(), "Done before it: a.mcpshell") || !strings.Contains(err.Error(), "Not tried: b.mcpshell") {
 		t.Fatalf("a failure must name done and not-tried names: %v", err)
 	}
-	if v, err := sh.Eval(`unload("db", "solver")`); err != nil || !strings.Contains(v.Display(), `Unloaded "solver"`) {
-		t.Fatalf("unload(db, solver) = %v, %v", v, err)
-	}
-	for _, bad := range []string{`load()`, `load("db", 5)`} {
+	for _, bad := range []string{`load()`, `load("a.mcpshell", 5)`} {
 		if _, err := sh.Eval(bad); err == nil {
 			t.Errorf("%s: want an error", bad)
 		}
@@ -203,7 +236,7 @@ func TestLoadedCommandErrorHasUsage(t *testing.T) {
 	sh := mcpLikeShell(false, "", "")
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	toolkit.AddSolver(sh)
-	for _, code := range []string{`load("db"); Db.query("select * from nope")`, `load("db"); Db.load(5)`, `load("solver"); Solver.lp({maximize: {a: 1}, subjectTo: [{a: 1}]})`} {
+	for _, code := range []string{`Db.query("select * from nope")`, `Db.load(5)`, `Solver.lp({maximize: {a: 1}, subjectTo: [{a: 1}]})`} {
 		_, err := sh.Eval(code)
 		if err == nil {
 			t.Fatalf("%s: want an error", code)
@@ -215,9 +248,8 @@ func TestLoadedCommandErrorHasUsage(t *testing.T) {
 	}
 }
 
-// Models copy the Db.query pattern: Files.read, files.ls, Graph.addNode.
-// The capitalized namespace is an alias; a wrong-case one errors with the
-// right form.
+// Models copy the Db.query pattern: files.ls, db.query. A wrong-case
+// namespace errors with the right form.
 func TestToolkitNamespaceGuesses(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("hi\n"), 0o600); err != nil {
@@ -225,30 +257,18 @@ func TestToolkitNamespaceGuesses(t *testing.T) {
 	}
 	sh := mcpLikeShell(false, ws, "")
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
-	if _, err := sh.Eval(`Files.read("a.txt")`); err == nil || !strings.Contains(err.Error(), `load("files")`) {
-		t.Errorf("Files.read before load: want the load hint, got %v", err)
-	}
-	if v, err := sh.Eval(`load("files"); Files.read("a.txt")`); err != nil || !strings.Contains(v.Display(), "hi") {
-		t.Fatalf("Files.read after load = %v, %v", v, err)
-	}
-	if v, err := sh.Eval(`len(Files.ls("."))`); err != nil || v.Display() != "1" {
-		t.Errorf("Files.ls = %v, %v", v, err)
+	if v, err := sh.Eval(`Files.read("a.txt")`); err != nil || !strings.Contains(v.Display(), "hi") {
+		t.Fatalf("Files.read = %v, %v", v, err)
 	}
 	_, err := sh.Eval(`files.ls(".")`)
-	if err == nil || !strings.Contains(err.Error(), "namespace is Files: Files.<command>") || strings.Contains(err.Error(), "help()") {
+	if err == nil || !strings.Contains(err.Error(), "namespace is Files: Files.<command>. Files.help() describes it") {
 		t.Errorf("files.ls: want the Files namespace hint, got %v", err)
 	}
 	_, err = sh.Eval(`db.query("select 1")`)
-	if err == nil || !strings.Contains(err.Error(), "namespace is Db") || !strings.Contains(err.Error(), `load("db")`) {
+	if err == nil || !strings.Contains(err.Error(), "namespace is Db") || strings.Contains(err.Error(), `load(`) {
 		t.Errorf("db.query: want the Db namespace hint, got %v", err)
-	}
-	if v, err := sh.Eval(`load("graph"); Graph.addNode(Graph.root(), "x"); len(Graph.nodes("x"))`); err != nil || v.Display() != "1" {
-		t.Errorf("Graph.addNode = %v, %v", v, err)
 	}
 	if _, err := sh.Eval(`let files = ["x"]; files.length`); err != nil {
 		t.Errorf("a variable named files must still work: %v", err)
-	}
-	if _, err := sh.Eval(`unload("files"); Files.read("a.txt")`); err == nil {
-		t.Errorf("Files.read after unload must fail")
 	}
 }

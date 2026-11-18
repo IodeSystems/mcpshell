@@ -64,7 +64,7 @@ func smallShell() *runtime.Shell {
 func noteShell() *runtime.Shell {
 	sh := coreShell()
 	sh.Register(&runtime.CommandDef{Name: "noteme", Fn: func([]runtime.Value) runtime.Value {
-		sh.Note(`db 212/256 MB — Db.drop(t) or unload("db") frees it`)
+		sh.Note(`db 212/256 MB — Db.drop(t) or Db.unload() frees it`)
 		return runtime.Null
 	}})
 	return sh

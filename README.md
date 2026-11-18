@@ -79,7 +79,7 @@ that caches tokens knows to mint a new one:
 
 `help("<words>")` searches command names and descriptions; `commands(…)` takes
 the same argument and returns `[{name, call, category, signature, description}]`
-for filtering in code. `load("name")` installs a loadable toolkit (see Toolkits). `await` is accepted and does nothing: tool calls return
+for filtering in code. A toolkit loads on the first reference to its namespace (`Db.query(…)`, `Graph.help()`; see Toolkits). `await` is accepted and does nothing: tool calls return
 their values directly.
 
 Code an agent writes from JS habit runs, and the eval result says when it may
@@ -144,7 +144,7 @@ step costs) and `limits: {steps, timeout, callDepth, outputBytes, memory}` (this
 only, up to the operator maximums in `--max-limits`); the CLI takes
 `--profile` and `--limits steps=N,timeout=60s,memory=2GB`. `memory` is bytes of Go heap (default 1 GB, maximum 2 GB unless
 `--max-limits memory=4GB`); over it the error lists what holds memory and how to
-free it (`unload("db")`, `forget("$r2")`, `forget("rows")`, or `clear: true` for everything), and an eval
+free it (`Db.unload()`, `forget("$r2")`, `forget("rows")`, or `clear: true` for everything), and an eval
 that ends at 80% or more says so in a `note:` line. A tripped limit says which
 argument raises it.
 
@@ -173,9 +173,8 @@ Two differences from JS stay: `==`/`===` compare plain objects and instances by 
 ## Toolkits
 
 Toolkits register commands into the shell. `core` and `math` are always on.
-In `mcpshell mcp`, `graph`, `db`, `solver`, `cp`, `route`, `geo` and `num` are loadable by the agent; `web`, `file`, and
-`browser` need an operator flag, and the agent then installs them with
-`load("name")`. The LLM only sees the capabilities you grant. One-shot and
+In `mcpshell mcp`, `graph`, `db`, `solver`, `cp`, `route`, `geo` and `num` load on the agent's first reference to their namespace; `web`, `file`, and
+`browser` need an operator flag first. The LLM only sees the capabilities you grant. One-shot and
 REPL modes install core, math, web, graph, and file (rooted at the current
 directory) at start.
 
@@ -183,19 +182,19 @@ directory) at start.
 |---------|-------------|----------|
 | **core** | always on | strings, arrays, objects, JSON, regex, pipes, control flow; `Date` and `Dates.*`, `toLocaleString` and `Intl.NumberFormat`, `toMarkdown` |
 | **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
-| **graph** | `load("graph")` | in-memory node/edge graph: `Graph.addNode`, `link`, `nodes`, `edges`, `out`, `setProps`, … (a node has them as methods: `alice.out("knows")`); algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
-| **web** | `--web`, then `load("web")` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
-| **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`): `Files.read`, `readLines`, `ls`, `glob`, `grep`, `tree`, `exists`, `write`, `append`, `edit`, `mv`, `mkdir`, `deletePath`; a `File` from `ls`/`glob` has them as methods (`f.readLines()`) |
+| **graph** | first use of `Graph` | in-memory node/edge graph: `Graph.addNode`, `link`, `nodes`, `edges`, `out`, `setProps`, … (a node has them as methods: `alice.out("knows")`); algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
+| **web** | `--web` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
+| **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`): `Files.read`, `readLines`, `ls`, `glob`, `grep`, `tree`, `exists`, `write`, `append`, `edit`, `mv`, `mkdir`, `deletePath`; a `File` from `ls`/`glob` has them as methods (`f.readLines()`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
-| **db** | `load("db")`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions; R-tree spatial index (`CREATE VIRTUAL TABLE ... USING rtree`, the only virtual table allowed) |
-| **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries; `sensitivity: true` adds shadow prices, reduced costs and ranges; `explain: true` names the conflicting constraints of an infeasible model |
-| **cp** | `load("cp")` | constraint programming over integers: `Cp.solve({vars, intervals, constraints, minimize})` with linear rows, allDifferent, element, table, count, max/min, noOverlap, cumulative, before, circuit; schedules out as rows; `status` is `optimal` only when proven |
-| **route** | `load("route")` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
-| **geo** | `load("geo")` | spatial on rows `{lat, lon}` / `{x, y}` and GeoJSON (`[lon, lat]`): `Geo.distance` (haversine), `bearing`, `destination`, `bbox` (radius boxes for a `Db` R-tree), `nearest` (k), `length`, `area` (WGS84 ellipsoid), `centroid`, `contains`/`intersects`/`within` (no polygon overlay), `hull`, `circle`, `toGeoJSON`/`fromGeoJSON`, `kmeans` (seeded, reports `converged`; a local optimum) and `dbscan`; swapped or out-of-range coordinates are errors |
-| **num** | `load("num")` | float64 numerics: `Num.regress(rows, {y, x})` (OLS with standard errors, t/p, CIs, R², F), `Num.fit` (Levenberg-Marquardt with your model `(x, p) => y`, or built-in Gaussian/Lorentzian/pseudo-Voigt peaks with a baseline; params, standard errors, covariance), `Num.minimize` (Nelder-Mead, bounds), `Num.root` (Brent), `Num.integrate` (adaptive Gauss-Kronrod, infinite ends; trapezoid on samples), `Num.interp` (linear, natural cubic), `Num.solve`/`inv`/`det`/`eig` (symmetric)/`lstsq`/`matmul`, `Num.pdf`/`cdf`/`sf`/`ppf` for 11 distributions, `Num.ttest`, `Num.ci`, `Num.rng(seed)`; `status` says when a method did not converge |
-| **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
+| **db** | first use of `Db`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions; R-tree spatial index (`CREATE VIRTUAL TABLE ... USING rtree`, the only virtual table allowed) |
+| **solver** | first use of `Solver` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries; `sensitivity: true` adds shadow prices, reduced costs and ranges; `explain: true` names the conflicting constraints of an infeasible model |
+| **cp** | first use of `Cp` | constraint programming over integers: `Cp.solve({vars, intervals, constraints, minimize})` with linear rows, allDifferent, element, table, count, max/min, noOverlap, cumulative, before, circuit; schedules out as rows; `status` is `optimal` only when proven |
+| **route** | first use of `Route` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
+| **geo** | first use of `Geo` | spatial on rows `{lat, lon}` / `{x, y}` and GeoJSON (`[lon, lat]`): `Geo.distance` (haversine), `bearing`, `destination`, `bbox` (radius boxes for a `Db` R-tree), `nearest` (k), `length`, `area` (WGS84 ellipsoid), `centroid`, `contains`/`intersects`/`within` (no polygon overlay), `hull`, `circle`, `toGeoJSON`/`fromGeoJSON`, `kmeans` (seeded, reports `converged`; a local optimum) and `dbscan`; swapped or out-of-range coordinates are errors |
+| **num** | first use of `Num` | float64 numerics: `Num.regress(rows, {y, x})` (OLS with standard errors, t/p, CIs, R², F), `Num.fit` (Levenberg-Marquardt with your model `(x, p) => y`, or built-in Gaussian/Lorentzian/pseudo-Voigt peaks with a baseline; params, standard errors, covariance), `Num.minimize` (Nelder-Mead, bounds), `Num.root` (Brent), `Num.integrate` (adaptive Gauss-Kronrod, infinite ends; trapezoid on samples), `Num.interp` (linear, natural cubic), `Num.solve`/`inv`/`det`/`eig` (symmetric)/`lstsq`/`matmul`, `Num.pdf`/`cdf`/`sf`/`ppf` for 11 distributions, `Num.ttest`, `Num.ci`, `Num.rng(seed)`; `status` says when a method did not converge |
+| **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
-Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
+Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until the first reference to its namespace (`Web.fetch(…)`, `typeof Web`), which installs it for the rest of the session. Without the flag the toolkit is not advertised, and a reference to `Web` fails naming `--web`. Toolkits are listed on one line in the prompt (`Toolkits (load on first use; Ns.help() describes one): Db — summary · …`) and in the `eval` tool description (`Toolkits (Ns.help() describes one): Cp, Db, …`). `Ns.help()` lists a toolkit's commands and its guide; `Ns.unload()` removes it and frees what it holds, and the next reference loads it again. `help("name")` shows the guide before and after the first use. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
 
 Every toolkit command is in its namespace (`Graph.out`, `Files.read`, `Db.query`); no toolkit adds a bare global, so `let out = []` or `let read = …` is a free name. An old bare call (`read("a.txt")`) is an error that names the namespaced form.
 
@@ -215,8 +214,9 @@ next eval can query it without running the tools again:
 Set `MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
 there; the truncated response names it. Arrays are saved as JSON Lines, so
 `Files.read(path, start, lines)` and `Files.grep(path, {match})` page through them —
-both accept the file's absolute path. A read-only file toolkit on that
-directory is installed at start, so paging needs no `load("files")`. Scope the directory per session (e.g.
+both accept the file's absolute path. With `--files-dir`, `Files` reads that
+directory too; without it, a read-only `Files` on that directory is installed
+at start. Scope the directory per session (e.g.
 `…/overflow/<session-id>`); mcpshell only makes file names unique.
 
 To save a tool's output without parsing it, use `ns.raw("tool", {args})`:

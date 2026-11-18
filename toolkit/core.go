@@ -650,26 +650,19 @@ func InstallCore(sh *Shell) *Shell {
 	reg("bool", "value: any", "→ boolean", []string{`bool(1)`},
 		func(args []Value) Value { return Bln(arg(args, 0).IsTruthy()) })
 
-	reg("load", "...names: string", "installs loadable toolkits by name, or evaluates a .mcpshell file by path (file toolkit only); several names load in order",
-		[]string{`load("db")`, `load("db", "solver")`, `load("lib/helpers.mcpshell")`},
+	reg("load", "...paths: string", "evaluates .mcpshell files by path (file toolkit only); only their exported names become globals. Toolkits are not loaded with it: they load on first use",
+		[]string{`load("lib/helpers.mcpshell")`},
 		func(args []Value) Value {
 			return loadEach(sh, "load", args, func(name string) Value {
-				if sh.IsLoadableName(name) {
-					summary, err := sh.Load(name)
-					if err != nil {
-						panic(Runtime(err.Error()))
-					}
-					return Str(summary)
-				}
-				if msg := installedToolkit(sh, name); msg != "" {
-					return Str(msg)
+				if hint := toolkitNameHint(sh, "load", name); hint != "" {
+					panic(Runtime(hint))
 				}
 				if !strings.ContainsAny(name, "./\\") {
 					// A bare name is a toolkit name, not a file: "file not
 					// found './nope'" pointed at the wrong mistake.
-					msg := "load: no toolkit named '" + name + "'"
-					if names := sh.Commands().LoadableNames(); len(names) > 0 {
-						msg += ". Toolkits: " + strings.Join(names, ", ")
+					msg := "load: no toolkit named '" + name + "', and toolkits load on first use"
+					if line := sh.Commands().ToolkitsLine(); line != "" {
+						msg += ". " + line
 					}
 					panic(Runtime(msg + `. A script file is loaded by its path: load("lib/helpers.mcpshell")`))
 				}
@@ -677,17 +670,18 @@ func InstallCore(sh *Shell) *Shell {
 			})
 		})
 
-	reg("unload", "...names: string", "removes loaded toolkits and their commands",
-		[]string{`unload("db")`, `unload("db", "solver")`},
-		func(args []Value) Value {
+	// unload("db") was the way to unload a toolkit; Db.unload() is now. It
+	// stays, hidden, to name the new form.
+	sh.Register(&CommandDef{Name: "unload", Signature: "...names: string", Hidden: true,
+		Description: "replaced by Ns.unload(): Db.unload()",
+		Fn: func(args []Value) Value {
 			return loadEach(sh, "unload", args, func(name string) Value {
-				msg, err := sh.Unload(name)
-				if err != nil {
-					panic(Runtime(err.Error()))
+				if hint := toolkitNameHint(sh, "unload", name); hint != "" {
+					panic(Runtime(hint))
 				}
-				return Str(msg)
+				panic(Runtime(fmt.Sprintf("unload: no toolkit named %q. A toolkit unloads with its namespace: Db.unload()", name)))
 			})
-		})
+		}})
 
 	reg("forget", "...names: string", "drops kept results ($r1, …) or session globals (top-level names) to free their memory",
 		[]string{`forget("$r2")`, `forget("rows", "$r1")`},
@@ -1702,18 +1696,21 @@ func tryOne(fn func() Value) (v Value, err *ShellError) {
 	return fn(), nil
 }
 
-// installedToolkit is the answer to load(name) for a toolkit the host
-// installed at start instead of as a loadable (the CLI installs web, graph
-// and files): it is there already. "" when name is not one of them.
-func installedToolkit(sh *Shell, name string) string {
-	probe := map[string]func() bool{
-		"files": func() bool { return sh.Commands().Get("Files.readLines") != nil },
-		"file":  func() bool { return sh.Commands().Get("Files.readLines") != nil },
-		"graph": func() bool { return sh.Commands().Get("Graph.addNode") != nil },
-		"web":   func() bool { return len(sh.Commands().NamespaceCommands("Web")) > 0 },
+// toolkitNameHint is the error for load(name) or unload(name) of a toolkit,
+// a loadable or one the host installed at start (the CLI installs web, graph
+// and files): toolkits load on first use and unload with Ns.unload(). ""
+// when name is not a toolkit.
+func toolkitNameHint(sh *Shell, fn, name string) string {
+	ns := sh.Commands().ToolkitNamespace(name)
+	if ns == "" {
+		// The CLI installs these at start, with no loadable.
+		ns = map[string]string{"files": "Files", "file": "Files", "graph": "Graph", "web": "Web"}[name]
+		if ns == "" || len(sh.Commands().NamespaceCommands(ns)) == 0 {
+			return ""
+		}
 	}
-	if p, ok := probe[name]; ok && p() {
-		return name + " is installed already here (help(\"" + name + "\") lists its commands)"
+	if fn == "unload" {
+		return fmt.Sprintf("unload(%q) is gone: %s.unload() unloads the toolkit; the next reference to %s loads it again", name, ns, ns)
 	}
-	return ""
+	return fmt.Sprintf("load(%q): toolkits load on first use; %s.help() describes it", name, ns)
 }

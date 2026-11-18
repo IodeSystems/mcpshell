@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,22 +41,22 @@ Usage:
 
 For direct evaluation and the REPL, the core, math, web, file, and graph
 toolkits are all installed; file operations are confined to the current
-working directory. In mcp mode only core and math are installed at start.
-graph is loadable with load("graph"). web, file, and browser need a flag
-below, and the agent then installs them with load("web"), load("files"),
-load("browser"). sql is installed at start when its flag is given.
+working directory. In mcp mode only core and math are installed at start;
+a toolkit loads on the first reference to its namespace (Graph, Db, Files,
+...). web, file, and browser need a flag below. sql is installed at start
+when its flag is given.
 
 mcp flags:
-  --files-dir <dir>    permit load("files"): the file toolkit rooted at <dir>
+  --files-dir <dir>    permit Files.*: the file toolkit rooted at <dir>
   --files-read-only    file toolkit is read-only
-  --web                permit load("web"): the web toolkit (Web.*, Html.*)
-  --browser            permit load("browser"): Browser.* (needs a Chrome binary)
-  --no-load <a,b>      hide and deny these loadable toolkits (load("name") refuses them)
+  --web                permit the web toolkit (Web.*, Html.*)
+  --browser            permit Browser.* (needs a Chrome binary)
+  --no-load <a,b>      hide and deny these toolkits by name (graph, db, files, ...)
   --sql <spec>         add a SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL)
   --sql-writable       SQL databases are read-write (default: read-only)
   --tz <zone>          local time zone of Date, an IANA name (default UTC; env MCPSHELL_TZ)
   --prompt             print the system prompt for these flags and exit (no upstream tools)
-  --db-max-mb <n>      size cap of the load("db") in-memory database (default 256)
+  --db-max-mb <n>      size cap of the Db in-memory database (default 256)
   --max-output <n>     cap eval output bytes (default 16000)
   --max-limits <spec>  operator maximums of the eval limits: steps=N,timeout=60s,callDepth=N,
                        outputBytes=N,memory=2GB (defaults: 20000000, 300s, 2048, 1000000, 2GB)
@@ -69,9 +70,10 @@ mcp flags:
 env:
   MCPSHELL_TMP_OVERFLOW_DIR  save eval output over --max-output to a new file in
                        this dir; the truncated response names the file, and
-                       Files.read()/Files.grep() accept its absolute path (a read-only file
-                       toolkit on this dir is installed at start). Scope it per
-                       session — mcpshell only makes file names unique.
+                       Files.read()/Files.grep() accept its absolute path (without
+                       --files-dir, a read-only Files on this dir is installed at
+                       start). Scope it per session — mcpshell only makes file
+                       names unique.
 
   --connect/--mcp are repeatable. An upstream server that identifies as mcpshell
   is skipped — composing mcpshell with itself would let eval recurse infinitely.`
@@ -272,7 +274,7 @@ func runMCP(args []string) {
 	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=2GB")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	tz := fs.String("tz", os.Getenv("MCPSHELL_TZ"), "local time zone of Date, an IANA name (default UTC)")
-	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the load(\"db\") in-memory database")
+	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the Db in-memory database")
 	var connect, mcpConfigs, sqlSpecs stringSlice
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
 	fs.Var(&mcpConfigs, "mcp", "MCP config: JSON file, inline JSON, or 'name:cmd args' (repeatable)")
@@ -295,8 +297,8 @@ func runMCP(args []string) {
 		toolkit.SetTimeZone(sh, loc)
 	}
 	// graph is agent tier (no I/O): always loadable. web, files, and browser
-	// reach outside the process: a flag enables them, and the agent then
-	// installs them with load().
+	// reach outside the process: a flag enables them. A reference to a
+	// toolkit's namespace installs it.
 	sh.AddLoadable(toolkit.GraphLoadable())
 	toolkit.AddSolver(sh)
 	toolkit.AddRoute(sh)
@@ -309,7 +311,7 @@ func runMCP(args []string) {
 	}
 	sh.AddLoadable(toolkit.WebLoadable(*web))
 	if *web {
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled (load(\"web\") installs it)")
+		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled (a reference to Web installs it)")
 	}
 	overflowDir := os.Getenv("MCPSHELL_TMP_OVERFLOW_DIR")
 	if overflowDir != "" {
@@ -318,37 +320,30 @@ func runMCP(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "mcpshell mcp: over-limit output is saved to %s\n", overflowDir)
 	}
-	// The agent must be able to page over-limit output without an extra turn,
-	// so a read-only file toolkit on the overflow dir is installed at start,
-	// whatever --files-dir says. Its file loader is cleared: load("x.mcpshell")
-	// needs the real files toolkit.
-	notFound := "Before load(\"files\"), Files.read, Files.readLines and Files.grep see only the over-limit results saved in this session (the $rN files). " +
-		"File access is not enabled: the operator starts mcpshell mcp with --files-dir <dir> to allow load(\"files\")."
-	if *filesDir != "" {
-		notFound = "Before load(\"files\"), Files.read, Files.readLines and Files.grep see only the over-limit results saved in this session (the $rN files). " +
-			"For your files run load(\"files\") first; it reads under " + *filesDir + "."
-	}
-	overflowReader := func(sh *runtime.Shell) {
+	// The agent must be able to page over-limit output without an extra turn.
+	// With --files-dir, Files reads the overflow dir as an extra root, and a
+	// reference to Files loads it. Without, a read-only reader on the overflow
+	// dir is installed at start as Files.*; its file loader is cleared, so
+	// load("x.mcpshell") still needs --files-dir.
+	filesDenied := slices.Contains(strings.Split(*noLoad, ","), runtime.FilesToolkit)
+	if overflowDir != "" && (*filesDir == "" || filesDenied) {
+		notFound := "Files.read, Files.readLines and Files.grep see only the over-limit results saved in this session (the $rN files). " +
+			"File access is not enabled: the operator starts mcpshell mcp with --files-dir <dir> to allow it."
 		toolkit.InstallOverflowReader(sh, overflowDir, notFound)
 		sh.SetFileLoader(nil)
 		toolkit.ClearFileConfiner(sh)
-	}
-	var restore func(sh *runtime.Shell)
-	if overflowDir != "" {
-		overflowReader(sh)
-		restore = overflowReader
 	}
 	var readRoots []string
 	if overflowDir != "" {
 		readRoots = append(readRoots, overflowDir)
 	}
-	sh.AddLoadable(toolkit.FilesLoadable(*filesDir, *filesReadOnly, readRoots, restore))
+	sh.AddLoadable(toolkit.FilesLoadable(*filesDir, *filesReadOnly, readRoots))
 	if *filesDir != "" {
 		mode := "read-write"
 		if *filesReadOnly {
 			mode = "read-only"
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s; load(\"files\") installs it)\n", mode, *filesDir)
+		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s; a reference to Files installs it)\n", mode, *filesDir)
 	}
 
 	var closers []io.Closer
@@ -369,7 +364,7 @@ func runMCP(args []string) {
 	// A loaded browser holds a Chrome process; unload closes it at exit.
 	closers = append(closers, closerFunc(func() error { _, err := sh.Unload("browser"); return err }))
 	if *browser {
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (load(\"browser\") installs it)")
+		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (a reference to Browser installs it)")
 	}
 
 	if *printPrompt {

@@ -30,6 +30,6 @@ NOTES:
   - exact columns store decimals as text: they compare, sort, group and sum by value, with no rounding. +, -, * and / in SQL on them are float64: use dmul(a, b) or compute outside SQL
   - Spatial index: Db.exec("CREATE VIRTUAL TABLE idx USING rtree(id, minLon, maxLon, minLat, maxLat)"), then WHERE minLon <= ? AND maxLon >= ? AND ... (Geo.bbox gives the box). rtree and rtree_i32 are the only virtual tables
   - Functions: sum avg median quantile(x,p) stdev stdev_pop variance var_pop corr covar covar_pop mode dmul; they also work as window functions
-  - The database is %d MB at most (operator flag --db-max-mb). When full: Db.drop(name) or Db.reset(). It lasts for the session; unload("db") deletes it
+  - The database is %d MB at most (operator flag --db-max-mb). When full: Db.drop(name) or Db.reset(). It lasts for the session; Db.unload() deletes it
   - Db.parseCsv(text) and Db.toCsv(rows) convert text without a database`, maxMB)
 }

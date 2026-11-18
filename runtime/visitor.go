@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -1491,7 +1492,39 @@ func bareIdentifier(u parser.IUnaryExprContext) (string, bool) {
 
 // resolves reports whether an identifier names a variable or a command.
 func (v *Visitor) resolves(name string) bool {
-	return v.env.Get(name) != nil || v.resolveCommand(name) != nil
+	if v.env.Get(name) != nil || v.resolveCommand(name) != nil {
+		return true
+	}
+	// typeof Graph loads the toolkit; typeof Web without --web is
+	// "undefined", as for any name that does not exist.
+	if load := v.itp.commands.autoload; load != nil {
+		owned, err := load(name)
+		var np *NotPermittedError
+		if owned && err != nil && !errors.As(err, &np) {
+			panic(Runtime(err.Error()))
+		}
+		return owned && err == nil && v.env.Get(name) != nil
+	}
+	return false
+}
+
+// autoLoad loads the toolkit whose namespace name is, for a reference to a
+// name that is not defined, and returns the namespace; nil when no toolkit
+// has it. A toolkit the operator did not permit, or one whose install fails,
+// is an error at the reference.
+func (v *Visitor) autoLoad(name string) Value {
+	load := v.itp.commands.autoload
+	if load == nil {
+		return nil
+	}
+	owned, err := load(name)
+	if !owned {
+		return nil
+	}
+	if err != nil {
+		panic(Runtime(err.Error()))
+	}
+	return v.env.Get(name)
 }
 
 // evalDelete implements the `delete` operator. `delete obj.key` / `delete arr[i]`
@@ -1855,6 +1888,9 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 	if fn := v.resolveCommand(name); fn != nil {
 		return fn
 	}
+	if val := v.autoLoad(name); val != nil {
+		return val
+	}
 	var available []string
 	var kept []string
 	for k := range v.env.AllBindings() {
@@ -2077,6 +2113,11 @@ func (v *Visitor) visitMultiParamArrowBlock(ctx *parser.MultiParamArrowBlockCont
 func (v *Visitor) namespaceHelp(recv, member string, got Value, args []Value) (Value, bool) {
 	if member != "help" || got != Null || len(v.itp.commands.NamespaceCommands(recv)) == 0 {
 		return nil, false
+	}
+	if len(args) == 0 {
+		if usage := v.itp.commands.ToolkitUsage(recv); usage != "" {
+			return Str(usage), true // a toolkit's commands and guide
+		}
 	}
 	search := recv
 	if len(args) > 0 {

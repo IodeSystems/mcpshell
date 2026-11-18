@@ -28,7 +28,7 @@ func AddNum(sh *Shell) *Shell {
 	})
 }
 
-const numGuide = `Num — floating-point numerics. load("num") first.
+const numGuide = `Num — floating-point numerics.
 Results are float64 (about 16 significant digits), not exact numbers: compare with a
 tolerance, round for reports. Matrices are arrays of rows: [[1, 2], [3, 4]].
 status: "converged" = a stopping test was met (for fit and minimize: a local optimum, not

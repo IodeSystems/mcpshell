@@ -10,13 +10,14 @@ import (
 	"github.com/iodesystems/mcpshell/toolkit"
 )
 
-// The Db database lasts the MCP session: load in one eval, query in later ones.
+// The Db database lasts the MCP session: loaded by the first reference in one
+// eval, queried in later ones.
 func TestDbPersistsAcrossEvals(t *testing.T) {
 	sh := coreShell()
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	codes := []string{
 		`Db.tables()`,
-		`load("db")`,
+		`Db.help()`,
 		`Db.load("sales", [{region: "W", amount: 0.1}, {region: "W", amount: 0.2}, {region: "E", amount: 5}], {exact: ["amount"]}).rows`,
 		`Db.query("SELECT region, sum(amount) AS total FROM sales GROUP BY region ORDER BY region")`,
 		`Db.exec("UPDATE sales SET amount = 1 WHERE region = 'E'").affected`,
@@ -47,16 +48,16 @@ func TestDbPersistsAcrossEvals(t *testing.T) {
 		if err := json.Unmarshal([]byte(resp[i]), &r); err != nil {
 			t.Fatal(err)
 		}
-		if i == 0 != r.Result.IsError {
+		if r.Result.IsError {
 			t.Errorf("eval %d: isError = %v", i, r.Result.IsError)
 		}
 		return r.Result.Content[0].Text
 	}
-	if !strings.Contains(text(0), "call load(") {
-		t.Errorf("before load: %s", text(0))
+	if text(0) != "[]" {
+		t.Errorf("first reference: %s", text(0))
 	}
 	if !strings.Contains(text(1), "Db.query") {
-		t.Errorf("load: %s", text(1))
+		t.Errorf("Db.help(): %s", text(1))
 	}
 	for i, want := range map[int]string{
 		2: "3",

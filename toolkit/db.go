@@ -49,7 +49,7 @@ func setFileConfiner(sh *Shell, resolve func(path string) string) { fileConfiner
 // a file toolkit that is not the agent's (the overflow reader).
 func ClearFileConfiner(sh *Shell) { fileConfiners.Delete(sh) }
 
-// DbLoadable returns the loadable for load("db").
+// DbLoadable returns the loadable of the Db namespace.
 func DbLoadable(opts DbOptions) Loadable {
 	if opts.MaxMB <= 0 {
 		opts.MaxMB = dbDefaultMaxMB
@@ -186,7 +186,7 @@ func (st *dbState) run(cmd string, fn func(ctx context.Context, c *sql.Conn) Val
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	if st.db == nil {
-		panic(Runtime(cmd + ": the database is closed: call load(\"db\") again"))
+		panic(Runtime(cmd + ": the database is closed: a new reference to Db opens a new one"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sqlQueryTimeout)
 	defer cancel()

@@ -14,14 +14,12 @@ import (
 func routeShell(t *testing.T) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.AddRoute(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell())))
-	okEval(t, sh, `load("route")`)
 	return sh
 }
 
 func TestRouteLoadHint(t *testing.T) {
 	sh := toolkit.AddRoute(toolkit.InstallCore(runtime.NewShell()))
-	mustContain(t, "call before load", failEval(t, sh, `Route.tsp({})`), `load("route")`)
-	first := okEval(t, sh, `load("route")`)
+	first := okEval(t, sh, `Route.help()`)
 	mustContain(t, "first load", first, "Route.matrix(", "Route.path(", "Route.paths(", "Route.tsp(", "Route.vrp(", "TYPICAL: VRP", "TRAPS")
 	if n := strings.Count(routeGuideOf(t), "\n") + 1; n > 40 {
 		t.Errorf("guide is %d lines", n)
@@ -186,7 +184,6 @@ func TestRouteFromDbRows(t *testing.T) {
 	sh := toolkit.AddRoute(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell())))
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	t.Cleanup(func() { sh.Unload("db") })
-	okEval(t, sh, `load("route"); load("db")`)
 	okEval(t, sh, `Db.load("shops", [{id: "s1", name: "A", lat: 52.52, lon: 13.40}, {id: "s2", name: "B", lat: 52.50, lon: 13.45},
 	  {id: "s3", name: "C", lat: 52.48, lon: 13.38}, {id: "s4", name: "D", lat: 52.55, lon: 13.35}])`)
 	got := okEval(t, sh, `let pts = Db.query("SELECT id, name, lat, lon FROM shops ORDER BY id");

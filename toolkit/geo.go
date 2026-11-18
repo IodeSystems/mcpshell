@@ -26,7 +26,7 @@ func AddGeo(sh *Shell) *Shell {
 	})
 }
 
-const geoGuide = `Geo — distance, nearest, boxes, polygons, GeoJSON and clusters. load("geo") first.
+const geoGuide = `Geo — distance, nearest, boxes, polygons, GeoJSON and clusters.
 Points are rows {lat, lon} (degrees; lng works) or {x, y} (plane), as in Route. GeoJSON
 positions are [lon, lat]. A geometry argument is a GeoJSON geometry, Feature or
 FeatureCollection; where an area is expected, rows [{lat, lon}, ...] are a polygon ring.

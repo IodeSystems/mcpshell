@@ -412,8 +412,8 @@ func TestErrorQualityNamespaceHelp(t *testing.T) {
 	sh := toolkit.InstallCore(runtime.NewShell())
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{}))
 	for src, want := range map[string]string{
-		`load("db"); Db.help({})`:      "Db.query(sql",
-		`load("db"); Db.help("query")`: "runs one read-only SELECT",
+		`Db.help({})`:      "Db.query(sql",
+		`Db.help("query")`: "runs one read-only SELECT",
 	} {
 		v, err := sh.Eval(src)
 		if err != nil || !strings.Contains(v.Display(), want) {

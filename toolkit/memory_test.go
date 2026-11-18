@@ -135,9 +135,6 @@ func TestMemoryReportNamesGlobalsAndKeptResults(t *testing.T) {
 
 func TestMemoryReportNamesToolkits(t *testing.T) {
 	sh := memShell()
-	if _, err := sh.Eval(`load("graph", "db")`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := sh.Eval(`for (let i = 0; i < 3000; i++) { Graph.addNode(Graph.root(), "person", {name: "n" + i, bio: "x".repeat(200)}) }`); err != nil {
 		t.Fatal(err)
 	}
@@ -154,15 +151,15 @@ func TestMemoryReportNamesToolkits(t *testing.T) {
 	}
 	msg := err.Error()
 	for _, want := range []string{
-		`graph: `, `3.0k nodes`, `unload("graph")`,
-		`db: `, `off-heap`, `2 tables; largest "events"`, `Db.drop("events") or unload("db")`,
+		`graph: `, `3.0k nodes`, `Graph.unload()`,
+		`db: `, `off-heap`, `2 tables; largest "events"`, `Db.drop("events") or Db.unload()`,
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("report lacks %q:\n%s", want, msg)
 		}
 	}
 	// Unloaded, they are gone from the report.
-	if _, err := sh.Eval(`unload("db", "graph")`); err != nil {
+	if _, err := sh.Eval(`Db.unload(); Graph.unload()`); err != nil {
 		t.Fatal(err)
 	}
 	_, err = evalMem(sh, room(8<<20), `"y".repeat(20000000).length`)

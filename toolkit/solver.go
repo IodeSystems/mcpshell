@@ -36,7 +36,7 @@ func AddSolver(sh *Shell) *Shell {
 	})
 }
 
-const solverGuide = `Solver — exact linear and mixed-integer programming. load("solver") first.
+const solverGuide = `Solver — exact linear and mixed-integer programming.
 One command: Solver.lp(model). Numbers are exact: 1/3 stays 1/3, no float tolerance.
 Status is optimal, infeasible, unbounded or node_limit.
 

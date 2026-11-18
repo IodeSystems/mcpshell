@@ -207,6 +207,7 @@ func NewShell() *Shell {
 	t.globals.DefineBuiltin("File", file)
 	t.fileProto = file.prototypeObj()
 	t.limits.memReport = t.memoryReport
+	t.commands.autoload = t.autoLoad
 	t.commands.Register(&CommandDef{
 		Name:        "help",
 		Signature:   "search?: string",
@@ -268,13 +269,19 @@ func (t *Shell) Register(def *CommandDef) *Shell {
 			name = def.Name
 		}
 		if _, builtin, ok := t.globals.Binding(name); ok && !builtin && !strings.HasPrefix(name, "$r") {
-			panic(Runtime(fmt.Sprintf("the toolkit defines %s, and '%s' is a session global. Free the name with forget(%q) (copy the value first if you need it: let %s = %s), then load again",
+			panic(Runtime(fmt.Sprintf("the toolkit defines %s, and '%s' is a session global. Free the name with forget(%q) (copy the value first if you need it: let %s = %s), then use the toolkit again",
 				name, name, name, altName(name), name)))
 		}
 		t.hook.guard(def)
 	}
 	t.commands.Register(def)
-	if def.Namespace != "" {
+	if def.Namespace != "" && t.hook != nil {
+		// Load defines the namespace global after Install, so a parallel
+		// branch never sees a namespace with half its commands.
+		if !slices.Contains(t.hook.namespaces, def.Namespace) {
+			t.hook.namespaces = append(t.hook.namespaces, def.Namespace)
+		}
+	} else if def.Namespace != "" {
 		if nsObj := t.commands.BuildNamespaceObject(def.Namespace); nsObj != nil {
 			t.globals.DefineBuiltin(def.Namespace, nsObj)
 		}

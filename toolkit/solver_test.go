@@ -12,13 +12,12 @@ import (
 func solverShell(t *testing.T) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.AddSolver(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell())))
-	okEval(t, sh, `load("solver")`)
 	return sh
 }
 
 func TestSolverLoadHint(t *testing.T) {
 	sh := toolkit.AddSolver(toolkit.InstallCore(runtime.NewShell()))
-	mustContain(t, "call before load", failEval(t, sh, `Solver.lp({})`), `load("solver")`)
+	mustContain(t, "Solver.help", okEval(t, sh, `Solver.help()`), "Solver.lp(", "TYPICAL: Product mix")
 	mustContain(t, "help before load", okEval(t, solverShell(t), `help("solver")`), "Solver.lp", "TYPICAL: Product mix", "TYPICAL: Knapsack", "TYPICAL: Transport")
 }
 

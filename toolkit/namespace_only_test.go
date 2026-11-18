@@ -18,14 +18,12 @@ func TestToolkitNamesAreFreeForGlobals(t *testing.T) {
 				t.Errorf("%s: %s: %v", pass, src, err)
 			}
 		}
-		okEval(t, sh, `forget("out", "read", "node", "edges"); load("graph", "files")`)
+		okEval(t, sh, `forget("out", "read", "node", "edges"); [typeof Graph, typeof Files]`)
 	}
 }
 
 func TestOldBareNameNamesNamespace(t *testing.T) {
 	sh := mcpLikeShell(false, t.TempDir(), "")
-	mustContain(t, "before load", failEval(t, sh, `read("a.txt")`), `'read' is not defined — use Files.read after load("files")`)
-	okEval(t, sh, `load("graph", "files")`)
 	mustContain(t, "read", failEval(t, sh, `read("a.txt")`), `'read' is not defined — use Files.read`)
 	mustContain(t, "out", failEval(t, sh, `Graph.root() |> out("x")`), `'out' is not defined — use Graph.out`)
 	mustContain(t, "addNode", failEval(t, sh, `addNode(Graph.root(), "p")`), `use Graph.addNode`)
@@ -39,7 +37,6 @@ func TestToolkitValueMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := mcpLikeShell(false, ws, "")
-	okEval(t, sh, `load("graph", "files")`)
 	cases := []struct{ src, want string }{
 		{`let a = Graph.addNode(Graph.root(), "p", {n: "a"}); let b = Graph.addNode(Graph.root(), "p", {n: "b"}); Graph.link(a, b, "knows"); a.out("knows").map(n => n.n)`, `["b"]`},
 		{`Graph.nodes("p")[1].inbound("knows").map(n => n.n)`, `["a"]`},

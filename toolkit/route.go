@@ -26,7 +26,7 @@ func AddRoute(sh *Shell) *Shell {
 	})
 }
 
-const routeGuide = `Route — distances, shortest paths, TSP and vehicle routing. load("route") first.
+const routeGuide = `Route — distances, shortest paths, TSP and vehicle routing.
 Costs come from points [{id, lat, lon}] (haversine, meters) or [{id, x, y}] (euclidean;
 metric: "manhattan"), a matrix [[...]] or {ids, matrix}, or edges [{from, to, dist|time}].
 Edges are two-way unless directed: true. A missing pair costs the shortest path through others.

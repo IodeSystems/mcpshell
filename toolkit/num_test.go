@@ -17,7 +17,6 @@ import (
 func numShell(t *testing.T) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.AddNum(toolkit.InstallMath(toolkit.InstallCore(runtime.NewShell())))
-	okEval(t, sh, `load("num")`)
 	return sh
 }
 
@@ -52,8 +51,7 @@ func relNear(got, want, rel float64) bool {
 
 func TestNumLoad(t *testing.T) {
 	sh := toolkit.AddNum(toolkit.InstallCore(runtime.NewShell()))
-	mustContain(t, "call before load", failEval(t, sh, `Num.det([[1]])`), `load("num")`)
-	first := okEval(t, sh, `load("num")`)
+	first := okEval(t, sh, `Num.help()`)
 	mustContain(t, "first load", first, "Num.regress(", "Num.fit(", "Num.minimize(", "Num.root(", "Num.integrate(",
 		"Num.interp(", "Num.cdf(", "Num.ttest(", "Num.solve(", "Num.eig(", "Num.rng(", "TYPICAL: Spectrum peaks", "TRAPS")
 	if strings.Contains(first, "…") {

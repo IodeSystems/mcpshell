@@ -10,7 +10,8 @@ import (
 	"github.com/iodesystems/mcpshell/runtime"
 )
 
-// load() lasts the MCP session: the server keeps one shell across evals.
+// A toolkit loaded by a reference lasts the MCP session: the server keeps one
+// shell across evals. load("demo") is not how a toolkit loads, and says so.
 func TestLoadPersistsAcrossEvals(t *testing.T) {
 	sh := coreShell()
 	sh.AddLoadable(runtime.Loadable{
@@ -23,7 +24,7 @@ func TestLoadPersistsAcrossEvals(t *testing.T) {
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"eval","arguments":{"code":"Demo.one()"}}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"eval","arguments":{"code":"load(\"demo\")"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"eval","arguments":{"code":"Demo.one()"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"eval","arguments":{"code":"Demo.one() + 1"}}}`,
 	}, "\n") + "\n"
 	var out bytes.Buffer
 	if err := mcp.NewServer(sh, 16000).RunStdio(strings.NewReader(input), &out); err != nil {
@@ -33,13 +34,13 @@ func TestLoadPersistsAcrossEvals(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("got %d responses", len(lines))
 	}
-	if !strings.Contains(lines[0], `call load(`) || !strings.Contains(lines[0], `"isError":true`) {
-		t.Errorf("before load: %s", lines[0])
+	if !strings.Contains(lines[0], `"text":"1"`) {
+		t.Errorf("first reference: %s", lines[0])
 	}
-	if !strings.Contains(lines[1], "Demo.one") || strings.Contains(lines[1], `"isError":true`) {
+	if !strings.Contains(lines[1], "toolkits load on first use; Demo.help() describes it") || !strings.Contains(lines[1], `"isError":true`) {
 		t.Errorf("load: %s", lines[1])
 	}
-	if !strings.Contains(lines[2], `"text":"1"`) {
+	if !strings.Contains(lines[2], `"text":"2"`) {
 		t.Errorf("after load, in a later eval: %s", lines[2])
 	}
 }
@@ -59,7 +60,7 @@ func TestToolDescriptionListsLoadables(t *testing.T) {
 	sh.DenyLoadables("secret")
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"eval","arguments":{"code":"load(\"demo\")"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"eval","arguments":{"code":"Demo.help()"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`,
 	}, "\n") + "\n"
 	var out bytes.Buffer
@@ -73,10 +74,10 @@ func TestToolDescriptionListsLoadables(t *testing.T) {
 	if lines[0] != strings.Replace(lines[2], `"id":3`, `"id":1`, 1) {
 		t.Errorf("tools/list changed after load:\n%s\n%s", lines[0], lines[2])
 	}
-	if !strings.Contains(lines[0], `Toolkits (load(\"name\") first; help() describes them): demo`) {
+	if !strings.Contains(lines[0], `Toolkits (Ns.help() describes one): Demo`) {
 		t.Errorf("description lacks the Toolkits line: %s", lines[0])
 	}
-	for _, bad := range []string{"secret", "web", "demo summary"} {
+	for _, bad := range []string{"Secret", "Web", "demo summary"} {
 		if strings.Contains(lines[0], bad) {
 			t.Errorf("description lists %q: %s", bad, lines[0])
 		}

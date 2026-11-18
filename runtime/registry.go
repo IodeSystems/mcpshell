@@ -145,6 +145,9 @@ type CommandRegistry struct {
 	guideOrder []string
 	namespaces map[string][]*CommandDef
 	nsOrder    []string
+	// autoload loads the loadable whose namespace is name (Shell.autoLoad);
+	// nil for a registry without a shell.
+	autoload func(name string) (owned bool, err error)
 }
 
 // NewCommandRegistry builds an empty registry.
@@ -263,9 +266,14 @@ func (r *CommandRegistry) Help(search string) string {
 	}
 	if l := r.loadables[search]; l != nil && !r.denied[search] {
 		if l.loaded == nil {
-			return l.def.Guide + "\n\n  Not loaded: call load(\"" + search + "\") first."
+			return l.def.Guide + "\n\n  Loads on first use: " + l.def.namespaces()[0] + ".help() lists its commands."
 		}
 		return l.def.Guide
+	}
+	for n, l := range r.loadables { // help("Graph") before the first use
+		if l.loaded == nil && !r.denied[n] && l.def.owns(search) {
+			return l.def.Guide + "\n\n  Loads on first use: " + search + ".help() lists its commands."
+		}
 	}
 	if exact := r.commands[search]; exact != nil {
 		return detailedHelp(exact)

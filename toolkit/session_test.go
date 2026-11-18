@@ -164,25 +164,23 @@ func TestLoadedFileIsAModule(t *testing.T) {
 	})
 }
 
-// TestLoadRefusesASessionGlobal: a toolkit command or namespace whose name a
-// session global holds fails the load and names how to free the name;
-// after forget the load works.
-func TestLoadRefusesASessionGlobal(t *testing.T) {
+// TestToolkitNamespaceIsReserved: a session global may not take a toolkit's
+// namespace, loaded or not; the namespace still loads the toolkit.
+func TestToolkitNamespaceIsReserved(t *testing.T) {
 	sh := toolkit.InstallCore(runtime.NewShell())
 	sh.AddLoadable(runtime.Loadable{
 		Name: "zapper", Summary: "zaps",
 		Install: func(sh *runtime.Shell) (io.Closer, error) {
-			sh.Register(&runtime.CommandDef{Name: "zap", Description: "zaps",
+			sh.Register(&runtime.CommandDef{Namespace: "Zapper", Name: "zap", Description: "zaps",
 				Fn: func([]runtime.Value) runtime.Value { return runtime.Str("zapped") }})
 			return nil, nil
 		},
 	})
 	sessionSteps(t, sh, []struct{ src, want string }{
 		{`let zap = 1`, "1"},
-		{`load("zapper")`, `ERR:'zap' is a session global. Free the name with forget("zap")`},
-		{`zap`, "1"},
 		{`let Zapper = 2`, `ERR:'Zapper' is a name of the "zapper" toolkit`},
-		{`forget("zap"); load("zapper"); zap()`, "zapped"},
+		{`Zapper.zap()`, "zapped"},
+		{`zap`, "1"},
 	})
 }
 

@@ -17,7 +17,6 @@ func graphAlgoShell(t *testing.T) *runtime.Shell {
 	toolkit.InstallMath(sh)
 	sh.AddLoadable(toolkit.GraphLoadable())
 	toolkit.AddSolver(sh)
-	okEval(t, sh, `load("graph")`)
 	return sh
 }
 
@@ -25,8 +24,7 @@ func TestGraphAlgoLoad(t *testing.T) {
 	sh := runtime.NewShell()
 	toolkit.InstallCore(sh)
 	sh.AddLoadable(toolkit.GraphLoadable())
-	mustContain(t, "before load", failEval(t, sh, `Graph.topo({edges: []})`), `load("graph")`)
-	first := okEval(t, sh, `load("graph")`)
+	first := okEval(t, sh, `Graph.help()`)
 	mustContain(t, "first load", first, "Graph.path(", "Graph.reach(", "Graph.components(", "Graph.cycle(",
 		"Graph.topo(", "Graph.cpm(", "Graph.flow(", "Graph.match(", "Graph.mst(", "Graph.edges(", "TWO-WAY", "Solver.lp")
 	// Errors end with the usage of the command.
@@ -135,7 +133,6 @@ func TestGraphFlowMatchesSolverLP(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	for trial := range 25 {
 		sh := graphAlgoShell(t)
-		okEval(t, sh, `load("solver")`)
 		n := 3 + rng.Intn(6)
 		var edges []string
 		seen := map[[2]int]bool{}

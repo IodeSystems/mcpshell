@@ -16,7 +16,7 @@ func dbShell(t *testing.T, maxMB int) *runtime.Shell {
 	t.Helper()
 	sh := toolkit.InstallCore(runtime.NewShell())
 	sh.AddLoadable(toolkit.DbLoadable(toolkit.DbOptions{MaxMB: maxMB}))
-	if _, err := sh.Eval(`load("db")`); err != nil {
+	if _, err := sh.Eval(`Db.tables()`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sh.Unload("db") })
@@ -349,9 +349,8 @@ func TestDbUnloadDeletesData(t *testing.T) {
 	sh := dbShell(t, 0)
 	dbEval(t, sh, `Db.load("t", [{a: 1}])`)
 	dbEval(t, sh, `export f = Db.query`)
-	dbEval(t, sh, `unload("db")`)
-	dbFails(t, sh, `Db.query("SELECT 1")`, "load")
-	dbEval(t, sh, `load("db")`)
+	dbEval(t, sh, `Db.unload()`)
+	dbFails(t, sh, `f("SELECT 1")`, "was unloaded")
 	if got := dbEval(t, sh, `Db.tables()`); got != `[]` {
 		t.Errorf("reload kept data: %s", got)
 	}

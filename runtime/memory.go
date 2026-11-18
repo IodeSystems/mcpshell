@@ -469,7 +469,7 @@ type MemCoster interface {
 type MemCost struct {
 	Bytes   int64
 	Detail  string // such as `3 tables; largest "events" 380 MB`
-	Free    string // such as `Db.drop("events") or unload("db")`
+	Free    string // such as `Db.drop("events") or Db.unload()`
 	OffHeap bool
 }
 

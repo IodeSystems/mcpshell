@@ -9,7 +9,7 @@ import (
 	"github.com/iodesystems/mcpshell/toolkit"
 )
 
-// Before load("files"), read() is the overflow reader. A file of the agent's
+// Without --files-dir, Files.read() is the overflow reader. A file of the agent's
 // own is not there; the error says why and what to do, instead of only "file
 // not found" with a path under the overflow directory.
 func TestOverflowReaderNotFoundSaysWhy(t *testing.T) {
@@ -29,8 +29,8 @@ func TestOverflowReaderNotFoundSaysWhy(t *testing.T) {
 // web) answers that it is there, instead of "file not found './files'".
 func TestLoadBareNames(t *testing.T) {
 	sh := toolkit.AddSolver(toolkit.InstallGraph(toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), t.TempDir(), false)))
-	mustContain(t, "installed", okEval(t, sh, `load("files")`), "installed already")
-	mustContain(t, "graph installed", okEval(t, sh, `load("graph")`), "installed already")
-	mustContain(t, "unknown", failEval(t, sh, `load("nope")`), "no toolkit named 'nope'", "Toolkits: solver", `load("lib/helpers.mcpshell")`)
+	mustContain(t, "installed", failEval(t, sh, `load("files")`), "toolkits load on first use; Files.help() describes it")
+	mustContain(t, "graph installed", failEval(t, sh, `load("graph")`), "Graph.help()")
+	mustContain(t, "unknown", failEval(t, sh, `load("nope")`), "no toolkit named 'nope'", "Toolkits (Ns.help() describes one): Solver", `load("lib/helpers.mcpshell")`)
 	mustContain(t, "path", failEval(t, sh, `load("lib/x.mcpshell")`), "file not found")
 }
