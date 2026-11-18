@@ -3,9 +3,10 @@ package runtime
 import (
 	"path"
 	"strings"
+	"sync"
 )
 
-// File is the value ls() and glob() return: an object with path, name, base,
+// File is the value Files.ls() and Files.glob() return: an object with path, name, base,
 // dir, ext, type and size that acts as its path string where a string is
 // expected (templates, +, String(), == with a string, JSON, object keys,
 // string methods, and the path argument of every file command). Go code gets
@@ -140,3 +141,51 @@ func fileInspect(o *ObjectVal) string {
 func readOnlyFileField(k string) *ShellError {
 	return Runtime("File." + k + " is read-only: a File keeps the path it was made with; make another with new File(path)")
 }
+
+// methodNamespaces holds the namespaces ObjectVal.methodNs indexes; index 0
+// is none. It grows by one per toolkit that marks its objects.
+var (
+	methodNsMu       sync.RWMutex
+	methodNamespaces = []string{""}
+)
+
+// SetMethodNamespace makes ns's commands methods of o: o.cmd(args) calls
+// ns.cmd(o, args) when o has no own member cmd. A toolkit marks the objects
+// it makes (graph nodes take Graph.*), so a method call does not need a bare
+// global command.
+func (o *ObjectVal) SetMethodNamespace(ns string) {
+	methodNsMu.RLock()
+	for i, n := range methodNamespaces {
+		if n == ns {
+			methodNsMu.RUnlock()
+			o.methodNs = uint8(i)
+			return
+		}
+	}
+	methodNsMu.RUnlock()
+	methodNsMu.Lock()
+	defer methodNsMu.Unlock()
+	for i, n := range methodNamespaces {
+		if n == ns {
+			o.methodNs = uint8(i)
+			return
+		}
+	}
+	if len(methodNamespaces) > 255 {
+		panic("SetMethodNamespace: too many namespaces")
+	}
+	methodNamespaces = append(methodNamespaces, ns)
+	o.methodNs = uint8(len(methodNamespaces) - 1)
+}
+
+func (o *ObjectVal) methodNamespace() string {
+	if o.methodNs == 0 {
+		return ""
+	}
+	methodNsMu.RLock()
+	defer methodNsMu.RUnlock()
+	return methodNamespaces[o.methodNs]
+}
+
+// FilesNamespace is the namespace whose commands are a File's methods.
+const FilesNamespace = "Files"

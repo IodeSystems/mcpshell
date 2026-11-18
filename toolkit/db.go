@@ -632,7 +632,7 @@ func (st *dbState) register(sh *Shell) {
 
 	reg("parseCsv", "text: string, opts?: {delimiter?: string, header?: bool}",
 		"parses CSV text into rows (objects, or arrays with {header: false}). Numbers are exact, empty cells null, \"00123\" stays text",
-		[]string{`Db.parseCsv(read("a.csv"))`, `Db.parseCsv(text, {delimiter: "\t"})`},
+		[]string{`Db.parseCsv(Files.read("a.csv"))`, `Db.parseCsv(text, {delimiter: "\t"})`},
 		func(args []Value) Value {
 			text := strings.TrimPrefix(requireStringArg("Db.parseCsv", args, 0), "\ufeff")
 			o, _ := argOpt(args, 1).(*ObjectVal)

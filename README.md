@@ -183,9 +183,9 @@ directory) at start.
 |---------|-------------|----------|
 | **core** | always on | strings, arrays, objects, JSON, regex, pipes, control flow; `Date` and `Dates.*`, `toLocaleString` and `Intl.NumberFormat`, `toMarkdown` |
 | **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
-| **graph** | `load("graph")` | in-memory node/edge graph: `addNode`, `link`, `nodes`, `edges`, `setProps`, …; algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
+| **graph** | `load("graph")` | in-memory node/edge graph: `Graph.addNode`, `link`, `nodes`, `edges`, `out`, `setProps`, … (a node has them as methods: `alice.out("knows")`); algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
 | **web** | `--web`, then `load("web")` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
-| **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`) |
+| **file** | `--files-dir DIR`, then `load("files")` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`): `Files.read`, `readLines`, `ls`, `glob`, `grep`, `tree`, `exists`, `write`, `append`, `edit`, `mv`, `mkdir`, `deletePath`; a `File` from `ls`/`glob` has them as methods (`f.readLines()`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **db** | `load("db")`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions; R-tree spatial index (`CREATE VIRTUAL TABLE ... USING rtree`, the only virtual table allowed) |
 | **solver** | `load("solver")` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries; `sensitivity: true` adds shadow prices, reduced costs and ranges; `explain: true` names the conflicting constraints of an infeasible model |
@@ -196,6 +196,8 @@ directory) at start.
 | **browser** | `--browser`, then `load("browser")` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
 Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until `load("name")`. Without the flag the toolkit is not advertised, and `load("web")` fails naming `--web`. Loadable toolkits are listed on one line in the prompt and in the `eval` tool description (`Available (load first): load("name") — summary`). `load("name")` installs one for the rest of the session and returns its commands, `unload("name")` removes it. Calling a command before its load gives a "call load first" error. `help("name")` shows the guide before and after the load. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
+
+Every toolkit command is in its namespace (`Graph.out`, `Files.read`, `Db.query`); no toolkit adds a bare global, so `let out = []` or `let read = …` is a free name. An old bare call (`read("a.txt")`) is an error that names the namespaced form.
 
 ### Large output
 
@@ -212,13 +214,13 @@ next eval can query it without running the tools again:
 
 Set `MCPSHELL_TMP_OVERFLOW_DIR` and the full result is also saved to a new file
 there; the truncated response names it. Arrays are saved as JSON Lines, so
-`read(path, start, lines)` and `grep(path, {match})` page through them —
+`Files.read(path, start, lines)` and `Files.grep(path, {match})` page through them —
 both accept the file's absolute path. A read-only file toolkit on that
 directory is installed at start, so paging needs no `load("files")`. Scope the directory per session (e.g.
 `…/overflow/<session-id>`); mcpshell only makes file names unique.
 
 To save a tool's output without parsing it, use `ns.raw("tool", {args})`:
-`write("alerts.json", ns.raw("list_alerts", {}))`.
+`Files.write("alerts.json", ns.raw("list_alerts", {}))`.
 
 ### SQL
 

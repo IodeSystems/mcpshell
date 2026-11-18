@@ -220,6 +220,9 @@ type ObjectVal struct {
 	// errorBase marks Error.prototype, so an object whose chain reaches it
 	// prints and throws as an error.
 	errorBase bool
+	// methodNs, when not 0, names (methodNamespaces) the toolkit namespace
+	// whose commands are this object's methods: a graph node takes Graph.*.
+	methodNs uint8
 	// file is the path of a File value (file_obj.go), shared with its path
 	// field; nil for any other object.
 	file *StringVal

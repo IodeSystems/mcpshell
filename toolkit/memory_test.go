@@ -138,7 +138,7 @@ func TestMemoryReportNamesToolkits(t *testing.T) {
 	if _, err := sh.Eval(`load("graph", "db")`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sh.Eval(`for (let i = 0; i < 3000; i++) { addNode(root(), "person", {name: "n" + i, bio: "x".repeat(200)}) }`); err != nil {
+	if _, err := sh.Eval(`for (let i = 0; i < 3000; i++) { Graph.addNode(Graph.root(), "person", {name: "n" + i, bio: "x".repeat(200)}) }`); err != nil {
 		t.Fatal(err)
 	}
 	rows := `range(20000) |> map(i => ({id: i, text: "t".repeat(200) + i}))`

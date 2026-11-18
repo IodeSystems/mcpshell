@@ -42,7 +42,7 @@ TYPICAL: Distance, nearest depots, a radius box for a Db R-tree prefilter
   Db.query("SELECT id FROM idx WHERE minLon <= ? AND maxLon >= ? AND minLat <= ? AND maxLat >= ?",
     [b.east, b.west, b.north, b.south])   // then Geo.distance for the exact cut
 TYPICAL: Territories: who is inside, area, centroid
-  let zone = Geo.fromGeoJSON(JSON.parse(read("zones.geojson")))[0].geometry
+  let zone = Geo.fromGeoJSON(JSON.parse(Files.read("zones.geojson")))[0].geometry
   Geo.within(customers, zone)              // the rows inside or on the boundary
   Geo.contains(zone, {lat: 52.5, lon: 13.4}); Geo.area(zone, {units: "km2"}); Geo.centroid(zone)
 TYPICAL: Rows <-> GeoJSON

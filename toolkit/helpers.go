@@ -1109,7 +1109,7 @@ TYPICAL: String processing
   "hello" |> substring(1, 4)   // → "ell"
 
 TYPICAL: JSON round-trip
-  let data = read("config.json") |> parseJson()
+  let data = Files.read("config.json") |> parseJson()
   {result: data} |> toJson()
 
 ADVANCED: Right-side pipe args with <|

@@ -14,43 +14,43 @@ func graphShell() *runtime.Shell {
 
 func TestGraphToolkit(t *testing.T) {
 	cases := []struct{ name, src, want string }{
-		{"root type", `root().type`, "root"},
-		{"addNode props", `addNode(root(), "person", {name: "Alice", age: 30}).name`, "Alice"},
-		{"addNode type", `addNode(root(), "person", {name: "A"}).type`, "person"},
-		{"out count", `addNode(root(), "person", {}); addNode(root(), "person", {}); root() |> out("person") |> len()`, "2"},
-		{"node by id", `let a = addNode(root(), "person", {name: "Zoe"}); node(a.id).name`, "Zoe"},
-		{"nodes by type", `addNode(root(), "x", {}); addNode(root(), "y", {}); nodes("x") |> len()`, "1"},
+		{"root type", `Graph.root().type`, "root"},
+		{"addNode props", `Graph.addNode(Graph.root(), "person", {name: "Alice", age: 30}).name`, "Alice"},
+		{"addNode type", `Graph.addNode(Graph.root(), "person", {name: "A"}).type`, "person"},
+		{"out count", `Graph.addNode(Graph.root(), "person", {}); Graph.addNode(Graph.root(), "person", {}); Graph.root() |> Graph.out("person") |> len()`, "2"},
+		{"node by id", `let a = Graph.addNode(Graph.root(), "person", {name: "Zoe"}); Graph.node(a.id).name`, "Zoe"},
+		{"nodes by type", `Graph.addNode(Graph.root(), "x", {}); Graph.addNode(Graph.root(), "y", {}); Graph.nodes("x") |> len()`, "1"},
 		{"multi-hop traversal",
-			`let alice = addNode(root(), "person", {name: "Alice"}); ` +
-				`let acme = addNode(root(), "company", {name: "Acme"}); ` +
-				`link(alice, acme, "worksAt"); ` +
-				`node(alice.id) |> out("worksAt") |> map(c => c.name)`, `["Acme"]`},
+			`let alice = Graph.addNode(Graph.root(), "person", {name: "Alice"}); ` +
+				`let acme = Graph.addNode(Graph.root(), "company", {name: "Acme"}); ` +
+				`Graph.link(alice, acme, "worksAt"); ` +
+				`Graph.node(alice.id) |> Graph.out("worksAt") |> map(c => c.name)`, `["Acme"]`},
 		{"inbound traversal",
-			`let alice = addNode(root(), "person", {name: "Alice"}); ` +
-				`let acme = addNode(root(), "company", {name: "Acme"}); ` +
-				`link(alice, acme, "worksAt"); ` +
-				`node(acme.id) |> inbound("worksAt") |> map(n => n.name)`, `["Alice"]`},
+			`let alice = Graph.addNode(Graph.root(), "person", {name: "Alice"}); ` +
+				`let acme = Graph.addNode(Graph.root(), "company", {name: "Acme"}); ` +
+				`Graph.link(alice, acme, "worksAt"); ` +
+				`Graph.node(acme.id) |> Graph.inbound("worksAt") |> map(n => n.name)`, `["Alice"]`},
 		{"both traversal",
-			`let a = addNode(root(), "p", {name: "A"}); ` +
-				`let b = addNode(root(), "p", {name: "B"}); ` +
-				`link(a, b, "knows"); node(a.id) |> both("knows") |> len()`, "1"},
+			`let a = Graph.addNode(Graph.root(), "p", {name: "A"}); ` +
+				`let b = Graph.addNode(Graph.root(), "p", {name: "B"}); ` +
+				`Graph.link(a, b, "knows"); Graph.node(a.id) |> Graph.both("knows") |> len()`, "1"},
 		{"outE props",
-			`let a = addNode(root(), "p", {name: "A"}); ` +
-				`let b = addNode(root(), "p", {name: "B"}); ` +
-				`link(a, b, "knows", {since: 2020}); ` +
-				`node(a.id) |> outE("knows") |> map(e => e.since)`, "[2020]"},
+			`let a = Graph.addNode(Graph.root(), "p", {name: "A"}); ` +
+				`let b = Graph.addNode(Graph.root(), "p", {name: "B"}); ` +
+				`Graph.link(a, b, "knows", {since: 2020}); ` +
+				`Graph.node(a.id) |> Graph.outE("knows") |> map(e => e.since)`, "[2020]"},
 		{"setProps node",
-			`let a = addNode(root(), "p", {name: "A", age: 30}); setProps(a, {age: 31}); node(a.id).age`, "31"},
+			`let a = Graph.addNode(Graph.root(), "p", {name: "A", age: 30}); Graph.setProps(a, {age: 31}); Graph.node(a.id).age`, "31"},
 		{"removeNode drops edges",
-			`let a = addNode(root(), "p", {}); removeNode(a); root() |> out("p") |> len()`, "0"},
+			`let a = Graph.addNode(Graph.root(), "p", {}); Graph.removeNode(a); Graph.root() |> Graph.out("p") |> len()`, "0"},
 		{"unlink",
-			`let a = addNode(root(), "p", {}); let b = addNode(root(), "p", {}); ` +
-				`let e = link(a, b, "knows"); unlink(e); node(a.id) |> outE() |> len()`, "0"},
+			`let a = Graph.addNode(Graph.root(), "p", {}); let b = Graph.addNode(Graph.root(), "p", {}); ` +
+				`let e = Graph.link(a, b, "knows"); Graph.unlink(e); Graph.node(a.id) |> Graph.outE() |> len()`, "0"},
 		{"degree count (README example)",
-			`let a = addNode(root(), "person", {name: "A"}); ` +
-				`let b = addNode(root(), "person", {name: "B"}); ` +
-				`link(a, b, "knows"); link(a, b, "likes"); ` +
-				`nodes("person") |> map(p => node(p.id) |> outE() |> len())`, "[2, 0]"},
+			`let a = Graph.addNode(Graph.root(), "person", {name: "A"}); ` +
+				`let b = Graph.addNode(Graph.root(), "person", {name: "B"}); ` +
+				`Graph.link(a, b, "knows"); Graph.link(a, b, "likes"); ` +
+				`Graph.nodes("person") |> map(p => Graph.node(p.id) |> Graph.outE() |> len())`, "[2, 0]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -67,9 +67,9 @@ func TestGraphToolkit(t *testing.T) {
 
 func TestGraphErrors(t *testing.T) {
 	cases := []struct{ name, src, wantSub string }{
-		{"unknown node", `node("nope")`, "not found"},
-		{"remove root", `removeNode(root())`, "cannot remove root"},
-		{"link missing source", `link("nope", root(), "x")`, "source node"},
+		{"unknown node", `Graph.node("nope")`, "not found"},
+		{"remove root", `Graph.removeNode(Graph.root())`, "cannot remove root"},
+		{"link missing source", `Graph.link("nope", Graph.root(), "x")`, "source node"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -35,23 +35,23 @@ func mcpLikeShell(web bool, filesDir string, overflow string) *runtime.Shell {
 
 func TestGraphIsLoadable(t *testing.T) {
 	sh := mcpLikeShell(false, "", "")
-	// Global command names of a loadable give the hint, bare and in a pipe.
-	for _, src := range []string{`addNode({})`, `root()`, `[1] |> nodes()`} {
+	// The namespace gives the hint, called and in a pipe.
+	for _, src := range []string{`Graph.addNode({})`, `Graph.root()`, `[1] |> Graph.nodes()`} {
 		mustContain(t, src, failEval(t, sh, src), `call load("graph") first`)
 	}
 	mustContain(t, "prompt", sh.ToPrompt(false), `load("graph")`)
-	if strings.Contains(sh.ToPrompt(false), "addNode(") {
+	if strings.Contains(sh.ToPrompt(false), "Graph.addNode(") {
 		t.Error("graph commands are listed before load")
 	}
 	okEval(t, sh, `load("graph")`)
-	okEval(t, sh, `root()`)
+	okEval(t, sh, `Graph.root()`)
 }
 
 func TestOperatorTierDisabled(t *testing.T) {
 	sh := mcpLikeShell(false, "", "")
 	mustContain(t, "load web", failEval(t, sh, `load("web")`), "--web")
 	mustContain(t, "Web call", failEval(t, sh, `Web.fetch("http://x")`), "--web", "did not enable")
-	mustContain(t, "read", failEval(t, sh, `read("a")`), "--files-dir")
+	mustContain(t, "read", failEval(t, sh, `Files.read("a")`), "--files-dir")
 	mustContain(t, "load files", failEval(t, sh, `load("files")`), "--files-dir")
 	mustContain(t, "load path", failEval(t, sh, `load("a.mcpshell")`), "--files-dir")
 	mustContain(t, "load browser", failEval(t, sh, `load("browser")`), "--browser")
@@ -83,22 +83,22 @@ func TestFilesLoadable(t *testing.T) {
 	}
 	sh := mcpLikeShell(false, dir, "")
 	mustContain(t, "prompt", sh.ToPrompt(false), `load("files")`)
-	mustContain(t, "before", failEval(t, sh, `read("a.txt")`), `call load("files") first`)
-	mustContain(t, "write before", failEval(t, sh, `write("b.txt", "x")`), `call load("files") first`)
+	mustContain(t, "before", failEval(t, sh, `Files.read("a.txt")`), `call load("files") first`)
+	mustContain(t, "write before", failEval(t, sh, `Files.write("b.txt", "x")`), `call load("files") first`)
 
 	// The path form of load installs the toolkit when it is permitted.
 	okEval(t, sh, `load("lib.mcpshell")`)
-	mustContain(t, "after path load", okEval(t, sh, `read("a.txt")`), "hi")
+	mustContain(t, "after path load", okEval(t, sh, `Files.read("a.txt")`), "hi")
 	if okEval(t, sh, `answer`) != "42" {
 		t.Error("file did not run")
 	}
 
 	okEval(t, sh, `unload("files")`)
-	mustContain(t, "after unload", failEval(t, sh, `read("a.txt")`), `call load("files") first`)
+	mustContain(t, "after unload", failEval(t, sh, `Files.read("a.txt")`), `call load("files") first`)
 	// The path form installs the toolkit again; the file runs again and
 	// replaces its export (it failed on the second declaration before).
 	okEval(t, sh, `load("lib.mcpshell")`)
-	mustContain(t, "after reload", okEval(t, sh, `[answer, read("a.txt")]`), "42", "hi")
+	mustContain(t, "after reload", okEval(t, sh, `[answer, Files.read("a.txt")]`), "42", "hi")
 }
 
 // With an overflow dir the read-only reader is there from the start, whether
@@ -111,19 +111,19 @@ func TestOverflowReaderStaysAvailable(t *testing.T) {
 	}
 	for _, filesDir := range []string{"", dir} {
 		sh := mcpLikeShell(false, filesDir, ovf)
-		mustContain(t, "read spill", okEval(t, sh, `read(`+quote(spill)+`, 2, 1)`), "l2")
-		mustContain(t, "grep spill", okEval(t, sh, `grep(`+quote(spill)+`, {match: "l3"})`), "l3")
-		mustContain(t, "no write", failEval(t, sh, `write(`+quote(spill)+`, "x")`), "write")
+		mustContain(t, "read spill", okEval(t, sh, `Files.read(`+quote(spill)+`, 2, 1)`), "l2")
+		mustContain(t, "grep spill", okEval(t, sh, `Files.grep(`+quote(spill)+`, {match: "l3"})`), "l3")
+		mustContain(t, "no write", failEval(t, sh, `Files.write(`+quote(spill)+`, "x")`), "write")
 		// The reader is not the files toolkit: it cannot load a .mcpshell file.
 		failEval(t, sh, `load("x.mcpshell")`)
 		if filesDir == "" {
 			continue
 		}
 		okEval(t, sh, `load("files")`)
-		okEval(t, sh, `write("n.txt", "x")`)
-		mustContain(t, "read spill", okEval(t, sh, `read(`+quote(spill)+`, 1, 1)`), "l1")
+		okEval(t, sh, `Files.write("n.txt", "x")`)
+		mustContain(t, "read spill", okEval(t, sh, `Files.read(`+quote(spill)+`, 1, 1)`), "l1")
 		okEval(t, sh, `unload("files")`)
-		mustContain(t, "reader restored", okEval(t, sh, `read(`+quote(spill)+`, 3, 1)`), "l3")
+		mustContain(t, "reader restored", okEval(t, sh, `Files.read(`+quote(spill)+`, 3, 1)`), "l3")
 	}
 }
 
@@ -177,7 +177,7 @@ func TestLoadVariadic(t *testing.T) {
 	if err != nil || !strings.Contains(v.Display(), `Loaded "db"`) || !strings.Contains(v.Display(), `Loaded "files"`) {
 		t.Fatalf("load(db, files) = %v, %v", v, err)
 	}
-	if _, err := sh.Eval(`ls(".")`); err != nil {
+	if _, err := sh.Eval(`Files.ls(".")`); err != nil {
 		t.Fatalf("files must be loaded: %v", err)
 	}
 	if v, err := sh.Eval(`load(["solver"])`); err != nil || !strings.Contains(v.Display(), `Loaded "solver"`) {
@@ -235,18 +235,15 @@ func TestToolkitNamespaceGuesses(t *testing.T) {
 		t.Errorf("Files.ls = %v, %v", v, err)
 	}
 	_, err := sh.Eval(`files.ls(".")`)
-	if err == nil || !strings.Contains(err.Error(), "commands are bare: glob(), read()") || strings.Contains(err.Error(), "help()") {
-		t.Errorf("files.ls: want the bare-commands hint, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "namespace is Files: Files.<command>") || strings.Contains(err.Error(), "help()") {
+		t.Errorf("files.ls: want the Files namespace hint, got %v", err)
 	}
 	_, err = sh.Eval(`db.query("select 1")`)
 	if err == nil || !strings.Contains(err.Error(), "namespace is Db") || !strings.Contains(err.Error(), `load("db")`) {
 		t.Errorf("db.query: want the Db namespace hint, got %v", err)
 	}
-	if v, err := sh.Eval(`load("graph"); Graph.addNode(root(), "x"); len(nodes("x"))`); err != nil || v.Display() != "1" {
+	if v, err := sh.Eval(`load("graph"); Graph.addNode(Graph.root(), "x"); len(Graph.nodes("x"))`); err != nil || v.Display() != "1" {
 		t.Errorf("Graph.addNode = %v, %v", v, err)
-	}
-	if v, err := sh.Eval(`help()`); err != nil || strings.Contains(v.Display(), "Files.read") {
-		t.Errorf("aliases must be hidden from help()")
 	}
 	if _, err := sh.Eval(`let files = ["x"]; files.length`); err != nil {
 		t.Errorf("a variable named files must still work: %v", err)

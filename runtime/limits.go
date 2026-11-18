@@ -326,7 +326,7 @@ func (l *ExecutionLimits) TrackOutput(bytes int, source string) {
 				"  Your program is producing too much output.\n\n"+
 				"  Common fixes:\n"+
 				"    - Use limit() to reduce results before returning\n"+
-				"    - Use read(path, startLine, lineCount) for partial file reads\n"+
+				"    - Use Files.read(path, startLine, lineCount) for partial file reads\n"+
 				"    - Filter or map to extract only the fields you need\n%s",
 			total, l.MaxOutputBytes, source,
 			l.extendHint("outputBytes", int64(l.MaxOutputBytes), int64(l.MaxOutputBytes)*4, int64(l.CapOutputBytes),

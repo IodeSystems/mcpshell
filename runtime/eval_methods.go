@@ -711,10 +711,18 @@ func (v *Visitor) accessMember(obj Value, field string) Value {
 			if field == "length" {
 				return &NumberVal{V: float64(len([]rune(o.file.V)))}
 			}
+			if m := v.namespaceMethod(FilesNamespace, o, field); m != nil {
+				return m // f.readLines() is Files.readLines(f)
+			}
 			if m := v.bindMethodOrHint(o.file, "string", field); m != Null {
 				return m
 			}
 			return Null
+		}
+		if ns := o.methodNamespace(); ns != "" {
+			if m := v.namespaceMethod(ns, o, field); m != nil {
+				return m // node.out("x") is Graph.out(node, "x")
+			}
 		}
 		if m := objectProtoMethod(o, field); m != nil {
 			return m
@@ -878,6 +886,21 @@ func (v *Visitor) bindMethodOrHint(receiver Value, typ, field string) Value {
 		}
 	}
 	return Null
+}
+
+// namespaceMethod binds ns.field with receiver as its first argument, or
+// returns nil when the namespace has no such command (not loaded, or none).
+func (v *Visitor) namespaceMethod(ns string, receiver Value, field string) *FuncVal {
+	cmd := v.itp.commands.Get(ns + "." + field)
+	if cmd == nil {
+		return nil
+	}
+	return &FuncVal{
+		Name: cmd.DisplayName(),
+		Body: &NativeBody{Cmd: cmd, Bound: 1, Fn: func(args []Value) Value {
+			return cmd.Fn(append([]Value{receiver}, args...))
+		}},
+	}
 }
 
 // nullIndexHint names the usual cause of a null index: a key that is absent,

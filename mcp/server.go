@@ -300,7 +300,7 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		note := s.shell.TruncationNote(value, len(head), len(out))
 		content, format := overflowContent(value)
 		if path, err := s.saveOverflow(content); err == nil {
-			note += fmt.Sprintf("\nAlso saved to %s (%s): read(%q, start, lines) or grep(%q, {match: …}) page it.",
+			note += fmt.Sprintf("\nAlso saved to %s (%s): Files.read(%q, start, lines) or Files.grep(%q, {match: …}) page it.",
 				path, format, path, path)
 		} else if s.overflowDir != "" {
 			fmt.Fprintf(os.Stderr, "mcpshell mcp: saving overflow output failed: %v\n", err)

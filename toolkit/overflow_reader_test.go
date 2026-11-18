@@ -18,8 +18,8 @@ func TestOverflowReaderNotFoundSaysWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := toolkit.InstallOverflowReader(toolkit.InstallCore(runtime.NewShell()), dir, `run load("files") first`)
-	mustContain(t, "saved result", okEval(t, sh, `readLines("r1.txt")`), "saved")
-	for _, src := range []string{`read("data.csv")`, `readLines("data.csv")`} {
+	mustContain(t, "saved result", okEval(t, sh, `Files.readLines("r1.txt")`), "saved")
+	for _, src := range []string{`Files.read("data.csv")`, `Files.readLines("data.csv")`} {
 		mustContain(t, src, failEval(t, sh, src), "file not found 'data.csv'", `run load("files") first`)
 	}
 }

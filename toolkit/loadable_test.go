@@ -166,7 +166,7 @@ func TestLoadPathForm(t *testing.T) {
 	var closed int
 	// With the file toolkit: a path still loads a file, and a toolkit name loads the toolkit.
 	sh := toolkit.InstallFile(loadShell(&closed), t.TempDir(), false)
-	got := okEval(t, sh, `write("lib.mcpshell", "export function triple(n) { return n * 3 }"); load("lib.mcpshell"); triple(7)`)
+	got := okEval(t, sh, `Files.write("lib.mcpshell", "export function triple(n) { return n * 3 }"); load("lib.mcpshell"); triple(7)`)
 	if got != "21" {
 		t.Errorf("path form = %s, want 21", got)
 	}

@@ -202,7 +202,7 @@ func installGraph(sh *Shell) *graphToolkit {
 	sh.RegisterGuide("graph", graphGuide)
 
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
-		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples,
+		sh.Register(&CommandDef{Namespace: "Graph", Name: name, Signature: sig, Description: desc, Examples: examples,
 			Fn: func(args []Value) Value {
 				gt.mu.Lock()
 				defer gt.mu.Unlock()
@@ -213,14 +213,14 @@ func installGraph(sh *Shell) *graphToolkit {
 	// --- query start points ---
 
 	reg("root", "", "returns the graph root node",
-		[]string{"root()", `root() |> out("person")`},
+		[]string{"Graph.root()", `Graph.root() |> Graph.out("person")`},
 		func(_ []Value) Value {
 			gt.traversalCount = 0
 			return nodeToObj(gt.store.getNode(gt.store.rootID))
 		})
 
 	reg("node", "id: string", "gets a node by id",
-		[]string{`node("n1")`},
+		[]string{`Graph.node("n1")`},
 		func(args []Value) Value {
 			gt.traversalCount = 0
 			id := extractGraphID(arg(args, 0), "node")
@@ -232,7 +232,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	reg("nodes", "type?: string", "gets all nodes, optionally filtered by type",
-		[]string{`nodes("person")`, `nodes() |> filter(n => n.age > 25)`},
+		[]string{`Graph.nodes("person")`, `Graph.nodes() |> filter(n => n.age > 25)`},
 		func(args []Value) Value {
 			gt.traversalCount = 0
 			out := make([]Value, 0)
@@ -243,7 +243,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	reg("edges", "type?: string", "gets all edges as rows {id, from, to, type, ...props}, optionally filtered by type; the input of Graph.* algorithms",
-		[]string{`edges("knows")`, `Graph.components({nodes: nodes("person"), edges: edges("knows")})`},
+		[]string{`Graph.edges("knows")`, `Graph.components({nodes: Graph.nodes("person"), edges: Graph.edges("knows")})`},
 		func(args []Value) Value {
 			gt.traversalCount = 0
 			typ := optStringPtr(args, 0)
@@ -264,13 +264,13 @@ func installGraph(sh *Shell) *graphToolkit {
 
 	reg("addNode", "parent: node|string, type: string, props?: object",
 		"adds a node connected from parent. Edge type defaults to node type",
-		[]string{`addNode(root(), "person", {name: "Alice"})`},
+		[]string{`Graph.addNode(Graph.root(), "person", {name: "Alice"})`},
 		func(args []Value) Value {
 			parentID := extractGraphID(arg(args, 0), "addNode parent")
 			typ, ok := arg(args, 1).(*StringVal)
 			if !ok {
 				panic(WrongArguments("addNode", "parent, type: string, props?: object", args,
-					`addNode(root(), "person", {name: "Alice"})`))
+					`Graph.addNode(Graph.root(), "person", {name: "Alice"})`))
 			}
 			props := extractGraphProps(arg(args, 2))
 			if gt.store.getNode(parentID) == nil {
@@ -283,7 +283,7 @@ func installGraph(sh *Shell) *graphToolkit {
 
 	reg("link", "from: node|string, to: node|string, type?: string, props?: object",
 		"creates an edge between two nodes",
-		[]string{`link(alice, bob, "knows")`, `link(alice, project, "owns", {since: 2024})`},
+		[]string{`Graph.link(alice, bob, "knows")`, `Graph.link(alice, project, "owns", {since: 2024})`},
 		func(args []Value) Value {
 			fromID := extractGraphID(arg(args, 0), "link from")
 			toID := extractGraphID(arg(args, 1), "link to")
@@ -299,7 +299,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	reg("unlink", "edge: edge|string", "removes an edge by id",
-		[]string{`unlink(edgeId)`, `unlink("e1")`},
+		[]string{`Graph.unlink(edgeId)`, `Graph.unlink("e1")`},
 		func(args []Value) Value {
 			id := extractGraphID(arg(args, 0), "unlink")
 			if gt.store.getEdge(id) == nil {
@@ -310,7 +310,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	reg("removeNode", "node: node|string", "removes a node and all its edges",
-		[]string{`removeNode(nodeId)`, `removeNode("n3")`},
+		[]string{`Graph.removeNode(nodeId)`, `Graph.removeNode("n3")`},
 		func(args []Value) Value {
 			id := extractGraphID(arg(args, 0), "removeNode")
 			if id == gt.store.rootID {
@@ -325,13 +325,13 @@ func installGraph(sh *Shell) *graphToolkit {
 
 	reg("setProps", "target: node|edge|string, props: object",
 		"merges properties into a node or edge",
-		[]string{`setProps(alice, {age: 31})`, `setProps("e1", {weight: 0.5})`},
+		[]string{`Graph.setProps(alice, {age: 31})`, `Graph.setProps("e1", {weight: 0.5})`},
 		func(args []Value) Value {
 			id := extractGraphID(arg(args, 0), "setProps target")
 			props, ok := arg(args, 1).(*ObjectVal)
 			if !ok {
 				panic(WrongArguments("setProps", "target, props: object", args,
-					`setProps(node, {key: value})`))
+					`Graph.setProps(node, {key: value})`))
 			}
 			if gt.store.getNode(id) != nil {
 				gt.store.updateNode(id, props)
@@ -358,7 +358,7 @@ func installGraph(sh *Shell) *graphToolkit {
 	}
 
 	traversal("out", "input: node|array, type?: string", "follows outgoing edges, returns target nodes",
-		[]string{`root() |> out("person")`, `node |> out()`},
+		[]string{`Graph.root() |> Graph.out("person")`, `node |> Graph.out()`},
 		func(nodeID string, edgeType *string) []Value {
 			edges := gt.store.outgoing(nodeID, edgeType)
 			gt.countTraversal(len(edges))
@@ -372,7 +372,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	traversal("inbound", "input: node|array, type?: string", "follows incoming edges, returns source nodes",
-		[]string{`node |> inbound("knows")`},
+		[]string{`node |> Graph.inbound("knows")`},
 		func(nodeID string, edgeType *string) []Value {
 			edges := gt.store.incoming(nodeID, edgeType)
 			gt.countTraversal(len(edges))
@@ -386,7 +386,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	reg("both", "input: node|array, type?: string", "follows edges in both directions",
-		[]string{`node |> both("knows")`},
+		[]string{`node |> Graph.both("knows")`},
 		func(args []Value) Value {
 			edgeType := optStringPtr(args, 1)
 			seen := map[string]bool{}
@@ -417,7 +417,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	traversal("outE", "input: node|array, type?: string", "gets outgoing edges as objects",
-		[]string{`node |> outE("knows")`, `root() |> outE()`},
+		[]string{`node |> Graph.outE("knows")`, `Graph.root() |> Graph.outE()`},
 		func(nodeID string, edgeType *string) []Value {
 			edges := gt.store.outgoing(nodeID, edgeType)
 			gt.countTraversal(len(edges))
@@ -429,7 +429,7 @@ func installGraph(sh *Shell) *graphToolkit {
 		})
 
 	traversal("inE", "input: node|array, type?: string", "gets incoming edges as objects",
-		[]string{`node |> inE("knows")`},
+		[]string{`node |> Graph.inE("knows")`},
 		func(nodeID string, edgeType *string) []Value {
 			edges := gt.store.incoming(nodeID, edgeType)
 			gt.countTraversal(len(edges))
@@ -447,6 +447,7 @@ func installGraph(sh *Shell) *graphToolkit {
 
 func nodeToObj(n *graphNode) *ObjectVal {
 	o := NewObject()
+	o.SetMethodNamespace("Graph") // node.out("x") is Graph.out(node, "x")
 	o.Set("id", Str(n.id))
 	o.Set("type", Str(n.typ))
 	mergeProps(o, n.props)
@@ -533,34 +534,35 @@ func optStringPtr(args []Value, i int) *string {
 }
 
 const graphGuide = `Graph Toolkit — a property graph store, and graph algorithms on rows
-Store commands are bare: addNode(...), out(...). Graph.addNode(...) also works.
-Algorithms are Graph.*: path, reach, components, cycle, topo, cpm, flow, match, mst.
+Every command is Graph.*. Store: Graph.addNode(...), Graph.out(...), ...
+Algorithms: Graph.path, reach, components, cycle, topo, cpm, flow, match, mst.
 
 STORE. All nodes connect to root. Traversal steps (out, inbound, both) work as pipes:
 they accept a single node or an array and return an array, so filter(), map(),
-reduce(), sort() all compose naturally.
+reduce(), sort() all compose naturally. A node has the store commands as methods:
+alice.out("knows") is Graph.out(alice, "knows").
 
 TYPICAL: Build a graph
-  let alice = addNode(root(), "person", {name: "Alice", age: 30})
-  let acme  = addNode(root(), "company", {name: "Acme"})
-  link(alice, acme, "worksAt")
+  let alice = Graph.addNode(Graph.root(), "person", {name: "Alice", age: 30})
+  let acme  = Graph.addNode(Graph.root(), "company", {name: "Acme"})
+  Graph.link(alice, acme, "worksAt")
 
 TYPICAL: Traverse and query
-  root() |> out("person")                            // all people
-  root() |> out("person") |> filter(n => n.age > 28)  // filtered
-  root() |> out("person") |> out("worksAt") |> map(c => c.name)
-  nodes("company") |> filter(c => c.name == "Acme") |> inbound("worksAt") |> map(n => n.name)
+  Graph.root() |> Graph.out("person")                            // all people
+  Graph.root() |> Graph.out("person") |> filter(n => n.age > 28)  // filtered
+  Graph.root() |> Graph.out("person") |> Graph.out("worksAt") |> map(c => c.name)
+  Graph.nodes("company") |> filter(c => c.name == "Acme") |> Graph.inbound("worksAt") |> map(n => n.name)
 
 TYPICAL: Edge inspection and CRUD
-  node(alice.id) |> outE("knows")
-  setProps(alice, {age: 31}); removeNode(bob); unlink("e3")
+  Graph.node(alice.id) |> Graph.outE("knows")
+  Graph.setProps(alice, {age: 31}); Graph.removeNode(bob); Graph.unlink("e3")
 
 ALGORITHMS take one spec object. Input is rows, so query results go straight in:
   edges: [{from, to, ...columns}]   from Db.query, Route.matrix(..., {format: "rows"}),
-                                    or the store: edges("knows") (pass a type: root's
+                                    or the store: Graph.edges("knows") (pass a type: root's
                                     edges join every node)
   nodes: [{id, ...}]                optional: nodes with no edges, task durations,
-                                    supplies. The store: nodes("person")
+                                    supplies. The store: Graph.nodes("person")
   directed: edges are TWO-WAY unless directed: true (as in Route). topo and cpm are
             always directed (from before to); mst and match are undirected.
   Columns: weight (path, mst; else dist, time or cost), cap and cost (flow), cost (match),

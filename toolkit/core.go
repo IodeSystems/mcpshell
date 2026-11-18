@@ -1707,9 +1707,9 @@ func tryOne(fn func() Value) (v Value, err *ShellError) {
 // and files): it is there already. "" when name is not one of them.
 func installedToolkit(sh *Shell, name string) string {
 	probe := map[string]func() bool{
-		"files": func() bool { return sh.Commands().Get("readLines") != nil },
-		"file":  func() bool { return sh.Commands().Get("readLines") != nil },
-		"graph": func() bool { return sh.Commands().Get("addNode") != nil },
+		"files": func() bool { return sh.Commands().Get("Files.readLines") != nil },
+		"file":  func() bool { return sh.Commands().Get("Files.readLines") != nil },
+		"graph": func() bool { return sh.Commands().Get("Graph.addNode") != nil },
 		"web":   func() bool { return len(sh.Commands().NamespaceCommands("Web")) > 0 },
 	}
 	if p, ok := probe[name]; ok && p() {

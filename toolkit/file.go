@@ -67,31 +67,32 @@ func fileGuide(readOnly bool) string {
 		mode = "read and search files (read-only mode)"
 	}
 	return "File Toolkit — " + mode + `
-Commands are bare: read("a.txt"), ls("."). Files.read("a.txt") also works.
-read() is for looking: it numbers lines (" 1: …") and stops at 200 lines.
-To parse a file use readLines(path) (raw lines) or readLines(path).join("\n").
-ls() and glob() return File values: {path, name, base, dir, ext, type, size}, shown as
-File("src/a.go"). A File is its path string: pass it to any command (readLines(f)),
+Commands are Files.*: Files.read("a.txt"), Files.ls(".").
+Files.read() is for looking: it numbers lines (" 1: …") and stops at 200 lines.
+To parse a file use Files.readLines(path) (raw lines) or Files.readLines(path).join("\n").
+Files.ls() and Files.glob() return File values: {path, name, base, dir, ext, type, size}, shown as
+File("src/a.go"). A File is its path string: pass it to any command (Files.readLines(f)),
 use it in ${f}, f + "", f == "a.txt", toJson, or call string methods (f.endsWith(".go")).
+A File also has the Files commands as methods: f.readLines(), f.read(1, 20).
 
 TYPICAL: Read and inspect files
-  read("config.json")             // full file with line numbers
-  read("big.log", 100, 20)        // 20 lines starting at line 100
-  readLines("data.csv") |> len()  // count lines
-  exists("output.txt")
-  ls("src") |> filter(f => f.type == "file") |> map(f => f.base)
-  ls("data") |> map(f => parseJson(readLines(f).join("\n")))  // a File is a path
+  Files.read("config.json")             // full file with line numbers
+  Files.read("big.log", 100, 20)        // 20 lines starting at line 100
+  Files.readLines("data.csv") |> len()  // count lines
+  Files.exists("output.txt")
+  Files.ls("src") |> filter(f => f.type == "file") |> map(f => f.base)
+  Files.ls("data") |> map(f => parseJson(Files.readLines(f).join("\n")))  // a File is a path
 
 TYPICAL: Search files and content
-  glob("src/**/*.go")             // find files by pattern → [File]
-  glob("**/*.go") |> filter(f => f.size > 10000)  // fields: size, ext, dir, base
-  glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}], file a File
-  grep("app.go", {match: "TODO", context: 2})
+  Files.glob("src/**/*.go")             // find files by pattern → [File]
+  Files.glob("**/*.go") |> filter(f => f.size > 10000)  // fields: size, ext, dir, base
+  Files.glob("**/*.go", {grep: "TODO"}) // → [{file, num, line}], file a File
+  Files.grep("app.go", {match: "TODO", context: 2})
 
 TYPICAL: Write and edit files
-  write("output.txt", "hello world")
-  append("log.txt", "new entry\n")
-  edit("app.go", "const x = 1", "const x = 42")`
+  Files.write("output.txt", "hello world")
+  Files.append("log.txt", "new entry\n")
+  Files.edit("app.go", "const x = 1", "const x = 42")`
 }
 
 // InstallFile registers the file toolkit, confining all operations to root.
@@ -130,7 +131,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	setFileConfiner(sh, cfg.confineRead) // Db.loadCsv resolves paths the way read() does
 
 	reg := func(name, sig, desc string, examples []string, fn NativeFn) {
-		sh.Register(&CommandDef{Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
+		sh.Register(&CommandDef{Namespace: "Files", Name: name, Signature: sig, Description: desc, Examples: examples, Fn: fn})
 	}
 
 	sh.RegisterGuide("files", fileGuide(readOnly))
@@ -138,7 +139,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	reg("glob", "pattern: string, opts?: {grep?: string, depth?: number, dirs?: boolean, hidden?: boolean}",
 		"finds files matching glob pattern, as File values (each is its path string). Skips hidden and build dirs by default. "+
 			"{grep: pattern} searches content returning {file, num, line} hits",
-		[]string{`glob("src/**/*.go")`, `glob("**/*.go", {grep: "TODO"})`},
+		[]string{`Files.glob("src/**/*.go")`, `Files.glob("**/*.go", {grep: "TODO"})`},
 		func(args []Value) Value {
 			pattern := requireStringArg("glob", args, 0)
 			opts, _ := argOpt(args, 1).(*ObjectVal)
@@ -184,8 +185,8 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 
 	reg("read", "path: string, start?: number, lines?: number",
 		fmt.Sprintf("reads file with line numbers (1: content). Optional start line and count for partial reads. "+
-			"Large files truncated to %d lines. For viewing; to parse, use readLines(path)", cfg.maxReadLines),
-		[]string{`read("config.json")`, `read("big.log", 100, 20)`},
+			"Large files truncated to %d lines. For viewing; to parse, use Files.readLines(path)", cfg.maxReadLines),
+		[]string{`Files.read("config.json")`, `Files.read("big.log", 100, 20)`},
 		func(args []Value) Value {
 			path := requireStringArg("read", args, 0)
 			start := optInt(args, 1)
@@ -210,14 +211,14 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			}
 			if total > cfg.maxReadLines {
 				return Str(numberLines(lines[:cfg.maxReadLines], 1, width) +
-					fmt.Sprintf("\n\n... truncated (showing %d of %d lines). Use read(%q, %d) to continue.",
+					fmt.Sprintf("\n\n... truncated (showing %d of %d lines). Use Files.read(%q, %d) to continue.",
 						cfg.maxReadLines, total, path, cfg.maxReadLines+1))
 			}
 			return Str(numberLines(lines, 1, width))
 		})
 
 	reg("readLines", "path: string", "reads file as array of lines",
-		[]string{`readLines("data.txt")`},
+		[]string{`Files.readLines("data.txt")`},
 		func(args []Value) Value {
 			path := requireStringArg("readLines", args, 0)
 			resolved := cfg.confineRead(path)
@@ -228,13 +229,13 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	reg("exists", "path: string", "checks if file or directory exists",
-		[]string{`exists("config.json")`},
+		[]string{`Files.exists("config.json")`},
 		func(args []Value) Value {
 			return Bln(pathExists(cfg.confineRead(requireStringArg("exists", args, 0))))
 		})
 
 	reg("ls", "path?: string", "lists directory contents as File values {path, name, base, dir, ext, type, size}; a File is its path string",
-		[]string{`ls()`, `ls("src")`},
+		[]string{`Files.ls()`, `Files.ls("src")`},
 		func(args []Value) Value {
 			path := optString(args, 0, "")
 			resolved := cfg.confineRead(path)
@@ -257,7 +258,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 
 	reg("tree", "path?: string, opts?: {depth?: number, files?: boolean}",
 		"shows directory tree. Default: dirs with file counts, depth 4. Skips hidden/build dirs",
-		[]string{`tree()`, `tree("src", {depth: 6, files: true})`},
+		[]string{`Files.tree()`, `Files.tree("src", {depth: 6, files: true})`},
 		func(args []Value) Value {
 			path := optString(args, 0, "")
 			opts, _ := argOpt(args, 1).(*ObjectVal)
@@ -280,7 +281,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 
 	reg("grep", "path: string, opts: {match: string, context?: number, mode?: string, limit?: number}",
 		"searches file for pattern. mode: \"count\" → count, \"files\" → boolean, else [{line, num}]",
-		[]string{`grep("app.go", {match: "TODO"})`, `grep("app.go", "import")`},
+		[]string{`Files.grep("app.go", {match: "TODO"})`, `Files.grep("app.go", "import")`},
 		func(args []Value) Value {
 			path := requireStringArg("grep", args, 0)
 			var match, mode string
@@ -291,7 +292,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 				m, ok := optObjStr(o, "match")
 				if !ok {
 					panic(WrongArguments("grep", "path, {match: string, context?: number, mode?: string, limit?: number}", args,
-						`grep("file.txt", {match: "pattern"})`))
+						`Files.grep("file.txt", {match: "pattern"})`))
 				}
 				match = m
 				if c := optObjInt(o, "context"); c != nil {
@@ -308,7 +309,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			case *StringVal:
 				match, mode = o.V, "content"
 			default:
-				panic(WrongArguments("grep", "path, {match: string}", args, `grep("file.txt", {match: "pattern"})`))
+				panic(WrongArguments("grep", "path, {match: string}", args, `Files.grep("file.txt", {match: "pattern"})`))
 			}
 
 			resolved := cfg.confineRead(path)
@@ -365,7 +366,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 	}
 
 	reg("write", "path: string, content: string", "writes content to file, creates parent directories",
-		[]string{`write("out.txt", "hello")`},
+		[]string{`Files.write("out.txt", "hello")`},
 		func(args []Value) Value {
 			path := requireStringArg("write", args, 0)
 			content := requireStringArg("write", args, 1)
@@ -378,7 +379,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	reg("append", "path: string, content: string", "appends content to file",
-		[]string{`append("log.txt", "entry\n")`},
+		[]string{`Files.append("log.txt", "entry\n")`},
 		func(args []Value) Value {
 			path := requireStringArg("append", args, 0)
 			content := requireStringArg("append", args, 1)
@@ -397,7 +398,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 
 	reg("edit", "path: string, old: string, new: string, opts?: {all?: boolean}",
 		"replaces exact string match in file. Fails if not found, or ambiguous unless all=true",
-		[]string{`edit("app.go", "const x = 1", "const x = 42")`},
+		[]string{`Files.edit("app.go", "const x = 1", "const x = 42")`},
 		func(args []Value) Value {
 			path := requireStringArg("edit", args, 0)
 			oldStr := requireStringArg("edit", args, 1)
@@ -435,7 +436,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	reg("deletePath", "path: string", "deletes a file or empty directory",
-		[]string{`deletePath("temp.txt")`},
+		[]string{`Files.deletePath("temp.txt")`},
 		func(args []Value) Value {
 			path := requireStringArg("deletePath", args, 0)
 			resolved := cfg.confine(path)
@@ -449,7 +450,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	reg("mv", "from: string, to: string", "moves/renames a file or directory",
-		[]string{`mv("old.txt", "new.txt")`},
+		[]string{`Files.mv("old.txt", "new.txt")`},
 		func(args []Value) Value {
 			from := requireStringArg("mv", args, 0)
 			to := requireStringArg("mv", args, 1)
@@ -466,7 +467,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	reg("mkdir", "path: string", "creates directory and any parent directories",
-		[]string{`mkdir("output/reports")`},
+		[]string{`Files.mkdir("output/reports")`},
 		func(args []Value) Value {
 			resolved := cfg.confine(requireStringArg("mkdir", args, 0))
 			if err := os.MkdirAll(resolved, 0o755); err != nil {

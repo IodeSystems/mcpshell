@@ -69,7 +69,7 @@ mcp flags:
 env:
   MCPSHELL_TMP_OVERFLOW_DIR  save eval output over --max-output to a new file in
                        this dir; the truncated response names the file, and
-                       read()/grep() accept its absolute path (a read-only file
+                       Files.read()/Files.grep() accept its absolute path (a read-only file
                        toolkit on this dir is installed at start). Scope it per
                        session — mcpshell only makes file names unique.
 
@@ -322,10 +322,10 @@ func runMCP(args []string) {
 	// so a read-only file toolkit on the overflow dir is installed at start,
 	// whatever --files-dir says. Its file loader is cleared: load("x.mcpshell")
 	// needs the real files toolkit.
-	notFound := "Before load(\"files\"), read, readLines and grep see only the over-limit results saved in this session (the $rN files). " +
+	notFound := "Before load(\"files\"), Files.read, Files.readLines and Files.grep see only the over-limit results saved in this session (the $rN files). " +
 		"File access is not enabled: the operator starts mcpshell mcp with --files-dir <dir> to allow load(\"files\")."
 	if *filesDir != "" {
-		notFound = "Before load(\"files\"), read, readLines and grep see only the over-limit results saved in this session (the $rN files). " +
+		notFound = "Before load(\"files\"), Files.read, Files.readLines and Files.grep see only the over-limit results saved in this session (the $rN files). " +
 			"For your files run load(\"files\") first; it reads under " + *filesDir + "."
 	}
 	overflowReader := func(sh *runtime.Shell) {

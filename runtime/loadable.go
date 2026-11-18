@@ -20,9 +20,6 @@ type Loadable struct {
 	// Namespaces are the globals Install defines. Calling one before load
 	// fails with "call load first". Default: Name with the first letter upper-cased.
 	Namespaces []string
-	// Commands are the global (non-namespaced) command names Install defines.
-	// Calling one before load gives the same "call load first" hint.
-	Commands []string
 	// Disabled, if not empty, is the operator flag that enables this toolkit
 	// (for example "--web"). The toolkit is then not advertised, and load
 	// fails naming the flag.
@@ -124,6 +121,9 @@ func (r *CommandRegistry) ToolkitsLine() string {
 func (r *CommandRegistry) NotLoadedHint(name string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if ns, ok := movedNames[name]; ok {
+		return r.movedHint(name, ns)
+	}
 	for n, l := range r.loadables {
 		if l.loaded != nil || r.denied[n] {
 			continue
@@ -136,9 +136,8 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		}
 		return fmt.Sprintf("'%s' is part of the %q toolkit, which is not loaded: call load(%q) first. help(%q) shows its usage", name, n, n, n)
 	}
-	// A wrong-case guess at a toolkit's namespace: files.ls after
-	// load("files"), db.query for Db.query. Models copy the Db.query
-	// pattern to toolkits whose commands are bare.
+	// A wrong-case guess at a toolkit's namespace: files.ls for Files.ls,
+	// db.query for Db.query.
 	for n, l := range r.loadables {
 		if r.denied[n] || l.def.Disabled != "" {
 			continue
@@ -151,20 +150,7 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 		if !match {
 			continue
 		}
-		var msg string
-		if len(l.def.Commands) > 0 {
-			shown := l.def.Commands
-			if len(shown) > 8 {
-				shown = shown[:8]
-			}
-			calls := make([]string, len(shown))
-			for i, c := range shown {
-				calls[i] = c + "()"
-			}
-			msg = fmt.Sprintf("'%s' is not defined. The %q toolkit's commands are bare: %s, … (%s.%s also works)", name, n, strings.Join(calls, ", "), nss[0], shown[0])
-		} else {
-			msg = fmt.Sprintf("'%s' is not defined. The %q toolkit's namespace is %s: %s.<command>", name, n, strings.Join(nss, ", "), nss[0])
-		}
+		msg := fmt.Sprintf("'%s' is not defined. The %q toolkit's namespace is %s: %s.<command>", name, n, strings.Join(nss, ", "), nss[0])
 		if l.loaded == nil {
 			msg += fmt.Sprintf(". Call load(%q) first", n)
 		}
@@ -173,14 +159,44 @@ func (r *CommandRegistry) NotLoadedHint(name string) string {
 	return ""
 }
 
+// movedNames are the graph and file commands that were bare globals before
+// they became namespace-only (docs/design.md "Loadable toolkits"). A call of
+// the old name says where it went; the name itself is free for variables.
+var movedNames = map[string]string{
+	"root": "Graph", "node": "Graph", "nodes": "Graph", "edges": "Graph", "addNode": "Graph",
+	"link": "Graph", "unlink": "Graph", "removeNode": "Graph", "setProps": "Graph",
+	"out": "Graph", "inbound": "Graph", "both": "Graph", "outE": "Graph", "inE": "Graph",
+	"glob": "Files", "read": "Files", "readLines": "Files", "exists": "Files", "ls": "Files",
+	"tree": "Files", "grep": "Files", "write": "Files", "append": "Files", "edit": "Files",
+	"deletePath": "Files", "mv": "Files", "mkdir": "Files",
+}
+
+// movedHint is the error for an old bare name; "" when the toolkit that has
+// the namespace is denied (it is not advertised). r.mu is held.
+func (r *CommandRegistry) movedHint(name, ns string) string {
+	msg := fmt.Sprintf("'%s' is not defined — use %s.%s", name, ns, name)
+	if _, ok := r.namespaces[ns]; ok {
+		return msg
+	}
+	for n, l := range r.loadables {
+		if !l.def.owns(ns) {
+			continue
+		}
+		switch {
+		case r.denied[n]:
+			return ""
+		case l.def.Disabled != "":
+			return msg + fmt.Sprintf(" (the %q toolkit, which the operator did not enable: %s)", n, l.def.Disabled)
+		case l.loaded == nil:
+			return msg + fmt.Sprintf(" after load(%q)", n)
+		}
+	}
+	return msg
+}
+
 func (d *Loadable) owns(name string) bool {
 	for _, ns := range d.namespaces() {
 		if ns == name {
-			return true
-		}
-	}
-	for _, c := range d.Commands {
-		if c == name {
 			return true
 		}
 	}
@@ -201,8 +217,7 @@ func (r *CommandRegistry) loadedNames() []string {
 	return out
 }
 
-// LoadableOwning returns the loadable whose namespaces or commands include
-// name exactly, loaded or not, or "". Denied and disabled loadables are
+// LoadableOwning returns the loadable whose namespaces include name exactly, loaded or not, or "". Denied and disabled loadables are
 // skipped: they cannot be loaded.
 func (r *CommandRegistry) LoadableOwning(name string) string {
 	r.mu.RLock()

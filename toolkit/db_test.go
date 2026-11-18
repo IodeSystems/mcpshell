@@ -277,7 +277,7 @@ func TestDbLoadCsvFile(t *testing.T) {
 		t.Errorf("tsv sum = %s", got)
 	}
 	// a File from glob is a path; its .tsv extension picks the tab
-	if got := dbEval(t, sh, `Db.loadCsv("o2", glob("*.tsv")[0], {append: true}).rows`); got != "1" {
+	if got := dbEval(t, sh, `Db.loadCsv("o2", Files.glob("*.tsv")[0], {append: true}).rows`); got != "1" {
 		t.Errorf("File path rows = %s", got)
 	}
 	// confinement is the file toolkit's

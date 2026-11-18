@@ -206,7 +206,7 @@ func registerServerTools(sh *runtime.Shell, ns NamedServer, client Upstream, too
 	g.WriteString("\ncommands(\"" + ns.Namespace + "\") returns the same list as data: [{name, call, category, signature, description}].")
 	if hasRaw {
 		g.WriteString("\n" + ns.Namespace + ".raw(\"toolName\", {args}) returns the tool's output as unparsed text — " +
-			"write(path, " + ns.Namespace + ".raw(…)) saves it byte-exact without spending output.")
+			"Files.write(path, " + ns.Namespace + ".raw(…)) saves it byte-exact without spending output.")
 	}
 	g.WriteString("\nUse help(\"" + ns.Namespace + ".toolName\") for full details on any tool.")
 	sh.RegisterGuide(ns.Namespace, g.String())
@@ -229,7 +229,7 @@ func registerRaw(sh *runtime.Shell, namespace string, client Upstream, tools []T
 		Name:      "raw",
 		Signature: "tool: string, args?: object",
 		Description: "calls an upstream tool and returns its text output unparsed (byte-exact), " +
-			"e.g. for write(path, " + namespace + ".raw(\"tool\", {…}))",
+			"e.g. for Files.write(path, " + namespace + ".raw(\"tool\", {…}))",
 		Fn: func(args []runtime.Value) runtime.Value {
 			var name *runtime.StringVal
 			if len(args) > 0 {

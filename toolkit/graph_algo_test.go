@@ -28,7 +28,7 @@ func TestGraphAlgoLoad(t *testing.T) {
 	mustContain(t, "before load", failEval(t, sh, `Graph.topo({edges: []})`), `load("graph")`)
 	first := okEval(t, sh, `load("graph")`)
 	mustContain(t, "first load", first, "Graph.path(", "Graph.reach(", "Graph.components(", "Graph.cycle(",
-		"Graph.topo(", "Graph.cpm(", "Graph.flow(", "Graph.match(", "Graph.mst(", "edges(", "TWO-WAY", "Solver.lp")
+		"Graph.topo(", "Graph.cpm(", "Graph.flow(", "Graph.match(", "Graph.mst(", "Graph.edges(", "TWO-WAY", "Solver.lp")
 	// Errors end with the usage of the command.
 	mustContain(t, "usage", failEval(t, sh, `Graph.topo({edges: [{from: "a", to: "b"}], wieght: 1})`),
 		`unknown key "wieght"`, "Usage: Graph.topo(")
@@ -72,10 +72,10 @@ func TestGraphAlgoResults(t *testing.T) {
 		{"match maximize", `Graph.match({edges: [{from: "a", to: "x", cost: 5}, {from: "a", to: "y", cost: 1}, {from: "b", to: "x", cost: 4}, {from: "b", to: "y", cost: 3}], maximize: true}).cost`, "8"},
 		{"mst", `Graph.mst({edges: [{from: "a", to: "b", weight: 1}, {from: "b", to: "c", weight: 2}, {from: "a", to: "c", weight: 3}]}) |> (r => [r.weight, r.trees])`, "[3, 1]"},
 		{"mst max", `Graph.mst({edges: [{from: "a", to: "b", km: 1}, {from: "b", to: "c", km: 2}, {from: "a", to: "c", km: 3}], weight: "km", maximize: true}).km`, "5"},
-		{"store input", `let a = addNode(root(), "task", {duration: 2}); let b = addNode(root(), "task", {duration: 3}); link(a, b, "before"); ` +
-			`Graph.cpm({nodes: nodes("task"), edges: edges("before")}).makespan`, "5"},
-		{"store components", `let a = addNode(root(), "p", {}); let b = addNode(root(), "p", {}); addNode(root(), "p", {}); link(a, b, "knows"); ` +
-			`Graph.components({nodes: nodes("p"), edges: edges("knows")}).count`, "2"},
+		{"store input", `let a = Graph.addNode(Graph.root(), "task", {duration: 2}); let b = Graph.addNode(Graph.root(), "task", {duration: 3}); Graph.link(a, b, "before"); ` +
+			`Graph.cpm({nodes: Graph.nodes("task"), edges: Graph.edges("before")}).makespan`, "5"},
+		{"store components", `let a = Graph.addNode(Graph.root(), "p", {}); let b = Graph.addNode(Graph.root(), "p", {}); Graph.addNode(Graph.root(), "p", {}); Graph.link(a, b, "knows"); ` +
+			`Graph.components({nodes: Graph.nodes("p"), edges: Graph.edges("knows")}).count`, "2"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
