@@ -33,9 +33,29 @@ func (c fileCfg) notFoundErr(cmd, path, resolved string) *ShellError {
 	return Runtime(msg)
 }
 
+// expandHome resolves a leading "~" or "~/" to the user's home directory, as
+// a shell does: joined to the root, "~/work" is never what anyone means.
+// "~user" is an error, not a file name.
+func expandHome(path string) (string, bool) {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		if strings.HasPrefix(path, "~") {
+			panic(Runtime("'" + path + "': ~user paths are not supported; use ~/… for your home directory or an absolute path"))
+		}
+		return path, false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(Runtime("'" + path + "': cannot resolve ~: " + err.Error()))
+	}
+	return filepath.Join(home, path[1:]), true
+}
+
 // confine resolves path against the root and rejects anything escaping it.
 func (c fileCfg) confine(path string) string {
 	resolved := filepath.Clean(filepath.Join(c.root, path))
+	if home, ok := expandHome(path); ok {
+		resolved = filepath.Clean(home)
+	}
 	rel, err := filepath.Rel(c.root, resolved)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		panic(Runtime("Access denied: '" + path + "' resolves outside the allowed directory\n\n" +
@@ -48,8 +68,9 @@ func (c fileCfg) confine(path string) string {
 // confineRead is confine for read-only commands, which also accept an
 // absolute path inside root or one of readRoots.
 func (c fileCfg) confineRead(path string) string {
-	if filepath.IsAbs(path) {
-		clean := filepath.Clean(path)
+	abs, _ := expandHome(path)
+	if filepath.IsAbs(abs) {
+		clean := filepath.Clean(abs)
 		for _, r := range append([]string{c.root}, c.readRoots...) {
 			if rel, err := filepath.Rel(r, clean); err == nil && rel != ".." &&
 				!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -74,6 +95,7 @@ Files.ls() and Files.glob() return File values: {path, name, base, dir, ext, typ
 File("src/a.go"). A File is its path string: pass it to any command (Files.readLines(f)),
 use it in ${f}, f + "", f == "a.txt", toJson, or call string methods (f.endsWith(".go")).
 A File also has the Files commands as methods: f.readLines(), f.read(1, 20).
+A path that starts with ~/ is in your home directory, as in a shell; it is still confined to the root.
 
 TYPICAL: Read and inspect files
   Files.read("config.json")             // full file with line numbers

@@ -235,3 +235,46 @@ func BenchmarkGlobReadLines(b *testing.B) {
 		}
 	}
 }
+
+// A leading ~ is the home directory, not a directory named "~" under the root.
+func TestFileHomeTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "work", "a.txt"), []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Home as the root: ~/ paths resolve inside it, for reads and writes.
+	sh := toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), home, false)
+	for _, c := range []struct{ src, want string }{
+		{`Files.readLines("~/work/a.txt")`, `["hi"]`},
+		{`Files.ls("~/work") |> map(f => f.base) |> toJson()`, `["a.txt"]`},
+		{`Files.exists("~")`, "true"},
+		{`Files.write("~/work/b.txt", "x"); Files.readLines("work/b.txt")`, `["x"]`},
+	} {
+		v, err := sh.Eval(c.src)
+		if err != nil || v.Display() != c.want {
+			t.Errorf("%s = %v, %v; want %q", c.src, v, err, c.want)
+		}
+	}
+	// A root that does not hold home: ~ is still home, so it is denied, not joined.
+	sh = toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), t.TempDir(), false)
+	if _, err := sh.Eval(`Files.ls("~/work")`); err == nil || !strings.Contains(err.Error(), "Access denied") ||
+		!strings.Contains(err.Error(), filepath.Join(home, "work")) {
+		t.Errorf("~ outside root: %v", err)
+	}
+	// Home as an extra read root: ~ reads work.
+	sh = toolkit.InstallFile(toolkit.InstallCore(runtime.NewShell()), t.TempDir(), false, home)
+	if v, err := sh.Eval(`Files.readLines("~/work/a.txt")`); err != nil || v.Display() != `["hi"]` {
+		t.Errorf("~ in read root: %v, %v", v, err)
+	}
+	if _, err := sh.Eval(`Files.ls("~bob/x")`); err == nil || !strings.Contains(err.Error(), "~user paths are not supported") {
+		t.Errorf("~user: %v", err)
+	}
+	// A name that only starts with ~ inside the path is a plain name.
+	if v, err := sh.Eval(`Files.exists("a~b")`); err != nil || v.Display() != "false" {
+		t.Errorf("a~b: %v, %v", v, err)
+	}
+}
