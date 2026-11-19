@@ -133,14 +133,10 @@ func main() {
 		fmt.Println(newShell().ToPrompt(false))
 		return
 	case len(args) == 2 && args[0] == "-f":
-		src, err := os.ReadFile(args[1])
-		if err != nil {
-			fail("cannot read %s: %v", args[1], err)
-		}
-		evalAndPrint(newShell(), string(src))
+		runFile(args[1])
 		return
 	case len(args) > 0:
-		evalAndPrint(newShell(), strings.Join(args, " "))
+		runSource([]byte(strings.Join(args, " ")))
 		return
 	}
 
@@ -149,10 +145,31 @@ func main() {
 		repl()
 		return
 	}
-	src, err := io.ReadAll(os.Stdin)
+	runStdin(os.Stdin)
+}
+
+// runFile evaluates the program in a -f <file> argument: read the file, then
+// runSource.
+func runFile(name string) {
+	src, err := os.ReadFile(name)
+	if err != nil {
+		fail("cannot read %s: %v", name, err)
+	}
+	runSource(src)
+}
+
+// runStdin evaluates piped stdin: read it to the end, then runSource.
+func runStdin(r io.Reader) {
+	src, err := io.ReadAll(r)
 	if err != nil {
 		fail("cannot read stdin: %v", err)
 	}
+	runSource(src)
+}
+
+// runSource evaluates a program read from a file or from piped stdin: both
+// input forms feed the same path.
+func runSource(src []byte) {
 	evalAndPrint(newShell(), string(src))
 }
 
