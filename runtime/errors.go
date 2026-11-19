@@ -125,6 +125,8 @@ func UnknownCommand(name string, available []string) *ShellError {
 // deliberately omits, or "" if the name is not one of them.
 func jsGlobalHint(name string) string {
 	switch name {
+	case "Shell", "shell", "sh", "bash", "exec", "execSync", "spawn", "system":
+		return "eval runs no shell commands (no processes, no cd) — use the host's exec tool."
 	case "import", "require":
 		return "mcpshell does not support imports — all commands are built-in or registered via toolkits"
 	case "void":

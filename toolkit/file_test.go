@@ -278,3 +278,11 @@ func TestFileHomeTilde(t *testing.T) {
 		t.Errorf("a~b: %v, %v", v, err)
 	}
 }
+
+func TestShellCommandHint(t *testing.T) {
+	sh := toolkit.InstallCore(runtime.NewShell())
+	_, err := sh.Eval(`Shell.run("cd ~/x && git status")`)
+	if err == nil || !strings.Contains(err.Error(), "use the host's exec tool") {
+		t.Errorf("Shell hint: %v", err)
+	}
+}
