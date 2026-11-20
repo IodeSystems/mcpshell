@@ -184,7 +184,7 @@ directory) at start.
 | **math** | always on | arithmetic, rounding, trig, `min`/`max`/`sum`, etc. |
 | **graph** | first use of `Graph` | in-memory node/edge graph: `Graph.addNode`, `link`, `nodes`, `edges`, `out`, `setProps`, … (a node has them as methods: `alice.out("knows")`); algorithms on edge rows (two-way unless `directed: true`): `Graph.path` (Dijkstra, Bellman-Ford, DAG longest), `reach`, `components` (connected, strong), `cycle`, `topo`, `cpm` (critical path, slack), `flow` (max flow/min cut, min-cost flow, supplies), `match` (bipartite, assignment), `mst`; exact on exact inputs |
 | **web** | `--web` | `Web.fetch`, `Web.fetchText`, `Web.search`, `Web.clearCache`; `Html.select`, `Html.links`, `Html.text`, `Html.table` |
-| **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (add `--files-read-only`): `Files.read`, `readLines`, `ls`, `glob`, `grep`, `tree`, `exists`, `write`, `append`, `edit`, `mv`, `mkdir`, `deletePath`; a `File` from `ls`/`glob` has them as methods (`f.readLines()`) |
+| **file** | `--files-dir DIR` | sandboxed reads/writes rooted at `DIR` (more roots: see File roots below): `Files.read`, `readLines`, `ls`, `glob`, `grep`, `tree`, `exists`, `write`, `append`, `edit`, `mv`, `mkdir`, `deletePath`; a `File` from `ls`/`glob` has them as methods (`f.readLines()`) |
 | **sql** | `--sql 'ns=DSN'` | Postgres + SQLite: `ns.query`, `ns.tables`, `ns.columns`, `ns.schema`, `ns.execute` |
 | **db** | first use of `Db`; `--db-max-mb N` | in-memory SQLite scratch database: `Db.load`, `loadCsv`, `query`, `exec`, `tables`, `schema`, `drop`, `reset`, `parseCsv`, `toCsv`; exact `sum`/`avg`, `median`, `quantile`, `stdev`, `corr`, `mode`, window functions; R-tree spatial index (`CREATE VIRTUAL TABLE ... USING rtree`, the only virtual table allowed) |
 | **solver** | first use of `Solver` | exact LP/MILP (no floats): `Solver.lp({maximize, subjectTo, ...})` returns status, objective, values, slack; takes row arrays from queries; `sensitivity: true` adds shadow prices, reduced costs and ranges; `explain: true` names the conflicting constraints of an infeasible model |
@@ -195,6 +195,26 @@ directory) at start.
 | **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
 Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until the first reference to its namespace (`Web.fetch(…)`, `typeof Web`), which installs it for the rest of the session. Without the flag the toolkit is not advertised, and a reference to `Web` fails naming `--web`. Toolkits are listed on one line in the prompt (`Toolkits (load on first use; Ns.help() describes one): Db — summary · …`) and in the `eval` tool description (`Toolkits (Ns.help() describes one): Cp, Db, …`). `Ns.help()` lists a toolkit's commands and its guide; `Ns.unload()` removes it and frees what it holds, and the next reference loads it again. `help("name")` shows the guide before and after the first use. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
+
+### File roots
+
+`Files.*`, `Db.loadCsv` and `load(path)` reach only the file roots. Relative paths resolve against the workspace, `--files-dir DIR`; absolute and `~/` paths work inside any root, and writes need a writable root.
+
+| Flag | Effect |
+|------|--------|
+| `--files-dir DIR` | the workspace root; read-write |
+| `--files-root PATH` | another root, read-write; `PATH:ro` read-only, `PATH:rw` read-write; repeatable |
+| `--files-read-only` | every root is read-only, client roots too; the write commands are not installed |
+| `--files-client-roots` | the MCP client may grant roots at runtime (MCP `roots` capability): mcpshell sends `roots/list` after `initialized` and on each `notifications/roots/list_changed`. A client root is read-only unless its `_meta` is `{"mcpshell/access": "write"}`; only `file://` URIs are used. Without the flag client roots are ignored. |
+
+`--files-root` and `--files-client-roots` need `--files-dir`. The client cannot remove operator roots. A path outside the roots fails with the list:
+
+```
+Access denied: '~/work/x' resolves outside the allowed roots
+  Resolved: /home/c/work/x
+  Allowed roots: /a/ops-api (read-write, workspace), /home/c/notes (read-only)
+  Paths outside these need access granted by the host.
+```
 
 Every toolkit command is in its namespace (`Graph.out`, `Files.read`, `Db.query`); no toolkit adds a bare global, so `let out = []` or `let read = …` is a free name. An old bare call (`read("a.txt")`) is an error that names the namespaced form.
 
