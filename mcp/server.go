@@ -12,9 +12,13 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/iodesystems/mcpshell/runtime"
 	"github.com/iodesystems/mcpshell/toolkit"
@@ -34,7 +38,29 @@ type Server struct {
 	hosted         []HostedServer
 	descOnce       sync.Once
 	toolDesc       string
+
+	// setRoots receives the client's file roots; nil ignores client roots.
+	setRoots    func([]toolkit.FileRoot)
+	clientRoots atomic.Bool // the client advertised the roots capability
+
+	// RunStdio state: one writer, the server's own requests to the client.
+	writeMu      sync.Mutex
+	enc          *json.Encoder
+	pendMu       sync.Mutex
+	pending      map[int64]chan *rpcRequest // request id → its response
+	nextID       int64
+	rootsMu      sync.Mutex
+	rootsApplied int64 // id of the roots/list whose answer is the current set
+	done         chan struct{}
+	bg           sync.WaitGroup
 }
+
+// rootsTimeout caps the wait for the client's roots/list answer. A var so
+// tests can shorten it.
+var rootsTimeout = 5 * time.Second
+
+// serverLog receives the server's notes (client roots); tests replace it.
+var serverLog io.Writer = os.Stderr
 
 // NewServer builds an MCP server. maxOutputBytes caps the eval tool's textual
 // output (0 selects the 16 KB default).
@@ -62,6 +88,15 @@ func (s *Server) WithHosted(hosted []HostedServer) *Server {
 	return s
 }
 
+// WithClientRoots asks a client that has the MCP roots capability for its
+// roots after initialization and on each notifications/roots/list_changed,
+// and passes each answer to set as one set. A root is read-only unless its
+// _meta has {"mcpshell/access": "write"}; only file:// URIs are used.
+func (s *Server) WithClientRoots(set func([]toolkit.FileRoot)) *Server {
+	s.setRoots = set
+	return s
+}
+
 // hostedNotice is the notifications/message that reports s.hosted.
 func (s *Server) hostedNotice() map[string]any {
 	return map[string]any{
@@ -77,11 +112,15 @@ func (s *Server) hostedNotice() map[string]any {
 
 // --- JSON-RPC framing --------------------------------------------------------
 
+// rpcRequest is a message from the client: a request, a notification, or a
+// response (no method) to a request of the server's.
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
 }
 
 type rpcResponse struct {
@@ -109,34 +148,217 @@ func errorResp(id json.RawMessage, code int, msg string) *rpcResponse {
 
 // RunStdio serves MCP requests from in, writing responses to out. It returns
 // when in reaches EOF.
+//
+// One goroutine reads; one worker handles the client's requests in order,
+// so evals still run one at a time. The reader routes responses to the
+// server's own requests (roots/list) and roots/list_changed itself, so they
+// are handled while an eval runs.
 func (s *Server) RunStdio(in io.Reader, out io.Writer) error {
+	s.enc = json.NewEncoder(out)
+	s.pending = map[int64]chan *rpcRequest{}
+	s.done = make(chan struct{})
+	queue := make(chan *rpcRequest, 64)
+	workerDone := make(chan struct{})
+	var werr error
+	go func() {
+		defer close(workerDone)
+		for req := range queue {
+			if werr = s.serve(req); werr != nil {
+				return
+			}
+		}
+	}()
+
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	enc := json.NewEncoder(out)
-
+read:
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			_ = enc.Encode(errorResp(nil, -32700, "parse error: "+err.Error()))
+		req := &rpcRequest{}
+		if err := json.Unmarshal(line, req); err != nil {
+			_ = s.write(errorResp(nil, -32700, "parse error: "+err.Error()))
 			continue
 		}
-		resp := s.handle(&req)
-		if resp != nil {
-			if err := enc.Encode(resp); err != nil {
-				return err
-			}
+		switch {
+		case req.Method == "" && len(req.ID) > 0:
+			s.deliver(req)
+			continue
+		case req.Method == "notifications/roots/list_changed":
+			s.refreshRoots()
+			continue
 		}
-		if req.Method == "notifications/initialized" && len(s.hosted) > 0 {
-			if err := enc.Encode(s.hostedNotice()); err != nil {
-				return err
-			}
+		select {
+		case queue <- req:
+		case <-workerDone:
+			break read
 		}
 	}
-	return scanner.Err()
+	rerr := scanner.Err()
+	close(queue)
+	<-workerDone
+	close(s.done)
+	s.bg.Wait()
+	if werr != nil {
+		return werr
+	}
+	return rerr
+}
+
+// serve handles one client request or notification and writes what it sends back.
+func (s *Server) serve(req *rpcRequest) error {
+	if resp := s.handle(req); resp != nil {
+		if err := s.write(resp); err != nil {
+			return err
+		}
+	}
+	if req.Method == "notifications/initialized" {
+		if len(s.hosted) > 0 {
+			if err := s.write(s.hostedNotice()); err != nil {
+				return err
+			}
+		}
+		s.refreshRoots()
+	}
+	return nil
+}
+
+// write sends one message; the worker and the roots requests share out.
+func (s *Server) write(v any) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.enc.Encode(v)
+}
+
+// --- Requests to the client --------------------------------------------------
+
+// request sends a request to the client and waits for its result, up to
+// rootsTimeout. It runs off the read loop, which delivers the response.
+func (s *Server) request(method string) (id int64, res json.RawMessage, err error) {
+	ch := make(chan *rpcRequest, 1)
+	s.pendMu.Lock()
+	s.nextID++
+	id = s.nextID
+	s.pending[id] = ch
+	s.pendMu.Unlock()
+	defer func() {
+		s.pendMu.Lock()
+		delete(s.pending, id)
+		s.pendMu.Unlock()
+	}()
+	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method}); err != nil {
+		return id, nil, err
+	}
+	timer := time.NewTimer(rootsTimeout)
+	defer timer.Stop()
+	select {
+	case m := <-ch:
+		if m.Error != nil {
+			return id, nil, fmt.Errorf("error %d: %s", m.Error.Code, m.Error.Message)
+		}
+		return id, m.Result, nil
+	case <-timer.C:
+		return id, nil, fmt.Errorf("no answer in %s", rootsTimeout)
+	case <-s.done:
+		return id, nil, errors.New("connection closed")
+	}
+}
+
+// deliver passes a client response to the request waiting for it. A
+// response nobody waits for (timed out, unknown id) is dropped.
+func (s *Server) deliver(m *rpcRequest) {
+	var id int64
+	if json.Unmarshal(m.ID, &id) != nil {
+		return
+	}
+	s.pendMu.Lock()
+	ch := s.pending[id]
+	s.pendMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- m:
+		default:
+		}
+	}
+}
+
+// refreshRoots asks the client for its roots in the background, when client
+// roots are enabled and the client has the capability.
+func (s *Server) refreshRoots() {
+	if s.setRoots == nil || !s.clientRoots.Load() {
+		return
+	}
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		id, res, err := s.request("roots/list")
+		if err != nil {
+			fmt.Fprintf(serverLog, "mcpshell mcp: roots/list: %v; keeping the previous client roots\n", err)
+			return
+		}
+		roots, err := parseRoots(res)
+		if err != nil {
+			fmt.Fprintf(serverLog, "mcpshell mcp: roots/list: %v; keeping the previous client roots\n", err)
+			return
+		}
+		s.rootsMu.Lock()
+		defer s.rootsMu.Unlock()
+		if id < s.rootsApplied { // a later request's answer is already in place
+			return
+		}
+		s.rootsApplied = id
+		s.setRoots(roots)
+		desc := make([]string, len(roots))
+		for i, r := range roots {
+			mode := "read-only"
+			if r.Write {
+				mode = "read-write"
+			}
+			desc[i] = r.Path + " (" + mode + ")"
+		}
+		if len(desc) == 0 {
+			desc = []string{"none"}
+		}
+		fmt.Fprintf(serverLog, "mcpshell mcp: client file roots: %s\n", strings.Join(desc, ", "))
+	}()
+}
+
+// rootsWriteMeta is the _meta key and value that make a client root writable.
+const rootsWriteMeta = "mcpshell/access"
+
+// parseRoots reads a roots/list result. A root that is not a local file://
+// URI is left out, with a note on serverLog.
+func parseRoots(res json.RawMessage) ([]toolkit.FileRoot, error) {
+	var r struct {
+		Roots []struct {
+			URI  string         `json:"uri"`
+			Meta map[string]any `json:"_meta"`
+		} `json:"roots"`
+	}
+	if err := json.Unmarshal(res, &r); err != nil {
+		return nil, fmt.Errorf("bad result: %v", err)
+	}
+	out := []toolkit.FileRoot{}
+	for _, e := range r.Roots {
+		u, err := url.Parse(e.URI)
+		switch {
+		case err != nil || u.Scheme != "file":
+			fmt.Fprintf(serverLog, "mcpshell mcp: client root %q ignored: not a file:// URI\n", e.URI)
+			continue
+		case u.Host != "" && u.Host != "localhost":
+			fmt.Fprintf(serverLog, "mcpshell mcp: client root %q ignored: not on this host\n", e.URI)
+			continue
+		}
+		p := filepath.FromSlash(u.Path)
+		if !filepath.IsAbs(p) {
+			fmt.Fprintf(serverLog, "mcpshell mcp: client root %q ignored: not an absolute path\n", e.URI)
+			continue
+		}
+		out = append(out, toolkit.FileRoot{Path: filepath.Clean(p), Write: e.Meta[rootsWriteMeta] == "write"})
+	}
+	return out, nil
 }
 
 // handle processes one message, returning the response or nil for notifications.
@@ -166,10 +388,15 @@ func (s *Server) initializeResult(params json.RawMessage) map[string]any {
 	version := protocolVersion
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
+		Capabilities    struct {
+			Roots json.RawMessage `json:"roots"`
+		} `json:"capabilities"`
 	}
 	if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
 		version = p.ProtocolVersion // echo the client's requested revision
 	}
+	r := p.Capabilities.Roots
+	s.clientRoots.Store(len(r) > 0 && string(r) != "null")
 	return map[string]any{
 		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{}, "logging": map[string]any{}},

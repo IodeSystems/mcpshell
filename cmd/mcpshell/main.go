@@ -52,6 +52,9 @@ mcp flags:
                        (read-write), 'path:ro' (read-only); reached by absolute or ~/
                        path; repeatable; needs --files-dir
   --files-read-only    every file root is read-only
+  --files-client-roots the MCP client may grant more roots at runtime (MCP roots
+                       capability); a client root is read-only unless its _meta has
+                       {"mcpshell/access": "write"}; needs --files-dir
   --web                permit the web toolkit (Web.*, Html.*)
   --browser            permit Browser.* (needs a Chrome binary)
   --no-load <a,b>      hide and deny these toolkits by name (graph, db, files, ...)
@@ -286,6 +289,7 @@ func runMCP(args []string) {
 	fs := flag.NewFlagSet("mcpshell mcp", flag.ExitOnError)
 	filesDir := fs.String("files-dir", "", "enable the file toolkit rooted at this directory")
 	filesReadOnly := fs.Bool("files-read-only", false, "every file root is read-only")
+	filesClientRoots := fs.Bool("files-client-roots", false, "the MCP client may grant more file roots (roots capability)")
 	web := fs.Bool("web", false, "enable the web toolkit (Web.*, Html.*)")
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
@@ -354,8 +358,8 @@ func runMCP(args []string) {
 		sh.SetFileLoader(nil)
 		toolkit.ClearFileConfiner(sh)
 	}
-	if *filesDir == "" && len(filesRoots) > 0 {
-		fail("--files-root needs --files-dir (the workspace root)")
+	if *filesDir == "" && (len(filesRoots) > 0 || *filesClientRoots) {
+		fail("--files-root and --files-client-roots need --files-dir (the workspace root)")
 	}
 	var fileRoots *toolkit.FileRoots
 	if *filesDir != "" {
@@ -379,6 +383,9 @@ func runMCP(args []string) {
 			desc = append(desc, r.Path+" ("+mode+")")
 		}
 		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (roots: %s; a reference to Files installs it)\n", strings.Join(desc, ", "))
+		if *filesClientRoots {
+			fmt.Fprintln(os.Stderr, "mcpshell mcp: the client may grant more file roots (--files-client-roots)")
+		}
 	}
 	sh.AddLoadable(toolkit.FilesLoadable(fileRoots))
 
@@ -424,6 +431,9 @@ func runMCP(args []string) {
 
 	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
 	srv := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
+	if *filesClientRoots && !filesDenied {
+		srv.WithClientRoots(fileRoots.SetClient)
+	}
 	err := srv.RunStdio(os.Stdin, os.Stdout)
 	for _, c := range closers {
 		_ = c.Close()

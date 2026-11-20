@@ -26,3 +26,17 @@ func SetInternalErrorLog(w io.Writer) (restore func()) {
 	internalErrorLog = w
 	return func() { internalErrorLog = old }
 }
+
+// SetRootsTimeout shortens the roots/list wait for a test; call the result to restore it.
+func SetRootsTimeout(d time.Duration) (restore func()) {
+	old := rootsTimeout
+	rootsTimeout = d
+	return func() { rootsTimeout = old }
+}
+
+// SetServerLog redirects the server's notes; call the result to restore it.
+func SetServerLog(w io.Writer) (restore func()) {
+	old := serverLog
+	serverLog = w
+	return func() { serverLog = old }
+}
