@@ -59,11 +59,11 @@ func BrowserLoadable(enabled bool) runtime.Loadable {
 	return l
 }
 
-// FilesLoadable is the file toolkit (Files.*), rooted at root; readRoots are
-// extra directories it reads by absolute path. Disk access is operator tier:
-// with root "" the toolkit is disabled and a reference to Files fails naming
-// --files-dir.
-func FilesLoadable(root string, readOnly bool, readRoots []string) runtime.Loadable {
+// FilesLoadable is the file toolkit (Files.*) on a root set. Disk access is
+// operator tier: with roots nil the toolkit is disabled and a reference to
+// Files fails naming --files-dir.
+func FilesLoadable(roots *FileRoots) runtime.Loadable {
+	readOnly := roots != nil && roots.ReadOnly()
 	summary := "read, search, write, edit files under the operator's directory (Files.read, ls, glob, grep, write, edit, …)"
 	if readOnly {
 		summary = "read and search files under the operator's directory (Files.read, ls, glob, grep, …)"
@@ -74,12 +74,12 @@ func FilesLoadable(root string, readOnly bool, readRoots []string) runtime.Loada
 		Guide:      fileGuide(readOnly),
 		Namespaces: []string{"Files"},
 	}
-	if root == "" {
+	if roots == nil {
 		l.Disabled = "--files-dir"
 		return l
 	}
 	l.Install = func(sh *runtime.Shell) (io.Closer, error) {
-		InstallFile(sh, root, readOnly, readRoots...)
+		InstallFileRoots(sh, roots)
 		return closeFunc(func() error {
 			sh.SetFileLoader(nil)
 			ClearFileConfiner(sh)

@@ -20,16 +20,23 @@ func mcpLikeShell(web bool, filesDir string, overflow string) *runtime.Shell {
 	toolkit.InstallMath(sh)
 	sh.AddLoadable(toolkit.GraphLoadable())
 	sh.AddLoadable(toolkit.WebLoadable(web))
-	var roots []string
+	var extra []toolkit.FileRoot
 	if overflow != "" {
 		if filesDir == "" {
 			toolkit.InstallOverflowReader(sh, overflow, "")
 			sh.SetFileLoader(nil)
 			toolkit.ClearFileConfiner(sh)
 		}
-		roots = []string{overflow}
+		extra = []toolkit.FileRoot{{Path: overflow}}
 	}
-	sh.AddLoadable(toolkit.FilesLoadable(filesDir, false, roots))
+	var roots *toolkit.FileRoots
+	if filesDir != "" {
+		var err error
+		if roots, err = toolkit.NewFileRoots(filesDir, false, extra...); err != nil {
+			panic(err)
+		}
+	}
+	sh.AddLoadable(toolkit.FilesLoadable(roots))
 	sh.AddLoadable(toolkit.BrowserLoadable(false))
 	return sh
 }

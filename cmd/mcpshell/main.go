@@ -48,7 +48,10 @@ when its flag is given.
 
 mcp flags:
   --files-dir <dir>    permit Files.*: the file toolkit rooted at <dir>
-  --files-read-only    file toolkit is read-only
+  --files-root <path>  another root for Files.*, Db.loadCsv and load: 'path' or 'path:rw'
+                       (read-write), 'path:ro' (read-only); reached by absolute or ~/
+                       path; repeatable; needs --files-dir
+  --files-read-only    every file root is read-only
   --web                permit the web toolkit (Web.*, Html.*)
   --browser            permit Browser.* (needs a Chrome binary)
   --no-load <a,b>      hide and deny these toolkits by name (graph, db, files, ...)
@@ -282,7 +285,7 @@ func (s *stringSlice) Set(v string) error { *s = append(*s, v); return nil }
 func runMCP(args []string) {
 	fs := flag.NewFlagSet("mcpshell mcp", flag.ExitOnError)
 	filesDir := fs.String("files-dir", "", "enable the file toolkit rooted at this directory")
-	filesReadOnly := fs.Bool("files-read-only", false, "file toolkit is read-only")
+	filesReadOnly := fs.Bool("files-read-only", false, "every file root is read-only")
 	web := fs.Bool("web", false, "enable the web toolkit (Web.*, Html.*)")
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
@@ -292,7 +295,8 @@ func runMCP(args []string) {
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	tz := fs.String("tz", os.Getenv("MCPSHELL_TZ"), "local time zone of Date, an IANA name (default UTC)")
 	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the Db in-memory database")
-	var connect, mcpConfigs, sqlSpecs stringSlice
+	var connect, mcpConfigs, sqlSpecs, filesRoots stringSlice
+	fs.Var(&filesRoots, "files-root", "another file root: 'path', 'path:rw' or 'path:ro' (repeatable)")
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
 	fs.Var(&mcpConfigs, "mcp", "MCP config: JSON file, inline JSON, or 'name:cmd args' (repeatable)")
 	fs.Var(&sqlSpecs, "sql", "SQL database: 'ns=dsn' or 'dsn' (SQLite path or postgres:// URL, repeatable)")
@@ -350,18 +354,33 @@ func runMCP(args []string) {
 		sh.SetFileLoader(nil)
 		toolkit.ClearFileConfiner(sh)
 	}
-	var readRoots []string
-	if overflowDir != "" {
-		readRoots = append(readRoots, overflowDir)
+	if *filesDir == "" && len(filesRoots) > 0 {
+		fail("--files-root needs --files-dir (the workspace root)")
 	}
-	sh.AddLoadable(toolkit.FilesLoadable(*filesDir, *filesReadOnly, readRoots))
+	var fileRoots *toolkit.FileRoots
 	if *filesDir != "" {
-		mode := "read-write"
-		if *filesReadOnly {
-			mode = "read-only"
+		var extra []toolkit.FileRoot
+		for _, spec := range filesRoots {
+			extra = append(extra, parseRootSpec(spec))
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (%s: %s; a reference to Files installs it)\n", mode, *filesDir)
+		if overflowDir != "" {
+			extra = append(extra, toolkit.FileRoot{Path: overflowDir, Label: "saved output"})
+		}
+		var err error
+		if fileRoots, err = toolkit.NewFileRoots(*filesDir, *filesReadOnly, extra...); err != nil {
+			fail("--files-dir/--files-root: %v", err)
+		}
+		var desc []string
+		for _, r := range fileRoots.All() {
+			mode := "read-only"
+			if r.Write {
+				mode = "read-write"
+			}
+			desc = append(desc, r.Path+" ("+mode+")")
+		}
+		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (roots: %s; a reference to Files installs it)\n", strings.Join(desc, ", "))
 	}
+	sh.AddLoadable(toolkit.FilesLoadable(fileRoots))
 
 	var closers []io.Closer
 	for _, spec := range sqlSpecs {
@@ -404,13 +423,34 @@ func runMCP(args []string) {
 	}
 
 	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
-	err := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted).RunStdio(os.Stdin, os.Stdout)
+	srv := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
+	err := srv.RunStdio(os.Stdin, os.Stdout)
 	for _, c := range closers {
 		_ = c.Close()
 	}
 	if err != nil {
 		fail("mcp server: %v", err)
 	}
+}
+
+// parseRootSpec parses a --files-root value: 'path', 'path:rw' (read-write,
+// the default, as for --files-dir) or 'path:ro'. A leading ~ is home.
+func parseRootSpec(spec string) toolkit.FileRoot {
+	r := toolkit.FileRoot{Path: spec, Write: true}
+	if p, ok := strings.CutSuffix(spec, ":ro"); ok {
+		r = toolkit.FileRoot{Path: p}
+	} else if p, ok := strings.CutSuffix(spec, ":rw"); ok {
+		r.Path = p
+	}
+	if r.Path == "~" || strings.HasPrefix(r.Path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			r.Path = home + r.Path[1:]
+		}
+	}
+	if r.Path == "" {
+		fail("--files-root %q: empty path", spec)
+	}
+	return r
 }
 
 // parseConnectSpec parses a --connect value: 'namespace=command args' or, with

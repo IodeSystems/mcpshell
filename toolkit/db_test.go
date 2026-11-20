@@ -282,7 +282,7 @@ func TestDbLoadCsvFile(t *testing.T) {
 	}
 	// confinement is the file toolkit's
 	dbFails(t, sh, `Db.loadCsv("x", "../`+filepath.Base(filepath.Dir(outside))+`/secret.csv")`, "Access denied")
-	dbFails(t, sh, `Db.loadCsv("x", "`+outside+`")`, "cannot read") // an absolute path is taken under the root
+	dbFails(t, sh, `Db.loadCsv("x", "`+outside+`")`, "Access denied", "Allowed roots: "+dir) // an absolute path outside every root
 	dbFails(t, sh, `Db.loadCsv("x", "missing.csv")`, "cannot read")
 	dbFails(t, sh, `Db.loadCsv("x", "o.csv", {exact: ["nope"]})`, "'nope'", "Columns: id, zip")
 	dbFails(t, sh, `Db.loadCsv("x", "o.csv", {exact: ["note"]})`, "not a decimal")

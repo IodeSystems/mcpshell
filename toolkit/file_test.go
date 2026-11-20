@@ -199,17 +199,17 @@ func TestFileReadRoots(t *testing.T) {
 			t.Errorf("%s = %v, %v; want %q", c.src, v, err, c.want)
 		}
 	}
-	// Writes stay confined to root: an absolute path maps under root, so the
-	// read root is never modified.
-	if _, err := sh.Eval(`Files.write(p, "x")`); err != nil {
-		t.Fatal(err)
+	// A read root takes no writes: the error names it as read-only.
+	if _, err := sh.Eval(`Files.write(p, "x")`); err == nil || !strings.Contains(err.Error(), "is in a read-only root") ||
+		!strings.Contains(err.Error(), "Read-only root: "+extra+" (read-only)") {
+		t.Errorf("write to read root: %v", err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(extra, "o.txt")); string(b) != "saved\noutput" {
 		t.Errorf("write reached the read root: %q", b)
 	}
-	// Absolute paths outside root and readRoots are not readable.
-	if v, err := sh.Eval(`Files.exists("/etc/hostname")`); err != nil || v.Display() != "false" {
-		t.Errorf(`Files.exists("/etc/hostname") = %v, %v; want false`, v, err)
+	// Absolute paths outside root and readRoots are denied, not taken under root.
+	if _, err := sh.Eval(`Files.exists("/etc/hostname")`); err == nil || !strings.Contains(err.Error(), "Access denied") {
+		t.Errorf(`Files.exists("/etc/hostname") = %v; want Access denied`, err)
 	}
 }
 

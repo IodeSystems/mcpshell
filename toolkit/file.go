@@ -15,10 +15,10 @@ import (
 
 // fileCfg holds the FileToolkit configuration.
 type fileCfg struct {
-	root         string
+	root         string     // the workspace: relative paths resolve against it
+	roots        *FileRoots // every root, read per operation (client roots change at runtime)
 	readOnly     bool
 	maxReadLines int
-	readRoots    []string // extra directories readable by absolute path
 	// notFound is added to a "file not found" error: for the overflow
 	// reader, that it reads only saved results and how to reach other files.
 	notFound string
@@ -50,35 +50,76 @@ func expandHome(path string) (string, bool) {
 	return filepath.Join(home, path[1:]), true
 }
 
-// confine resolves path against the root and rejects anything escaping it.
-func (c fileCfg) confine(path string) string {
-	resolved := filepath.Clean(filepath.Join(c.root, path))
+// resolve maps a script path to a clean absolute path: ~ is home, an
+// absolute path is itself, a relative path is under the workspace. It does
+// not check access.
+func (c fileCfg) resolve(path string) string {
 	if home, ok := expandHome(path); ok {
-		resolved = filepath.Clean(home)
+		return filepath.Clean(home)
 	}
-	rel, err := filepath.Rel(c.root, resolved)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		panic(Runtime("Access denied: '" + path + "' resolves outside the allowed directory\n\n" +
-			"  Root: " + c.root + "\n  Resolved: " + resolved + "\n\n" +
-			"  All file operations are confined to the root directory."))
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
 	}
-	return resolved
+	return filepath.Clean(filepath.Join(c.root, path))
 }
 
-// confineRead is confine for read-only commands, which also accept an
-// absolute path inside root or one of readRoots.
+// confineRead resolves path and rejects it unless it is inside one of the
+// current roots. The check is on the cleaned path, so ".." cannot escape.
 func (c fileCfg) confineRead(path string) string {
-	abs, _ := expandHome(path)
-	if filepath.IsAbs(abs) {
-		clean := filepath.Clean(abs)
-		for _, r := range append([]string{c.root}, c.readRoots...) {
-			if rel, err := filepath.Rel(r, clean); err == nil && rel != ".." &&
-				!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return clean
-			}
+	return c.confineIn(path, c.roots.All())
+}
+
+// confineIn is confineRead on one snapshot of the roots.
+func (c fileCfg) confineIn(path string, roots []FileRoot) string {
+	resolved := c.resolve(path)
+	for _, r := range roots {
+		if r.contains(resolved) {
+			return resolved
 		}
 	}
-	return c.confine(path)
+	panic(Runtime("Access denied: '" + path + "' resolves outside the allowed roots\n" +
+		"  Resolved: " + resolved + "\n" +
+		"  Allowed roots: " + describeRoots(roots) + "\n" +
+		"  Paths outside these need access granted by the host."))
+}
+
+// confine is confineRead for the mutating commands: the path must also be
+// inside a writable root. Roots are grants, so any writable root that holds
+// the path allows the write.
+func (c fileCfg) confine(path string) string {
+	roots := c.roots.All() // one snapshot: a client update between two reads must not split the check
+	resolved := c.confineIn(path, roots)
+	var holder *FileRoot // the innermost root that holds the path, for the error
+	var writable []FileRoot
+	for _, r := range roots {
+		if r.Write {
+			writable = append(writable, r)
+		}
+		if !r.contains(resolved) {
+			continue
+		}
+		if r.Write {
+			return resolved
+		}
+		if holder == nil || len(r.Path) > len(holder.Path) {
+			holder = &r
+		}
+	}
+	panic(Runtime("Access denied: '" + path + "' is in a read-only root\n" +
+		"  Resolved: " + resolved + "\n" +
+		"  Read-only root: " + holder.describe() + "\n" +
+		"  Writable roots: " + describeRoots(writable) + "\n" +
+		"  Writing there needs write access granted by the host."))
+}
+
+// relOrAbs is how a listed path is shown: relative to the workspace when it
+// is inside it, else absolute.
+func (c fileCfg) relOrAbs(full string) string {
+	if rel, err := filepath.Rel(c.root, full); err == nil && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel)
+	}
+	return full
 }
 
 // fileGuide is the help("files") text.
@@ -95,7 +136,8 @@ Files.ls() and Files.glob() return File values: {path, name, base, dir, ext, typ
 File("src/a.go"). A File is its path string: pass it to any command (Files.readLines(f)),
 use it in ${f}, f + "", f == "a.txt", toJson, or call string methods (f.endsWith(".go")).
 A File also has the Files commands as methods: f.readLines(), f.read(1, 20).
-A path that starts with ~/ is in your home directory, as in a shell; it is still confined to the root.
+Relative paths are under the workspace. Absolute and ~/ (home) paths work inside the allowed roots;
+an Access denied error lists the roots and which are read-only. The host can grant more during a session.
 
 TYPICAL: Read and inspect files
   Files.read("config.json")             // full file with line numbers
@@ -119,10 +161,15 @@ TYPICAL: Write and edit files
 
 // InstallFile registers the file toolkit, confining all operations to root.
 // When readOnly is true, the mutating commands are not registered. readRoots
-// are extra directories the read-only commands (read, readLines, exists, ls,
-// grep) accept by absolute path.
+// are extra read-only directories, reached by absolute path.
 func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Shell {
-	return installFile(sh, root, readOnly, "", readRoots...)
+	return installFile(sh, mustFileRoots(root, readOnly, "workspace", readRoots...), "")
+}
+
+// InstallFileRoots registers the file toolkit on a root set; the client part
+// of the set may change while the toolkit is installed.
+func InstallFileRoots(sh *Shell, roots *FileRoots) *Shell {
+	return installFile(sh, roots, "")
 }
 
 // InstallOverflowReader installs the read-only file commands on the
@@ -132,23 +179,27 @@ func InstallFile(sh *Shell, root string, readOnly bool, readRoots ...string) *Sh
 // enabled file access); without it, read("data.csv") said only "file not
 // found" with a path under the overflow directory.
 func InstallOverflowReader(sh *Shell, dir, notFound string) *Shell {
-	return installFile(sh, dir, true, notFound)
+	return installFile(sh, mustFileRoots(dir, true, "saved output"), notFound)
 }
 
-func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoots ...string) *Shell {
-	abs, err := filepath.Abs(root)
+// mustFileRoots is NewFileRoots for the Go API: a bad root is a panic, as
+// it was before root sets.
+func mustFileRoots(root string, readOnly bool, label string, readRoots ...string) *FileRoots {
+	extra := make([]FileRoot, len(readRoots))
+	for i, r := range readRoots {
+		extra[i] = FileRoot{Path: r}
+	}
+	roots, err := NewFileRoots(root, readOnly, extra...)
 	if err != nil {
-		panic("FileToolkit: cannot resolve root: " + err.Error())
+		panic("FileToolkit: " + err.Error())
 	}
-	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
-		panic("FileToolkit root does not exist or is not a directory: " + abs)
-	}
-	cfg := fileCfg{root: abs, readOnly: readOnly, maxReadLines: 200, notFound: notFound}
-	for _, r := range readRoots {
-		if a, err := filepath.Abs(r); err == nil {
-			cfg.readRoots = append(cfg.readRoots, a)
-		}
-	}
+	roots.fixed[0].Label = label
+	return roots
+}
+
+func installFile(sh *Shell, roots *FileRoots, notFound string) *Shell {
+	readOnly := roots.ReadOnly()
+	cfg := fileCfg{root: roots.Workspace(), roots: roots, readOnly: readOnly, maxReadLines: 200, notFound: notFound}
 
 	setFileConfiner(sh, cfg.confineRead) // Db.loadCsv resolves paths the way read() does
 
@@ -271,9 +322,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 			}
 			out := make([]Value, 0, len(entries))
 			for _, e := range entries {
-				full := filepath.Join(resolved, e.Name())
-				rel, _ := filepath.Rel(cfg.root, full)
-				out = append(out, entryFile(sh, filepath.ToSlash(rel), e))
+				out = append(out, entryFile(sh, cfg.relOrAbs(filepath.Join(resolved, e.Name())), e))
 			}
 			return &ArrayVal{Elements: out}
 		})
@@ -289,7 +338,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 				maxDepth = *d
 			}
 			showFiles := optObjBool(opts, "files")
-			resolved := cfg.confine(path)
+			resolved := cfg.confineRead(path)
 			info, err := os.Stat(resolved)
 			if err != nil || !info.IsDir() {
 				panic(Runtime("tree: not a directory '" + path + "'\n\n  Resolved to: " + resolved))
@@ -499,7 +548,7 @@ func installFile(sh *Shell, root string, readOnly bool, notFound string, readRoo
 		})
 
 	sh.SetFileLoader(func(path string) Value {
-		resolved := cfg.confine(path)
+		resolved := cfg.confineRead(path) // the same check as Files.read and Db.loadCsv
 		if !pathExists(resolved) {
 			panic(cfg.notFoundErr("load", path, resolved))
 		}
