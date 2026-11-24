@@ -33,6 +33,9 @@ Usage:
   mcpshell               start an interactive REPL (no args, a TTY)
   mcpshell --prompt      print the LLM system prompt
   mcpshell mcp [flags]   run as an MCP server over stdio
+  mcpshell repl [flags]  interactive REPL over the same session as mcp mode (same
+                         flags except --files-client-roots; reads lines even when
+                         stdin is not a TTY; each line is one eval)
   mcpshell [--profile] [--limits steps=N,timeout=60s,callDepth=N,outputBytes=N] '<code>'
                          with per-line step costs, and/or limits for this run
                          (up to the maximums; also before -f <file>)
@@ -46,7 +49,7 @@ a toolkit loads on the first reference to its namespace (Graph, Db, Files,
 ...). web, file, and browser need a flag below. sql is installed at start
 when its flag is given.
 
-mcp flags:
+mcp flags (also accepted by repl, except --files-client-roots):
   --files-dir <dir>    permit Files.*: the file toolkit rooted at <dir>
   --files-root <path>  another root for Files.*, Db.loadCsv and load: 'path' or 'path:rw'
                        (read-write), 'path:ro' (read-only); reached by absolute or ~/
@@ -134,6 +137,9 @@ func main() {
 		return
 	case len(args) > 0 && args[0] == "mcp":
 		runMCP(args[1:])
+		return
+	case len(args) > 0 && args[0] == "repl":
+		runREPL(args[1:])
 		return
 	case len(args) > 0 && args[0] == "--prompt":
 		fmt.Println(newShell().ToPrompt(false))
@@ -248,8 +254,26 @@ func takeEvalFlags(args []string) []string {
 // as an MCP eval call is: its top-level declarations last for the session.
 func repl() {
 	fmt.Fprintln(os.Stderr, "mcpshell REPL — Ctrl-D to exit. Top-level let, const and function last across lines.")
-	sh := newShell()
-	scanner := bufio.NewScanner(os.Stdin)
+	replLoop(newShell(), os.Stdin, nil)
+}
+
+// runREPL is `mcpshell repl [mcp flags]`: the REPL over the session mcp mode
+// builds (lazy toolkits, upstreams, limits). It reads lines whether or not
+// stdin is a TTY, and closes the upstreams at EOF.
+func runREPL(args []string) {
+	srv, closers, _, ok := setupSession("repl", args)
+	if !ok {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mcpshell REPL (mcp session) — Ctrl-D to exit. Top-level let, const and function last across lines.")
+	replLoop(nil, os.Stdin, srv)
+	closeAll(closers)
+}
+
+// replLoop evaluates each input line. With srv set, a line goes through the
+// MCP eval path (output cap, overflow file, warnings); otherwise through sh.
+func replLoop(sh *runtime.Shell, in io.Reader, srv *mcp.Server) {
+	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for {
 		fmt.Fprint(os.Stderr, "mcpshell> ")
@@ -259,6 +283,15 @@ func repl() {
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
+			continue
+		}
+		if srv != nil {
+			text, isErr := srv.EvalText(line)
+			if isErr {
+				fmt.Fprintln(os.Stderr, text)
+			} else if text != "null" {
+				fmt.Println(text)
+			}
 			continue
 		}
 		v, err := sh.EvalExported(line, nil)
@@ -286,7 +319,34 @@ func (s *stringSlice) Set(v string) error { *s = append(*s, v); return nil }
 
 // runMCP serves the MCP protocol over stdio, with toolkits selected by flags.
 func runMCP(args []string) {
-	fs := flag.NewFlagSet("mcpshell mcp", flag.ExitOnError)
+	srv, closers, setRoots, ok := setupSession("mcp", args)
+	if !ok {
+		return
+	}
+	if setRoots != nil {
+		srv.WithClientRoots(setRoots)
+	}
+	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
+	err := srv.RunStdio(os.Stdin, os.Stdout)
+	closeAll(closers)
+	if err != nil {
+		fail("mcp server: %v", err)
+	}
+}
+
+func closeAll(closers []io.Closer) {
+	for _, c := range closers {
+		_ = c.Close()
+	}
+}
+
+// setupSession parses the mcp flags in args and builds the session shared by
+// `mcpshell mcp` and `mcpshell repl` (cmd names the subcommand). ok is false
+// when the flags ask for nothing more to run (--prompt). setRoots is non-nil
+// when the MCP client may grant file roots. The caller closes closers
+// (upstream processes, a loaded browser, SQL handles).
+func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Closer, setRoots func([]toolkit.FileRoot), ok bool) {
+	fs := flag.NewFlagSet("mcpshell "+cmd, flag.ExitOnError)
 	filesDir := fs.String("files-dir", "", "enable the file toolkit rooted at this directory")
 	filesReadOnly := fs.Bool("files-read-only", false, "every file root is read-only")
 	filesClientRoots := fs.Bool("files-client-roots", false, "the MCP client may grant more file roots (roots capability)")
@@ -336,14 +396,14 @@ func runMCP(args []string) {
 	}
 	sh.AddLoadable(toolkit.WebLoadable(*web))
 	if *web {
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: web toolkit enabled (a reference to Web installs it)")
+		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": web toolkit enabled (a reference to Web installs it)")
 	}
 	overflowDir := os.Getenv("MCPSHELL_TMP_OVERFLOW_DIR")
 	if overflowDir != "" {
 		if err := os.MkdirAll(overflowDir, 0o700); err != nil {
 			fail("MCPSHELL_TMP_OVERFLOW_DIR: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: over-limit output is saved to %s\n", overflowDir)
+		fmt.Fprintf(os.Stderr, "mcpshell "+cmd+": over-limit output is saved to %s\n", overflowDir)
 	}
 	// The agent must be able to page over-limit output without an extra turn.
 	// With --files-dir, Files reads the overflow dir as an extra root, and a
@@ -357,6 +417,9 @@ func runMCP(args []string) {
 		toolkit.InstallOverflowReader(sh, overflowDir, notFound)
 		sh.SetFileLoader(nil)
 		toolkit.ClearFileConfiner(sh)
+	}
+	if cmd == "repl" && *filesClientRoots {
+		fail("--files-client-roots needs an MCP client; mcpshell repl has none (use --files-root)")
 	}
 	if *filesDir == "" && (len(filesRoots) > 0 || *filesClientRoots) {
 		fail("--files-root and --files-client-roots need --files-dir (the workspace root)")
@@ -382,14 +445,13 @@ func runMCP(args []string) {
 			}
 			desc = append(desc, r.Path+" ("+mode+")")
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: file toolkit enabled (roots: %s; a reference to Files installs it)\n", strings.Join(desc, ", "))
+		fmt.Fprintf(os.Stderr, "mcpshell "+cmd+": file toolkit enabled (roots: %s; a reference to Files installs it)\n", strings.Join(desc, ", "))
 		if *filesClientRoots {
-			fmt.Fprintln(os.Stderr, "mcpshell mcp: the client may grant more file roots (--files-client-roots)")
+			fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": the client may grant more file roots (--files-client-roots)")
 		}
 	}
 	sh.AddLoadable(toolkit.FilesLoadable(fileRoots))
 
-	var closers []io.Closer
 	for _, spec := range sqlSpecs {
 		ns, dsn := parseSQLSpec(spec)
 		closer, err := toolkit.InstallSQL(sh, ns, dsn, !*sqlWritable)
@@ -401,18 +463,18 @@ func runMCP(args []string) {
 		if *sqlWritable {
 			mode = "read-write"
 		}
-		fmt.Fprintf(os.Stderr, "mcpshell mcp: SQL database %q enabled (%s)\n", ns, mode)
+		fmt.Fprintf(os.Stderr, "mcpshell "+cmd+": SQL database %q enabled (%s)\n", ns, mode)
 	}
 	sh.AddLoadable(toolkit.BrowserLoadable(*browser))
 	// A loaded browser holds a Chrome process; unload closes it at exit.
 	closers = append(closers, closerFunc(func() error { _, err := sh.Unload("browser"); return err }))
 	if *browser {
-		fmt.Fprintln(os.Stderr, "mcpshell mcp: browser toolkit enabled (a reference to Browser installs it)")
+		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": browser toolkit enabled (a reference to Browser installs it)")
 	}
 
 	if *printPrompt {
 		fmt.Println(sh.ToPrompt(false))
-		return
+		return nil, nil, nil, false
 	}
 
 	var servers []mcp.NamedServer
@@ -429,18 +491,11 @@ func runMCP(args []string) {
 		closers = append(closers, c...)
 	}
 
-	fmt.Fprintln(os.Stderr, "mcpshell mcp: serving on stdio")
-	srv := mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
+	srv = mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
 	if *filesClientRoots && !filesDenied {
-		srv.WithClientRoots(fileRoots.SetClient)
+		setRoots = fileRoots.SetClient
 	}
-	err := srv.RunStdio(os.Stdin, os.Stdout)
-	for _, c := range closers {
-		_ = c.Close()
-	}
-	if err != nil {
-		fail("mcp server: %v", err)
-	}
+	return srv, closers, setRoots, true
 }
 
 // parseRootSpec parses a --files-root value: 'path', 'path:rw' (read-write,

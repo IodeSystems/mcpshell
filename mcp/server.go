@@ -467,6 +467,16 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 	}
 }
 
+// EvalText runs code as one eval call (no vars, limits or clear) and returns
+// the response text, with the output cap, overflow file and warnings of an
+// MCP eval call. isError reports an error result. Used by `mcpshell repl`.
+func (s *Server) EvalText(code string) (text string, isError bool) {
+	raw, _ := json.Marshal(map[string]string{"code": code})
+	res := s.evalTool(raw)
+	content := res["content"].([]map[string]any)
+	return content[0]["text"].(string), res["isError"].(bool)
+}
+
 func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	var args struct {
 		Code    *string         `json:"code"`

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -86,4 +88,104 @@ func TestCLIGraphIsNamespaced(t *testing.T) {
 	if _, err := sh.EvalExported(`let out = []; let read = 1`, nil); err != nil {
 		t.Errorf("bare toolkit names must be free: %v", err)
 	}
+}
+
+// runREPLWith runs `mcpshell repl args` over input and returns stdout and
+// stderr. It restores the process files even if the REPL fails.
+func runREPLWith(t *testing.T, input string, args ...string) (stdout, stderr string) {
+	t.Helper()
+	oldIn, oldErr := os.Stdin, os.Stderr
+	defer func() { os.Stdin, os.Stderr = oldIn, oldErr }()
+	inR, inW, _ := os.Pipe()
+	errR, errW, _ := os.Pipe()
+	os.Stdin, os.Stderr = inR, errW
+	_, _ = inW.WriteString(input)
+	_ = inW.Close()
+	var eb bytes.Buffer
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(&eb, errR); close(done) }()
+	stdout = captureStdout(t, func() { runREPL(args) })
+	_ = errW.Close()
+	<-done
+	return stdout, eb.String()
+}
+
+// Each line is one session eval: a top-level let lasts across lines.
+func TestREPLSessionPersistsAcrossLines(t *testing.T) {
+	out, _ := runREPLWith(t, "let x = 41\nx + 1\n")
+	if out != "41\n42\n" {
+		t.Fatalf("stdout = %q, want the let value then 42", out)
+	}
+}
+
+// The repl session is the mcp session: a toolkit loads on first reference,
+// and one that needs a flag fails naming it.
+func TestREPLLoadsToolkitsOnFirstUse(t *testing.T) {
+	out, errOut := runREPLWith(t, "typeof Graph.root()\nFiles.ls(\".\")\nWeb.fetchText(\"x\")\n")
+	if strings.TrimSpace(out) == "" {
+		t.Errorf("Graph did not load on first reference: stdout %q, stderr %q", out, errOut)
+	}
+	if !strings.Contains(errOut, "--files-dir") || !strings.Contains(errOut, "--web") {
+		t.Errorf("Files and Web need their flags, stderr = %q", errOut)
+	}
+	out, errOut = runREPLWith(t, "Files.exists(\".\")\n", "--files-dir", t.TempDir())
+	if strings.TrimSpace(out) != "true" {
+		t.Errorf("--files-dir must permit Files: stdout %q, stderr %q", out, errOut)
+	}
+}
+
+// --max-output caps a line's output as it does an MCP eval call.
+func TestREPLMaxOutput(t *testing.T) {
+	out, _ := runREPLWith(t, "\"x\".repeat(500)\n", "--max-output", "100")
+	if !strings.Contains(out, "OUTPUT TRUNCATED at 100 of 500 bytes") {
+		t.Errorf("stdout = %q", out)
+	}
+}
+
+// An upstream from --connect is callable, and its process ends at EOF.
+func TestREPLCallsUpstream(t *testing.T) {
+	t.Setenv("GO_REPL_HELPER", "widgets")
+	out, errOut := runREPLWith(t, "app.echo(\"hi\")\n", "--connect", "app="+os.Args[0]+" -test.run=TestREPLHelperProcess")
+	if strings.TrimSpace(out) != "echo: hi" {
+		t.Fatalf("stdout = %q, stderr = %q", out, errOut)
+	}
+}
+
+// TestREPLHelperProcess is not a real test: with GO_REPL_HELPER set the test
+// binary is a minimal MCP server exposing one tool, echo.
+func TestREPLHelperProcess(t *testing.T) {
+	name := os.Getenv("GO_REPL_HELPER")
+	if name == "" {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	enc := json.NewEncoder(os.Stdout)
+	for sc.Scan() {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				Arguments map[string]any `json:"arguments"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(sc.Bytes(), &req) != nil || len(req.ID) == 0 {
+			continue
+		}
+		var res any
+		switch req.Method {
+		case "initialize":
+			res = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}},
+				"serverInfo": map[string]any{"name": name, "version": "0.0.1"}}
+		case "tools/list":
+			res = map[string]any{"tools": []map[string]any{{"name": "echo", "description": "echoes",
+				"inputSchema": json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`)}}}
+		case "tools/call":
+			msg, _ := req.Params.Arguments["message"].(string)
+			res = map[string]any{"content": []map[string]any{{"type": "text", "text": "echo: " + msg}}}
+		default:
+			continue
+		}
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
+	}
+	os.Exit(0)
 }
