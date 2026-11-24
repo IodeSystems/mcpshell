@@ -52,6 +52,7 @@ echo 'range(5) |> map(n => n * n)' | ./bin/mcpshell
 ./bin/mcpshell                                 # interactive REPL
 ./bin/mcpshell --prompt                        # print the LLM system prompt
 ./bin/mcpshell mcp --web --files-dir ./data    # run as an MCP server over stdio
+./bin/mcpshell repl --mcp upstreams.json       # REPL over the same session as mcp mode
 ```
 
 As an MCP server, mcpshell exposes exactly ONE tool, `eval` — the claim at the
@@ -176,7 +177,11 @@ Toolkits register commands into the shell. `core` and `math` are always on.
 In `mcpshell mcp`, `graph`, `db`, `solver`, `cp`, `route`, `geo` and `num` load on the agent's first reference to their namespace; `web`, `file`, and
 `browser` need an operator flag first. The LLM only sees the capabilities you grant. One-shot and
 REPL modes install core, math, web, graph, and file (rooted at the current
-directory) at start.
+directory) at start. `mcpshell repl [mcp flags]` is the exception: it takes every `mcp` flag
+except `--files-client-roots` (there is no MCP client) and builds the `mcp` session, so toolkits
+load on first use, `--connect`/`--mcp` upstreams are callable, and `--max-output`,
+`--max-limits` and `MCPSHELL_TMP_OVERFLOW_DIR` apply. Each line is one eval; it reads lines
+even when stdin is not a TTY; Ctrl-D closes the upstream processes.
 
 | Toolkit | Enable with | Commands |
 |---------|-------------|----------|
