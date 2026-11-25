@@ -434,9 +434,9 @@ func (s *Server) toolDefs() []toolDef {
 			Description: s.evalDescription(),
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"code":{"type":"string","description":"mcpshell source code; top-level let/const/function persist to later calls"},` +
-				`"vars":{"type":"object","description":"RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors.","additionalProperties":true},` +
+				`"vars":{"type":"string","description":"JSON object encoded as a string, e.g. {\"path\":\"a.txt\"}. RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors."},` +
 				`"profile":{"type":"boolean","description":"Add per-line step costs to the result."},` +
-				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"},"memory":{"type":["integer","string"],"description":"bytes of heap, or a size such as \"2GB\""}},"additionalProperties":false}` +
+				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"},"memory":{"type":"string","description":"a size such as \"64MB\" or \"2GB\", or a plain byte count such as \"1048576\""}}}` +
 				`,"clear":{"type":"boolean","description":"Reset the session before code (code is optional then): unload toolkits, drop globals and kept results."}` +
 				`}}`),
 		},
@@ -494,8 +494,12 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 	}
 	// vars are parsed like tool output: exact numbers, source key order.
 	vars := map[string]runtime.Value{}
-	if len(args.Vars) > 0 {
-		if obj, ok := textToValue(string(args.Vars)).(*runtime.ObjectVal); ok {
+	varsRaw, err := varsJSON(args.Vars)
+	if err != nil {
+		return toolResult("ERROR: "+err.Error(), true)
+	}
+	if len(varsRaw) > 0 {
+		if obj, ok := textToValue(varsRaw).(*runtime.ObjectVal); ok {
 			for _, k := range obj.Keys() {
 				vars[k], _ = obj.Get(k)
 			}
@@ -545,6 +549,22 @@ func (s *Server) evalTool(rawArgs json.RawMessage) map[string]any {
 		out = head + note
 	}
 	return toolResult(out+warnings, false)
+}
+
+// varsJSON returns the vars argument as JSON object text. The schema declares
+// a string (Gemini accepts only an OpenAPI subset, so no free-form object);
+// a JSON object is accepted too, for callers that send one. A string must hold
+// a JSON object.
+func varsJSON(raw json.RawMessage) (string, error) {
+	var str string
+	if len(raw) == 0 || json.Unmarshal(raw, &str) != nil {
+		return string(raw), nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(str), &obj); err != nil || obj == nil {
+		return "", errors.New(`vars: a string must hold a JSON object, e.g. "{\"path\":\"a.txt\"}"`)
+	}
+	return str, nil
 }
 
 // parseLimitsArg reads the eval tool's limits argument. A timeout is
