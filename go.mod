@@ -6,7 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/chromedp/chromedp v0.24.0
-	github.com/dlclark/regexp2/v2 v2.13.2
+	github.com/dlclark/regexp2/v2 v2.13.3
 	github.com/lib/pq v1.12.3
 	modernc.org/sqlite v1.63.0
 )
