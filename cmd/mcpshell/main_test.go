@@ -189,3 +189,24 @@ func TestREPLHelperProcess(t *testing.T) {
 	}
 	os.Exit(0)
 }
+
+// --commands is the gate: without it there is no declared command; with it
+// the repl calls the program, and --prompt lists it.
+func TestREPLCommands(t *testing.T) {
+	prog, _ := json.Marshal(os.Args[0])
+	decl := `{"commands": {"tb": {"program": ` + string(prog) + `, "methods": {"none": {"args": ["-test.run=^$"]}}}}}`
+	out, errOut := runREPLWith(t, "let r = tb.none(); [r.exit, r.stdout.includes(\"PASS\")]\n", "--commands", decl)
+	if strings.TrimSpace(out) != "[0, true]" {
+		t.Errorf("stdout = %q, stderr = %q", out, errOut)
+	}
+	if !strings.Contains(errOut, "declared commands: tb.none") {
+		t.Errorf("stderr = %q", errOut)
+	}
+	if out, errOut := runREPLWith(t, "tb.none()\n"); strings.TrimSpace(out) != "" || !strings.Contains(errOut, "'tb'") {
+		t.Errorf("without --commands: stdout %q, stderr %q", out, errOut)
+	}
+	prompt := captureStdout(t, func() { setupSession("mcp", []string{"--prompt", "--commands", decl}) })
+	if !strings.Contains(prompt, "tb — programs the operator declared") {
+		t.Errorf("prompt lacks the commands:\n%s", prompt)
+	}
+}

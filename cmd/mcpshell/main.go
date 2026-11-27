@@ -62,6 +62,10 @@ mcp flags (also accepted by repl, except --files-client-roots and --host-functio
   --host-functions     the MCP client may declare functions in initialize
                        (capabilities.experimental["mcpshell/host"]); eval calls them as
                        Host.<name>({…}), each call a mcpshell/host/call request to the client
+  --commands <spec>    declared commands: a JSON file or inline JSON, {"commands": {"git":
+                       {"program": "git", "methods": {"log": {"args": ["log"], "params": {…}}}}}};
+                       eval calls git.log({…}) and gets {stdout, stderr, exit}; argv is built
+                       from typed params, no shell; repeatable (see README "Declared commands")
   --web                permit the web toolkit (Web.*, Html.*)
   --browser            permit Browser.* (needs a Chrome binary)
   --no-load <a,b>      hide and deny these toolkits by name (graph, db, files, ...)
@@ -368,7 +372,8 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	tz := fs.String("tz", os.Getenv("MCPSHELL_TZ"), "local time zone of Date, an IANA name (default UTC)")
 	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the Db in-memory database")
-	var connect, mcpConfigs, sqlSpecs, filesRoots stringSlice
+	var connect, mcpConfigs, sqlSpecs, filesRoots, commandSpecs stringSlice
+	fs.Var(&commandSpecs, "commands", "declared commands: JSON file or inline JSON (repeatable)")
 	fs.Var(&filesRoots, "files-root", "another file root: 'path', 'path:rw' or 'path:ro' (repeatable)")
 	fs.Var(&connect, "connect", "upstream MCP server: 'ns=cmd args' or 'cmd args' (repeatable)")
 	fs.Var(&mcpConfigs, "mcp", "MCP config: JSON file, inline JSON, or 'name:cmd args' (repeatable)")
@@ -484,6 +489,8 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": browser toolkit enabled (a reference to Browser installs it)")
 	}
 
+	cmds := installCommands(sh, cmd, commandSpecs, fileRoots, slices.Contains(strings.Split(*noLoad, ","), mcp.CommandsLoadable))
+
 	if *printPrompt {
 		fmt.Println(sh.ToPrompt(false))
 		return nil, nil, nil, false
@@ -496,6 +503,13 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	for _, spec := range mcpConfigs {
 		servers = append(servers, parseMCPConfig(spec)...)
 	}
+	if cmds != nil {
+		for _, s := range servers {
+			if slices.Contains(cmds.Namespaces(), s.Namespace) {
+				fail("--commands: the namespace %s is also an upstream MCP server's", s.Namespace)
+			}
+		}
+	}
 	var hosted []mcp.HostedServer
 	if len(servers) > 0 {
 		var c []io.Closer
@@ -504,6 +518,9 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	}
 
 	srv = mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
+	if cmds != nil {
+		srv.WithCommands(cmds)
+	}
 	if *hostFunctions {
 		srv.WithHostFunctions()
 		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": the client may declare host functions (Host.*)")
@@ -512,6 +529,65 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 		setRoots = fileRoots.SetClient
 	}
 	return srv, closers, setRoots, true
+}
+
+// installCommands reads each --commands value (a JSON file, or inline JSON
+// that starts with "{") and registers the declared commands. A relative cwd
+// resolves against the workspace (--files-dir), else the process
+// directory; with --files-dir a cwd must be inside a file root. nil when no
+// command is declared, or the commands loadable is denied.
+func installCommands(sh *runtime.Shell, cmd string, specs []string, roots *toolkit.FileRoots, denied bool) *mcp.Commands {
+	if len(specs) == 0 {
+		return nil
+	}
+	if denied {
+		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": --commands ignored (--no-load commands)")
+		return nil
+	}
+	var opts mcp.CommandOptions
+	if roots != nil {
+		all := roots.All()
+		opts.Dir = all[0].Path
+		for _, r := range all {
+			opts.Roots = append(opts.Roots, r.Path)
+		}
+	}
+	var all []*mcp.Command
+	for _, spec := range specs {
+		data := []byte(spec)
+		if !strings.HasPrefix(strings.TrimSpace(spec), "{") {
+			var err error
+			if data, err = os.ReadFile(spec); err != nil {
+				fail("--commands %q: not inline JSON and not a readable file: %v", spec, err)
+			}
+		}
+		cmds, err := mcp.ParseCommands(data, opts)
+		if err != nil {
+			fail("--commands %s: %v", commandSpecName(spec), err)
+		}
+		all = append(all, cmds...)
+	}
+	cs, err := mcp.InstallCommands(sh, all)
+	if err != nil {
+		fail("--commands: %v", err)
+	}
+	var names []string
+	for _, c := range all {
+		for _, m := range c.Methods {
+			names = append(names, c.Namespace+"."+m.Name)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "mcpshell "+cmd+": declared commands: %s\n", strings.Join(names, ", "))
+	return cs
+}
+
+// commandSpecName names a --commands value in an error: the file, or
+// "(inline JSON)".
+func commandSpecName(spec string) string {
+	if strings.HasPrefix(strings.TrimSpace(spec), "{") {
+		return "(inline JSON)"
+	}
+	return spec
 }
 
 // parseRootSpec parses a --files-root value: 'path', 'path:rw' (read-write,

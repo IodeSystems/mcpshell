@@ -31,6 +31,15 @@ func TestEvalSchemaGeminiSubset(t *testing.T) {
 	if len(m.Result.Tools) == 0 {
 		t.Fatal("no tools")
 	}
+	for _, tool := range m.Result.Tools {
+		checkGeminiSubset(t, tool.Name, tool.InputSchema)
+	}
+}
+
+// checkGeminiSubset fails t for each keyword of schema outside Gemini's
+// OpenAPI subset.
+func checkGeminiSubset(t *testing.T, name string, schema any) {
+	t.Helper()
 	banned := []string{"additionalProperties", "oneOf", "anyOf", "allOf", "$ref", "const", "patternProperties"}
 	var walk func(path string, v any)
 	walk = func(path string, v any) {
@@ -62,9 +71,7 @@ func TestEvalSchemaGeminiSubset(t *testing.T) {
 			}
 		}
 	}
-	for _, tool := range m.Result.Tools {
-		walk(tool.Name, tool.InputSchema)
-	}
+	walk(name, schema)
 }
 
 func TestEvalVarsForms(t *testing.T) {

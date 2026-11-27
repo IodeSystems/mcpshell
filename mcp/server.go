@@ -52,6 +52,10 @@ type Server struct {
 	hostLine    string // the eval description's Host line, "" without Host
 	hostMu      sync.Mutex
 
+	// commands are the operator's declared commands (commands.go); nil
+	// without --commands.
+	commands *Commands
+
 	// RunStdio state: one writer, the server's own requests to the client.
 	writeMu      sync.Mutex
 	enc          *json.Encoder
@@ -458,6 +462,9 @@ func (s *Server) evalDescription() string {
 		s.toolDesc = runtime.ToolDescription
 		if line := s.shell.Commands().ToolkitsLine(); line != "" {
 			s.toolDesc += "\n" + line
+		}
+		if s.commands != nil {
+			s.toolDesc += "\n" + s.commands.line
 		}
 		if s.hostLine != "" {
 			s.toolDesc += "\n" + s.hostLine

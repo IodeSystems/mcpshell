@@ -122,13 +122,7 @@ func (s *Server) installHost(fns []hostFunction) {
 	}
 	s.hostLine = line.String()
 
-	hint := "eval runs no shell commands itself (no processes, no cd)."
-	if seen := hostNames(fns); seen["exec"] {
-		hint += " The host provides Host.exec: Host.help() describes it."
-	} else {
-		hint += " The host provides " + strings.Join(hostCalls(fns), ", ") + " (Host.help() describes them); for other commands use the host's exec tool."
-	}
-	s.shell.Commands().SetShellHint(hint)
+	s.shell.Commands().SetShellHint(shellHint(s.commands, fns))
 
 	s.shell.AddLoadable(runtime.Loadable{
 		Name:       "host",
