@@ -143,7 +143,12 @@ Every eval is bounded (step, call-depth, wall-clock, and output limits) so
 untrusted code can't hang the host. The eval tool takes `profile: true` (per-line
 step costs) and `limits: {steps, timeout, callDepth, outputBytes, memory}` (this eval
 only, up to the operator maximums in `--max-limits`); the CLI takes
-`--profile` and `--limits steps=N,timeout=60s,memory=2GB`. `memory` is bytes of Go heap (default 1 GB, maximum 2 GB unless
+`--profile` and `--limits steps=N,timeout=60s,memory=2GB`. In `mcp` and `repl`,
+`--limits` with the same keys sets the limits each eval starts with (defaults:
+steps 1000000, timeout 30s, callDepth 256, outputBytes 64000, memory 1 GB), and
+`clear: true` returns to them: `mcp --max-limits timeout=20m --limits timeout=10m`.
+A value above its maximum (the `--max-limits` value, else the built-in one) is a
+startup error. `memory` is bytes of Go heap (default 1 GB, maximum 2 GB unless
 `--max-limits memory=4GB`); over it the error lists what holds memory and how to
 free it (`Db.unload()`, `forget("$r2")`, `forget("rows")`, or `clear: true` for everything), and an eval
 that ends at 80% or more says so in a `note:` line. A tripped limit says which
@@ -178,7 +183,7 @@ In `mcpshell mcp`, `graph`, `db`, `solver`, `cp`, `route`, `geo` and `num` load 
 `browser` need an operator flag first. The LLM only sees the capabilities you grant. One-shot and
 REPL modes install core, math, web, graph, and file (rooted at the current
 directory) at start. `mcpshell repl [mcp flags]` is the exception: it takes every `mcp` flag
-except `--files-client-roots` (there is no MCP client) and builds the `mcp` session, so toolkits
+except `--files-client-roots` and `--host-functions` (there is no MCP client) and builds the `mcp` session, so toolkits
 load on first use, `--connect`/`--mcp` upstreams are callable, and `--max-output`,
 `--max-limits` and `MCPSHELL_TMP_OVERFLOW_DIR` apply. Each line is one eval; it reads lines
 even when stdin is not a TTY; Ctrl-D closes the upstream processes.
@@ -197,6 +202,7 @@ even when stdin is not a TTY; Ctrl-D closes the upstream processes.
 | **route** | first use of `Route` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
 | **geo** | first use of `Geo` | spatial on rows `{lat, lon}` / `{x, y}` and GeoJSON (`[lon, lat]`): `Geo.distance` (haversine), `bearing`, `destination`, `bbox` (radius boxes for a `Db` R-tree), `nearest` (k), `length`, `area` (WGS84 ellipsoid), `centroid`, `contains`/`intersects`/`within` (no polygon overlay), `hull`, `circle`, `toGeoJSON`/`fromGeoJSON`, `kmeans` (seeded, reports `converged`; a local optimum) and `dbscan`; swapped or out-of-range coordinates are errors |
 | **num** | first use of `Num` | float64 numerics: `Num.regress(rows, {y, x})` (OLS with standard errors, t/p, CIs, R², F), `Num.fit` (Levenberg-Marquardt with your model `(x, p) => y`, or built-in Gaussian/Lorentzian/pseudo-Voigt peaks with a baseline; params, standard errors, covariance), `Num.minimize` (Nelder-Mead, bounds), `Num.root` (Brent), `Num.integrate` (adaptive Gauss-Kronrod, infinite ends; trapezoid on samples), `Num.interp` (linear, natural cubic), `Num.solve`/`inv`/`det`/`eig` (symmetric)/`lstsq`/`matmul`, `Num.pdf`/`cdf`/`sf`/`ppf` for 11 distributions, `Num.ttest`, `Num.ci`, `Num.rng(seed)`; `status` says when a method did not converge |
+| **host** | `--host-functions` and the client's declaration | the functions the MCP client declares, `Host.<name>({…})`; see Host functions below |
 | **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
 Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until the first reference to its namespace (`Web.fetch(…)`, `typeof Web`), which installs it for the rest of the session. Without the flag the toolkit is not advertised, and a reference to `Web` fails naming `--web`. Toolkits are listed on one line in the prompt (`Toolkits (load on first use; Ns.help() describes one): Db — summary · …`) and in the `eval` tool description (`Toolkits (Ns.help() describes one): Cp, Db, …`). `Ns.help()` lists a toolkit's commands and its guide; `Ns.unload()` removes it and frees what it holds, and the next reference loads it again. `help("name")` shows the guide before and after the first use. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
@@ -220,6 +226,38 @@ Access denied: '~/work/x' resolves outside the allowed roots
   Allowed roots: /a/ops-api (read-write, workspace), /home/c/notes (read-only)
   Paths outside these need access granted by the host.
 ```
+
+### Host functions
+
+The MCP client can offer functions that eval calls as `Host.<name>(args)`, such
+as a shell `exec` the client runs under its own policy. Both sides opt in: the
+operator passes `--host-functions`, and the client declares the functions in its
+`initialize` params:
+
+```json
+{"capabilities": {"experimental": {"mcpshell/host": {"functions": [
+  {"name": "exec", "description": "Run a shell command in the workspace.",
+   "inputSchema": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
+   "timeoutMs": 120000}]}}}}
+```
+
+Without the flag a declaration is ignored (stderr says so); without a declaration there
+is no `Host`. The functions are listed in the `eval` tool description, fixed at
+`initialize`. Each call is a request from mcpshell to the client:
+
+```json
+{"jsonrpc": "2.0", "id": 7, "method": "mcpshell/host/call", "params": {"name": "exec", "arguments": {"cmd": "ls"}}}
+```
+
+The result (any JSON value) becomes the call's value. A JSON-RPC error answer is an
+error in the script that `try/catch` catches, and its message has the client's message.
+Calls run one at a time and count against the eval's time limit (raise the default with
+`--limits timeout=…`). A call waits up to its `timeoutMs`, and never past the eval's time
+left; when the wait ends without an answer, or the input closes, mcpshell sends
+`notifications/cancelled` with `requestId` and `reason`, and the call fails. Arguments are
+checked as an upstream tool's are: required names, and lossless type conversion. Not
+supported: MCP content blocks in results, progress, parallel calls. `mcp --prompt` has no
+client, so its prompt has no `Host`.
 
 Every toolkit command is in its namespace (`Graph.out`, `Files.read`, `Db.query`); no toolkit adds a bare global, so `let out = []` or `let read = …` is a free name. An old bare call (`read("a.txt")`) is an error that names the namespaced form.
 
