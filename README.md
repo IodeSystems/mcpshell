@@ -202,10 +202,11 @@ even when stdin is not a TTY; Ctrl-D closes the upstream processes.
 | **route** | first use of `Route` | routing: `Route.matrix` (haversine, euclidean, manhattan, or shortest paths over edges), `Route.path`/`paths` (Dijkstra, A*, k shortest), `Route.tsp` (exact up to 16 stops, else heuristic with a lower bound and gap), `Route.vrp` (capacity, time windows, maxDist, maxTime); `status` is `optimal` only when proven |
 | **geo** | first use of `Geo` | spatial on rows `{lat, lon}` / `{x, y}` and GeoJSON (`[lon, lat]`): `Geo.distance` (haversine), `bearing`, `destination`, `bbox` (radius boxes for a `Db` R-tree), `nearest` (k), `length`, `area` (WGS84 ellipsoid), `centroid`, `contains`/`intersects`/`within` (no polygon overlay), `hull`, `circle`, `toGeoJSON`/`fromGeoJSON`, `kmeans` (seeded, reports `converged`; a local optimum) and `dbscan`; swapped or out-of-range coordinates are errors |
 | **num** | first use of `Num` | float64 numerics: `Num.regress(rows, {y, x})` (OLS with standard errors, t/p, CIs, R², F), `Num.fit` (Levenberg-Marquardt with your model `(x, p) => y`, or built-in Gaussian/Lorentzian/pseudo-Voigt peaks with a baseline; params, standard errors, covariance), `Num.minimize` (Nelder-Mead, bounds), `Num.root` (Brent), `Num.integrate` (adaptive Gauss-Kronrod, infinite ends; trapezoid on samples), `Num.interp` (linear, natural cubic), `Num.solve`/`inv`/`det`/`eig` (symmetric)/`lstsq`/`matmul`, `Num.pdf`/`cdf`/`sf`/`ppf` for 11 distributions, `Num.ttest`, `Num.ci`, `Num.rng(seed)`; `status` says when a method did not converge |
+| **commands** | `--commands FILE.json` | programs the operator declares with typed arguments, `git.log({n: 5})` → `{stdout, stderr, exit}`, run without a shell; see Declared commands below |
 | **host** | `--host-functions` and the client's declaration | the functions the MCP client declares, `Host.<name>({…})`; see Host functions below |
 | **browser** | `--browser` | headless-Chrome automation (chromedp): `Browser.open`, `click`, `type`, `text`, `html`, `select`, `wait`, `screenshot`, `eval` |
 
-Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser): a script cannot enable them. A flag permits a toolkit; it is not installed until the first reference to its namespace (`Web.fetch(…)`, `typeof Web`), which installs it for the rest of the session. Without the flag the toolkit is not advertised, and a reference to `Web` fails naming `--web`. Toolkits are listed on one line in the prompt (`Toolkits (load on first use; Ns.help() describes one): Db — summary · …`) and in the `eval` tool description (`Toolkits (Ns.help() describes one): Cp, Db, …`). `Ns.help()` lists a toolkit's commands and its guide; `Ns.unload()` removes it and frees what it holds, and the next reference loads it again. `help("name")` shows the guide before and after the first use. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
+Operator flags are the gate for toolkits that reach outside the process (files, network, databases, a browser, programs): a script cannot enable them, and a script cannot declare a command. A flag permits a toolkit; it is not installed until the first reference to its namespace (`Web.fetch(…)`, `typeof Web`), which installs it for the rest of the session. Without the flag the toolkit is not advertised, and a reference to `Web` fails naming `--web`. Toolkits are listed on one line in the prompt (`Toolkits (load on first use; Ns.help() describes one): Db — summary · …`) and in the `eval` tool description (`Toolkits (Ns.help() describes one): Cp, Db, …`). `Ns.help()` lists a toolkit's commands and its guide; `Ns.unload()` removes it and frees what it holds, and the next reference loads it again. `help("name")` shows the guide before and after the first use. `mcp --no-load a,b` hides and denies the listed loadables. `load("path/to/file.mcpshell")` evaluates a file as a module (only its `export`ed names become globals); it installs the file toolkit first if `--files-dir` permitted it, and fails naming `--files-dir` if not. `mcp --prompt` prints the system prompt for a flag set.
 
 ### File roots
 
@@ -226,6 +227,64 @@ Access denied: '~/work/x' resolves outside the allowed roots
   Allowed roots: /a/ops-api (read-write, workspace), /home/c/notes (read-only)
   Paths outside these need access granted by the host.
 ```
+
+### Declared commands
+
+The operator declares programs that eval may run, with typed arguments:
+`--commands FILE.json` (or inline JSON that starts with `{`; repeatable). Each
+top-level key is a namespace (a lower-case identifier) and each method a call:
+
+```json
+{"commands": {
+  "git": {"program": "git", "args": ["--no-pager"], "env": ["HOME", "GIT_PAGER=cat"], "timeoutMs": 30000,
+    "methods": {
+      "log": {"description": "Recent commits, one per line.", "args": ["log", "--oneline"], "dashdash": true,
+        "params": {"n": {"type": "integer", "flag": "-n"},
+                   "paths": {"type": "array", "items": {"type": "string"}, "positional": true}}},
+      "status": {"description": "Changed files.", "args": ["status", "--short"]}}},
+  "go": {"program": "go", "env": ["HOME", "GOPATH", "GOCACHE"], "timeoutMs": 600000,
+    "methods": {"test": {"args": ["test", "-count=1"],
+      "params": {"pkgs": {"type": "array", "items": {"type": "string"}, "positional": true, "required": true},
+                 "run": {"type": "string", "flag": "-run"}, "v": {"type": "boolean", "flag": "-v"}}}}},
+  "rg": {"program": "rg", "methods": {"search": {"args": ["--line-number", "--no-heading"],
+    "params": {"pattern": {"type": "string", "flag": "-e", "required": true},
+               "glob": {"type": "array", "items": {"type": "string"}, "flag": "-g"},
+               "ignoreCase": {"type": "boolean", "flag": "-i"},
+               "paths": {"type": "array", "items": {"type": "string"}, "positional": true}}}}}
+}}
+```
+
+```
+let t = go.test({pkgs: ["./..."]})
+let failed = t.stdout.split("\n") |> filter(l => l.startsWith("--- FAIL"))
+t.exit == 0 ? "ok" : rg.search({pattern: "func " + failed[0].split(" ")[2], paths: ["."]}).stdout
+```
+
+A call returns `{stdout, stderr, exit}`; a nonzero exit is a value, a program that
+cannot start is an error. The argv is the command's `args`, the method's `args`, each
+flag param in declaration order, then the positionals; no shell reads any value.
+Param types: `string`, `integer`, `number`, `boolean` (a flag with no value), `array`
+of string (one flag or positional per item). `"flag": "-n"` sends `-n 5`;
+`"flag": "--n="` sends `--n=5`. A positional value that starts with `-` is an error,
+unless the method sets `"dashdash": true`, which puts `--` before the positionals.
+Arguments are checked like an upstream tool's (required names, lossless conversion),
+and an undeclared name is an error. Keys: per command `program` (required),
+`description`, `args`, `cwd`, `env`, `timeoutMs`, `maxOutputBytes` (per stream, default
+1000000; more is cut and a `note:` says so), `methods` (required); per method
+`description`, `args`, `params`, `dashdash`, `timeoutMs` (overrides the command's).
+An unknown key is a startup error.
+
+- **cwd**: default the workspace (`--files-dir`), else mcpshell's directory; a relative
+  `cwd` resolves against it. With `--files-dir` it must be inside a file root.
+- **env**: the program gets `PATH` and the listed entries only: `NAME` copies
+  mcpshell's value, `NAME=value` sets one.
+- **time**: a call counts against the eval's time limit (raise the default with
+  `--limits timeout=…`) and stops at its `timeoutMs`; either kills the program's
+  process group, and the call is an error.
+
+The calls are listed in the `eval` tool description and on the prompt's Toolkits
+line (`mcp --prompt` shows them), and `exec`/`Shell.run` errors name them.
+`--no-load commands` denies them.
 
 ### Host functions
 
