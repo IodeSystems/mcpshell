@@ -1119,9 +1119,7 @@ ADVANCED: Right-side pipe args with <|
 ADVANCED: Pipe destructure into variables
   [10, 20, 30] |> [a, b, c]  // a=10, b=20, c=30
 
-IMPORTANT — STRINGS WITH BACKSLASHES:
-  LLMs are bad at double-escaping. Do NOT embed file paths or regex as string
-  literals. Pass them via the vars parameter, or use raw strings: r"C:\Users\file.txt"
+RAW STRINGS: r"C:\Users\file.txt" keeps backslashes literal.
 
 IMPORTANT — ALGORITHM COMPLEXITY:
   mcpshell has no memoization. Naive recursion like fib(n-1)+fib(n-2) is O(2^n)

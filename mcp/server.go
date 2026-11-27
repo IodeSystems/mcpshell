@@ -486,7 +486,7 @@ func (s *Server) toolDefs() []toolDef {
 			Description: s.evalDescription(),
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"code":{"type":"string","description":"mcpshell source code; top-level let/const/function persist to later calls"},` +
-				`"vars":{"type":"string","description":"JSON object encoded as a string, e.g. {\"path\":\"a.txt\"}. RECOMMENDED for file paths, regex patterns, and user data. Bound as constants before execution — avoids double-escaping errors."},` +
+				`"vars":{"type":"string","description":"JSON object encoded as a string, e.g. {\"path\":\"a.txt\"}; each key is bound as a constant for this call."},` +
 				`"profile":{"type":"boolean","description":"Add per-line step costs to the result."},` +
 				`"limits":{"type":"object","description":"Limits for this eval only; a limit-hit error names the value to use. timeout in ms.","properties":{"steps":{"type":"integer"},"timeout":{"type":"integer"},"callDepth":{"type":"integer"},"outputBytes":{"type":"integer"},"memory":{"type":"string","description":"a size such as \"64MB\" or \"2GB\", or a plain byte count such as \"1048576\""}}}` +
 				`,"clear":{"type":"boolean","description":"Reset the session before code (code is optional then): unload toolkits, drop globals and kept results."}` +
