@@ -6,6 +6,7 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,11 +38,19 @@ type Server struct {
 	overflowDir    string // where over-limit eval output is saved; "" disables
 	hosted         []HostedServer
 	descOnce       sync.Once
+	descFixed      bool // the eval description is built; it does not change after
 	toolDesc       string
 
 	// setRoots receives the client's file roots; nil ignores client roots.
 	setRoots    func([]toolkit.FileRoot)
 	clientRoots atomic.Bool // the client advertised the roots capability
+
+	// Host functions: hostAllowed is --host-functions; the client declares
+	// the functions in initialize (see host.go).
+	hostAllowed bool
+	hostInit    bool   // the first initialize was handled; later ones change nothing
+	hostLine    string // the eval description's Host line, "" without Host
+	hostMu      sync.Mutex
 
 	// RunStdio state: one writer, the server's own requests to the client.
 	writeMu      sync.Mutex
@@ -198,8 +207,10 @@ read:
 	}
 	rerr := scanner.Err()
 	close(queue)
-	<-workerDone
+	// done before the worker ends: an eval waiting on a host call (on the
+	// worker) must see the input end, or the worker never returns.
 	close(s.done)
+	<-workerDone
 	s.bg.Wait()
 	if werr != nil {
 		return werr
@@ -234,9 +245,24 @@ func (s *Server) write(v any) error {
 
 // --- Requests to the client --------------------------------------------------
 
-// request sends a request to the client and waits for its result, up to
-// rootsTimeout. It runs off the read loop, which delivers the response.
-func (s *Server) request(method string) (id int64, res json.RawMessage, err error) {
+// clientError is a JSON-RPC error response from the client to a request
+// of the server's.
+type clientError struct {
+	Code    int
+	Message string
+}
+
+func (e *clientError) Error() string { return fmt.Sprintf("error %d: %s", e.Code, e.Message) }
+
+// errConnClosed is request's error when the client's input ended.
+var errConnClosed = errors.New("connection closed")
+
+// request sends a request to the client and waits for its result until ctx
+// is done (the error is then context.Cause(ctx)) or the input ends
+// (errConnClosed). params nil sends none. A JSON-RPC error answer is a
+// *clientError. It runs off the read loop, which delivers the response; id
+// is the request's id, for a notifications/cancelled.
+func (s *Server) request(ctx context.Context, method string, params any) (id int64, res json.RawMessage, err error) {
 	ch := make(chan *rpcRequest, 1)
 	s.pendMu.Lock()
 	s.nextID++
@@ -248,21 +274,23 @@ func (s *Server) request(method string) (id int64, res json.RawMessage, err erro
 		delete(s.pending, id)
 		s.pendMu.Unlock()
 	}()
-	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method}); err != nil {
+	msg := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+	if params != nil {
+		msg["params"] = params
+	}
+	if err := s.write(msg); err != nil {
 		return id, nil, err
 	}
-	timer := time.NewTimer(rootsTimeout)
-	defer timer.Stop()
 	select {
 	case m := <-ch:
 		if m.Error != nil {
-			return id, nil, fmt.Errorf("error %d: %s", m.Error.Code, m.Error.Message)
+			return id, nil, &clientError{Code: m.Error.Code, Message: m.Error.Message}
 		}
 		return id, m.Result, nil
-	case <-timer.C:
-		return id, nil, fmt.Errorf("no answer in %s", rootsTimeout)
+	case <-ctx.Done():
+		return id, nil, context.Cause(ctx)
 	case <-s.done:
-		return id, nil, errors.New("connection closed")
+		return id, nil, errConnClosed
 	}
 }
 
@@ -293,7 +321,9 @@ func (s *Server) refreshRoots() {
 	s.bg.Add(1)
 	go func() {
 		defer s.bg.Done()
-		id, res, err := s.request("roots/list")
+		ctx, cancel := context.WithTimeoutCause(context.Background(), rootsTimeout, fmt.Errorf("no answer in %s", rootsTimeout))
+		defer cancel()
+		id, res, err := s.request(ctx, "roots/list", nil)
 		if err != nil {
 			fmt.Fprintf(serverLog, "mcpshell mcp: roots/list: %v; keeping the previous client roots\n", err)
 			return
@@ -389,7 +419,8 @@ func (s *Server) initializeResult(params json.RawMessage) map[string]any {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 		Capabilities    struct {
-			Roots json.RawMessage `json:"roots"`
+			Roots        json.RawMessage            `json:"roots"`
+			Experimental map[string]json.RawMessage `json:"experimental"`
 		} `json:"capabilities"`
 	}
 	if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
@@ -397,6 +428,10 @@ func (s *Server) initializeResult(params json.RawMessage) map[string]any {
 	}
 	r := p.Capabilities.Roots
 	s.clientRoots.Store(len(r) > 0 && string(r) != "null")
+	if !s.hostInit {
+		s.hostInit = true
+		s.initHost(p.Capabilities.Experimental[hostCapability])
+	}
 	return map[string]any{
 		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{}, "logging": map[string]any{}},
@@ -419,9 +454,13 @@ type toolDef struct {
 // model only this description learn from it which toolkits it can reference.
 func (s *Server) evalDescription() string {
 	s.descOnce.Do(func() {
+		s.descFixed = true
 		s.toolDesc = runtime.ToolDescription
 		if line := s.shell.Commands().ToolkitsLine(); line != "" {
 			s.toolDesc += "\n" + line
+		}
+		if s.hostLine != "" {
+			s.toolDesc += "\n" + s.hostLine
 		}
 	})
 	return s.toolDesc

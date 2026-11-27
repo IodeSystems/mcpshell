@@ -148,6 +148,25 @@ type CommandRegistry struct {
 	// autoload loads the loadable whose namespace is name (Shell.autoLoad);
 	// nil for a registry without a shell.
 	autoload func(name string) (owned bool, err error)
+	// shellHint replaces the error for a shell-command name (IsShellName)
+	// when the host provides functions; "" keeps the default.
+	shellHint string
+}
+
+// SetShellHint sets the error text for a shell-command name such as exec or
+// Shell (IsShellName); "" restores the default, which names the host's exec
+// tool.
+func (r *CommandRegistry) SetShellHint(hint string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.shellHint = hint
+}
+
+// ShellHint is the text SetShellHint set, or "".
+func (r *CommandRegistry) ShellHint() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.shellHint
 }
 
 // NewCommandRegistry builds an empty registry.

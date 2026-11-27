@@ -34,8 +34,9 @@ Usage:
   mcpshell --prompt      print the LLM system prompt
   mcpshell mcp [flags]   run as an MCP server over stdio
   mcpshell repl [flags]  interactive REPL over the same session as mcp mode (same
-                         flags except --files-client-roots; reads lines even when
-                         stdin is not a TTY; each line is one eval)
+                         flags except --files-client-roots and --host-functions;
+                         reads lines even when stdin is not a TTY; each line is
+                         one eval)
   mcpshell [--profile] [--limits steps=N,timeout=60s,callDepth=N,outputBytes=N] '<code>'
                          with per-line step costs, and/or limits for this run
                          (up to the maximums; also before -f <file>)
@@ -49,7 +50,7 @@ a toolkit loads on the first reference to its namespace (Graph, Db, Files,
 ...). web, file, and browser need a flag below. sql is installed at start
 when its flag is given.
 
-mcp flags (also accepted by repl, except --files-client-roots):
+mcp flags (also accepted by repl, except --files-client-roots and --host-functions):
   --files-dir <dir>    permit Files.*: the file toolkit rooted at <dir>
   --files-root <path>  another root for Files.*, Db.loadCsv and load: 'path' or 'path:rw'
                        (read-write), 'path:ro' (read-only); reached by absolute or ~/
@@ -58,6 +59,9 @@ mcp flags (also accepted by repl, except --files-client-roots):
   --files-client-roots the MCP client may grant more roots at runtime (MCP roots
                        capability); a client root is read-only unless its _meta has
                        {"mcpshell/access": "write"}; needs --files-dir
+  --host-functions     the MCP client may declare functions in initialize
+                       (capabilities.experimental["mcpshell/host"]); eval calls them as
+                       Host.<name>({…}), each call a mcpshell/host/call request to the client
   --web                permit the web toolkit (Web.*, Html.*)
   --browser            permit Browser.* (needs a Chrome binary)
   --no-load <a,b>      hide and deny these toolkits by name (graph, db, files, ...)
@@ -69,6 +73,9 @@ mcp flags (also accepted by repl, except --files-client-roots):
   --max-output <n>     cap eval output bytes (default 16000)
   --max-limits <spec>  operator maximums of the eval limits: steps=N,timeout=60s,callDepth=N,
                        outputBytes=N,memory=2GB (defaults: 20000000, 300s, 2048, 1000000, 2GB)
+  --limits <spec>      the limits each eval starts with, same keys (defaults: 1000000, 30s,
+                       256, 64000, 1GB); the eval's limits argument still changes them for
+                       one eval, up to the maximums; a value above its maximum is an error
   --connect <spec>     compose an upstream MCP server: 'ns=cmd args', 'cmd args',
                        'ns=https://…', or 'https://…' (streamable HTTP)
   --mcp <spec>         upstream MCP config: JSON file, inline JSON, or 'name:cmd args'
@@ -350,12 +357,14 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	filesDir := fs.String("files-dir", "", "enable the file toolkit rooted at this directory")
 	filesReadOnly := fs.Bool("files-read-only", false, "every file root is read-only")
 	filesClientRoots := fs.Bool("files-client-roots", false, "the MCP client may grant more file roots (roots capability)")
+	hostFunctions := fs.Bool("host-functions", false, "the MCP client may declare functions that eval calls as Host.<name>(args)")
 	web := fs.Bool("web", false, "enable the web toolkit (Web.*, Html.*)")
 	browser := fs.Bool("browser", false, "enable the browser toolkit (Browser.*, needs Chrome)")
 	noLoad := fs.String("no-load", "", "comma-separated loadable toolkits to hide and deny")
 	printPrompt := fs.Bool("prompt", false, "print the system prompt for this configuration and exit")
 	maxOutput := fs.Int("max-output", 16000, "cap eval output bytes")
 	maxLimits := fs.String("max-limits", "", "operator maximums for extendLimit: steps=N,timeout=60s,callDepth=N,outputBytes=N,memory=2GB")
+	limits := fs.String("limits", "", "per-eval default limits, up to the maximums: steps=N,timeout=10m,callDepth=N,outputBytes=N,memory=2GB")
 	sqlWritable := fs.Bool("sql-writable", false, "SQL databases are read-write (default: read-only)")
 	tz := fs.String("tz", os.Getenv("MCPSHELL_TZ"), "local time zone of Date, an IANA name (default UTC)")
 	dbMaxMB := fs.Int("db-max-mb", 256, "size cap in MB of the Db in-memory database")
@@ -369,7 +378,7 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	}
 
 	sh := runtime.NewShell()
-	if err := sh.Limits().ParseCaps(*maxLimits); err != nil {
+	if err := sh.Limits().Configure(*maxLimits, *limits); err != nil {
 		fail("%v", err)
 	}
 	toolkit.InstallCore(sh)
@@ -420,6 +429,9 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	}
 	if cmd == "repl" && *filesClientRoots {
 		fail("--files-client-roots needs an MCP client; mcpshell repl has none (use --files-root)")
+	}
+	if cmd == "repl" && *hostFunctions {
+		fail("--host-functions needs an MCP client to declare and run the functions; mcpshell repl has none")
 	}
 	if *filesDir == "" && (len(filesRoots) > 0 || *filesClientRoots) {
 		fail("--files-root and --files-client-roots need --files-dir (the workspace root)")
@@ -492,6 +504,10 @@ func setupSession(cmd string, args []string) (srv *mcp.Server, closers []io.Clos
 	}
 
 	srv = mcp.NewServer(sh, *maxOutput).WithOverflowDir(overflowDir).WithHosted(hosted)
+	if *hostFunctions {
+		srv.WithHostFunctions()
+		fmt.Fprintln(os.Stderr, "mcpshell "+cmd+": the client may declare host functions (Host.*)")
+	}
 	if *filesClientRoots && !filesDenied {
 		setRoots = fileRoots.SetClient
 	}

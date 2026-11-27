@@ -121,12 +121,24 @@ func UnknownCommand(name string, available []string) *ShellError {
 	return &ShellError{Message: msg}
 }
 
+// IsShellName reports whether name is one agents reach for to run a shell
+// command (Shell.run, exec, spawn). Their error says where commands run:
+// the host's exec tool, or the Host functions (CommandRegistry.SetShellHint).
+func IsShellName(name string) bool {
+	switch name {
+	case "Shell", "shell", "sh", "bash", "exec", "execSync", "spawn", "system":
+		return true
+	}
+	return false
+}
+
 // jsGlobalHint returns targeted guidance for JS keywords/globals that mcpshell
 // deliberately omits, or "" if the name is not one of them.
 func jsGlobalHint(name string) string {
-	switch name {
-	case "Shell", "shell", "sh", "bash", "exec", "execSync", "spawn", "system":
+	if IsShellName(name) {
 		return "eval runs no shell commands (no processes, no cd) — use the host's exec tool."
+	}
+	switch name {
 	case "import", "require":
 		return "mcpshell does not support imports — all commands are built-in or registered via toolkits"
 	case "void":

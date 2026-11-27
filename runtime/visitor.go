@@ -1921,6 +1921,11 @@ func (v *Visitor) visitIdentifierExpr(ctx *parser.IdentifierExprContext) Value {
 	if hint := v.itp.commands.NotLoadedHint(name); hint != "" {
 		panic(Runtime(hint))
 	}
+	if IsShellName(name) {
+		if hint := v.itp.commands.ShellHint(); hint != "" {
+			panic(Runtime(hint))
+		}
+	}
 	available = append(available, v.itp.commands.Names()...)
 	panic(UnknownCommand(name, available))
 }
