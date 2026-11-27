@@ -1,6 +1,3 @@
-// Package mcp exposes a mcpshell shell as a Model Context Protocol server over
-// stdio. The protocol is line-delimited JSON-RPC 2.0; this implementation is
-// self-contained (no SDK dependency).
 package mcp
 
 import (
@@ -55,6 +52,10 @@ type Server struct {
 	// commands are the operator's declared commands (commands.go); nil
 	// without --commands.
 	commands *Commands
+
+	// toolkitLines are the eval description's lines for in-process
+	// toolkits (AddToolkit, functions.go).
+	toolkitLines []string
 
 	// RunStdio state: one writer, the server's own requests to the client.
 	writeMu      sync.Mutex
@@ -465,6 +466,9 @@ func (s *Server) evalDescription() string {
 		}
 		if s.commands != nil {
 			s.toolDesc += "\n" + s.commands.line
+		}
+		for _, line := range s.toolkitLines {
+			s.toolDesc += "\n" + line
 		}
 		if s.hostLine != "" {
 			s.toolDesc += "\n" + s.hostLine
