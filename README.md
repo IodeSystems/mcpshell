@@ -374,6 +374,47 @@ mcpshell mcp --browser
 on demand — when missing, when any source is newer, or when `BUILD=true` is set —
 then execs it. The same launcher works across machines and architectures.
 
+## Embedding (Go)
+
+A Go program can run mcpshell in process and give eval its own functions. Each
+function has a JSON Schema for its one object argument; `mcp.InstallToolkit`
+registers them as a toolkit that loads on first reference, like the built-in ones:
+
+```go
+sh := toolkit.InstallCore(runtime.NewShell())
+err := mcp.InstallToolkit(sh, mcp.Toolkit{
+	Namespace: "Inventory",
+	Summary:   "stock levels",
+	Functions: []mcp.Function{{
+		Name:        "stock",
+		Description: "Units in stock for a SKU.",
+		InputSchema: json.RawMessage(`{"type": "object",
+			"properties": {"sku": {"type": "string"}}, "required": ["sku"]}`),
+		Fn: func(ctx context.Context, args map[string]any) (any, error) {
+			n, ok := stock[args["sku"].(string)]
+			if !ok {
+				return nil, fmt.Errorf("unknown SKU %q", args["sku"])
+			}
+			return map[string]any{"sku": args["sku"], "units": n}, nil
+		},
+	}},
+})
+v, err := sh.Eval(`["A1", "B2"] |> map(s => Inventory.stock({sku: s}).units) |> sum()`)
+fmt.Println(v.Display()) // 8
+```
+
+Arguments are checked and converted as an upstream tool's are (required names,
+lossless types; undeclared names only with `"additionalProperties": false`);
+numbers arrive as `json.Number`, exact. The result goes through `encoding/json`. A
+returned error is thrown in the script (`try/catch` catches it), and `ctx` ends at
+the eval's time limit or on `sh.Limits().Cancel()`. `sh.Limits().Configure(caps,
+defaults)` sets the limits with the `--max-limits`/`--limits` syntax. To serve it,
+`srv := mcp.NewServer(sh, 0)`, then `srv.AddToolkit(tk)` (which also lists the
+signatures in the `eval` tool description) and `srv.RunStdio(os.Stdin, os.Stdout)`.
+The embedding program is the operator, so no flag is needed. The example is
+`mcp/example_test.go`, run by `go test`; the package doc (`go doc ./mcp`) lists the
+API. The Go API is pre-1.0: names may change in a minor release.
+
 ## Benchmark
 
 The three claims above are measured in **[`benchmarks/`](benchmarks/README.md)**
@@ -407,7 +448,7 @@ routing/   Distances, shortest paths, TSP, VRP (float64), no runtime dependency
 graphalg/  Graph algorithms: components, SCC, topo, CPM, flows, matching, MST; no runtime dependency
 geo/       Spatial geometry and clustering (float64), no runtime dependency
 numeric/   Float64 linear algebra, fitting, optimization, distributions, RNG; no runtime dependency
-mcp/       MCP server + upstream-MCP client/composition
+mcp/       MCP server + upstream-MCP client/composition, the Go embedding API (InstallToolkit)
 bench/     LLM benchmark harness (OpenAI-compatible agent loop)
 cmd/       Binaries: cmd/mcpshell (the CLI), cmd/bench (the benchmark)
 bin/       Auto-building launchers — bin/mcpshell, bin/bench
