@@ -305,8 +305,13 @@ is no `Host`. The functions are listed in the `eval` tool description, fixed at
 `initialize`. Each call is a request from mcpshell to the client:
 
 ```json
-{"jsonrpc": "2.0", "id": 7, "method": "mcpshell/host/call", "params": {"name": "exec", "arguments": {"cmd": "ls"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "mcpshell/host/call", "params": {"name": "exec", "arguments": {"cmd": "ls"}, "evalRequestId": 42}}
 ```
+
+`evalRequestId` is the JSON-RPC id of the `tools/call` (eval) request the call comes
+from, as the client sent it (number or string). It lets a client that shares one
+mcpshell between sessions tell whose eval a call belongs to. It is absent when there is
+no such request (`repl`, Go API).
 
 The result (any JSON value) becomes the call's value. A JSON-RPC error answer is an
 error in the script that `try/catch` catches, and its message has the client's message.
