@@ -48,6 +48,8 @@ type Server struct {
 	hostInit    bool   // the first initialize was handled; later ones change nothing
 	hostLine    string // the eval description's Host line, "" without Host
 	hostMu      sync.Mutex
+	evalIDMu    sync.Mutex
+	evalID      json.RawMessage // the running eval's JSON-RPC id, raw; nil without one (EvalText)
 
 	// commands are the operator's declared commands (commands.go); nil
 	// without --commands.
@@ -410,7 +412,7 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 	case "tools/list":
 		return result(req.ID, map[string]any{"tools": s.toolDefs()})
 	case "tools/call":
-		return result(req.ID, s.callTool(req.Params))
+		return result(req.ID, s.callTool(req.ID, req.Params))
 	default:
 		if isNotification {
 			return nil
@@ -501,7 +503,7 @@ func toolResult(text string, isError bool) map[string]any {
 	}
 }
 
-func (s *Server) callTool(params json.RawMessage) map[string]any {
+func (s *Server) callTool(id, params json.RawMessage) map[string]any {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -511,10 +513,19 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 	}
 	switch p.Name {
 	case "eval":
+		// The worker runs one tools/call at a time, so one id is current.
+		s.setEvalID(id)
+		defer s.setEvalID(nil)
 		return s.evalTool(p.Arguments)
 	default:
 		return toolResult("ERROR: unknown tool '"+p.Name+"'", true)
 	}
+}
+
+func (s *Server) setEvalID(id json.RawMessage) {
+	s.evalIDMu.Lock()
+	s.evalID = id
+	s.evalIDMu.Unlock()
 }
 
 // EvalText runs code as one eval call (no vars, limits or clear) and returns

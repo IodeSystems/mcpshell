@@ -249,3 +249,29 @@ func TestHostShellHintWithoutExec(t *testing.T) {
 	}
 	c.close()
 }
+
+// evalRequestId is the id of the eval tools/call, raw, for numeric and
+// string ids; each sequential eval carries its own.
+func TestHostCallEvalRequestId(t *testing.T) {
+	defer mcp.SetServerLog(&lockedBuf{})()
+	c := hostClient(t, true, hostDecl(0))
+	for _, id := range []any{41, "req-α/7", 42} {
+		c.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call",
+			"params": map[string]any{"name": "eval", "arguments": map[string]any{"code": `Host.sleep()`}}})
+		call := c.expectHostCall()
+		p := call["params"].(map[string]any)
+		want := id
+		if n, ok := id.(int); ok {
+			want = float64(n)
+		}
+		if p["evalRequestId"] != want {
+			t.Errorf("evalRequestId = %#v, want %#v", p["evalRequestId"], want)
+		}
+		c.send(map[string]any{"jsonrpc": "2.0", "id": call["id"], "result": "ok"})
+		m := c.must("eval answer")
+		if m["id"] != want {
+			t.Errorf("answer id = %v, want %v", m["id"], want)
+		}
+	}
+	c.close()
+}

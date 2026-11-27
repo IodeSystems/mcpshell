@@ -25,7 +25,8 @@ import (
 const hostCapability = "mcpshell/host"
 
 // hostMethod is the request the server sends for one Host call, with params
-// {"name", "arguments"}.
+// {"name", "arguments", "evalRequestId"}; evalRequestId is the id of the
+// tools/call the host call comes from, omitted when there is none (EvalText).
 const hostMethod = "mcpshell/host/call"
 
 // hostNamespace is the eval namespace of the host functions.
@@ -249,7 +250,13 @@ func (s *Server) hostCall(lm *runtime.ExecutionLimits, callName string, f hostFu
 	if args == nil {
 		args = map[string]any{}
 	}
-	id, res, err := s.request(ctx, hostMethod, map[string]any{"name": f.Name, "arguments": args})
+	params := map[string]any{"name": f.Name, "arguments": args}
+	s.evalIDMu.Lock()
+	if len(s.evalID) > 0 {
+		params["evalRequestId"] = s.evalID // raw: string or number as the client sent it
+	}
+	s.evalIDMu.Unlock()
+	id, res, err := s.request(ctx, hostMethod, params)
 	if err == nil {
 		return res
 	}
