@@ -75,3 +75,28 @@ func TestEvalClear(t *testing.T) {
 		t.Errorf("closer ran %d times, want 1", closed)
 	}
 }
+
+// The operator defaults (--limits) are what each eval starts with, after an
+// eval's limits argument and after clear: true.
+func TestOperatorDefaultLimits(t *testing.T) {
+	sh := coreShell()
+	if err := sh.Limits().Configure("timeout=20m", "timeout=10m,steps=2000000"); err != nil {
+		t.Fatal(err)
+	}
+	const read = "let l = limits(); [l.maxSteps, l.timeoutMs]"
+	texts, errs := evalCalls(t, sh,
+		codeArgs(read, ""),
+		codeArgs(read, `"limits":{"timeout":1200000,"steps":3000000}`),
+		codeArgs(read, `"clear":true`),
+		codeArgs(read, ""),
+		codeArgs("1", `"limits":{"timeout":1200001}`))
+	want := []string{"[2000000, 600000]", "[3000000, 1200000]", "[2000000, 600000]", "[2000000, 600000]", "ERROR: limits: timeout (1200001) exceeds the operator maximum (1200000)"}
+	for i, w := range want {
+		if !strings.HasPrefix(texts[i], w) {
+			t.Errorf("call %d = %q, want %q", i+1, texts[i], w)
+		}
+	}
+	if errs[0] || errs[1] || errs[2] || errs[3] || !errs[4] {
+		t.Errorf("isError = %v", errs)
+	}
+}

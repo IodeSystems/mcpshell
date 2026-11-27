@@ -99,3 +99,43 @@ func TestParseCaps(t *testing.T) {
 		}
 	}
 }
+
+// --limits sets the limits each eval starts with; a value above its maximum
+// (--max-limits, else built in) is an error naming both.
+func TestConfigureDefaults(t *testing.T) {
+	sh := toolkit.InstallCore(runtime.NewShell())
+	l := sh.Limits()
+	if err := l.Configure("timeout=20m", "steps=5000000,timeout=10m,callDepth=512,outputBytes=100000,memory=512MB"); err != nil {
+		t.Fatal(err)
+	}
+	if l.MaxSteps != 5_000_000 || l.TimeoutMs != 600_000 || l.MaxCallDepth != 512 || l.MaxOutputBytes != 100_000 || l.MaxMemory != 512<<20 {
+		t.Errorf("limits = %d %d %d %d %d", l.MaxSteps, l.TimeoutMs, l.MaxCallDepth, l.MaxOutputBytes, l.MaxMemory)
+	}
+	if l.CapTimeoutMs != 1_200_000 || l.CapSteps != 20_000_000 {
+		t.Errorf("caps = %d %d", l.CapTimeoutMs, l.CapSteps)
+	}
+	// An eval may change them; the next eval starts from the operator defaults.
+	if _, err := sh.Eval(`extendLimit({timeout: 1200000, steps: 6000000})`); err != nil {
+		t.Fatal(err)
+	}
+	v, err := sh.Eval(`let l = limits(); [l.maxSteps, l.timeoutMs]`)
+	if err != nil || v.Display() != "[5000000, 600000]" {
+		t.Errorf("next eval = %v, %v", v, err)
+	}
+
+	for _, c := range []struct{ caps, defaults, want string }{
+		{"", "timeout=10m", "--limits timeout=600000ms is above its maximum 300000ms (the built-in maximum); raise the maximum with --max-limits timeout=…"},
+		{"steps=2000000", "steps=3000000", "--limits steps=3000000 is above its maximum 2000000 (--max-limits)"},
+		{"", "memory=4GB", "--limits memory=4 GB is above its maximum 2 GB (the built-in maximum)"},
+		{"", "steps=x", "limits: steps"},
+	} {
+		l := runtime.NewExecutionLimits()
+		err := l.Configure(c.caps, c.defaults)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("Configure(%q, %q) = %v, want %q", c.caps, c.defaults, err, c.want)
+		}
+		if l.TimeoutMs != 30_000 || l.MaxSteps != 1_000_000 {
+			t.Errorf("a failed Configure applied defaults: %d %d", l.TimeoutMs, l.MaxSteps)
+		}
+	}
+}

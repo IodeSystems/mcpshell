@@ -516,27 +516,94 @@ func ParseLimitSpec(who, spec string) (LimitSpec, error) {
 // --max-limits flag) to the operator maximums. Unlisted keys keep their cap.
 // timeout takes a Go duration ("60s", "5m") or plain milliseconds.
 func (l *ExecutionLimits) ParseCaps(spec string) error {
-	s, err := ParseLimitSpec("max-limits", spec)
+	return l.Configure(spec, "")
+}
+
+// Configure applies the operator flags: caps is the --max-limits spec and
+// defaults the --limits spec, the per-eval values each eval starts from (and
+// Reset, clear: true included, returns to). A default above its maximum (the
+// --max-limits value, else the built-in one) is an error that names both;
+// nothing is applied then. A cap below a default is raised to it, as SetCaps
+// does.
+func (l *ExecutionLimits) Configure(caps, defaults string) error {
+	c, err := ParseLimitSpec("max-limits", caps)
 	if err != nil {
 		return err
 	}
+	d, err := ParseLimitSpec("limits", defaults)
+	if err != nil {
+		return err
+	}
+	check := func(name string, def *int64, flagCap *int64, builtin int64, unit string) error {
+		if def == nil {
+			return nil
+		}
+		limit, from := builtin, "the built-in maximum"
+		if flagCap != nil {
+			limit, from = *flagCap, "--max-limits"
+		}
+		if *def <= limit {
+			return nil
+		}
+		show := func(n int64) string {
+			if unit == "bytes" {
+				return FormatBytes(n)
+			}
+			return strconv.FormatInt(n, 10) + unit
+		}
+		return fmt.Errorf("--limits %s=%s is above its maximum %s (%s); raise the maximum with --max-limits %s=…",
+			name, show(*def), show(limit), from, name)
+	}
+	i64 := func(p *int) *int64 {
+		if p == nil {
+			return nil
+		}
+		v := int64(*p)
+		return &v
+	}
+	for _, e := range []error{
+		check("steps", i64(d.Steps), i64(c.Steps), int64(l.CapSteps), ""),
+		check("timeout", d.TimeoutMs, c.TimeoutMs, l.CapTimeoutMs, "ms"),
+		check("callDepth", i64(d.CallDepth), i64(c.CallDepth), int64(l.CapCallDepth), ""),
+		check("outputBytes", i64(d.OutputBytes), i64(c.OutputBytes), int64(l.CapOutputBytes), ""),
+		check("memory", d.MemoryBytes, c.MemoryBytes, l.CapMemory, "bytes"),
+	} {
+		if e != nil {
+			return e
+		}
+	}
+	if d.Steps != nil {
+		l.defaultMaxSteps, l.MaxSteps = *d.Steps, *d.Steps
+	}
+	if d.TimeoutMs != nil {
+		l.defaultTimeoutMs, l.TimeoutMs = *d.TimeoutMs, *d.TimeoutMs
+	}
+	if d.CallDepth != nil {
+		l.defaultMaxCallDepth, l.MaxCallDepth = *d.CallDepth, *d.CallDepth
+	}
+	if d.OutputBytes != nil {
+		l.defaultMaxOutputBytes, l.MaxOutputBytes = *d.OutputBytes, *d.OutputBytes
+	}
+	if d.MemoryBytes != nil {
+		l.defaultMaxMemory, l.MaxMemory = *d.MemoryBytes, *d.MemoryBytes
+	}
 	var steps, depth, out int
 	var timeoutMs int64
-	if s.Steps != nil {
-		steps = *s.Steps
+	if c.Steps != nil {
+		steps = *c.Steps
 	}
-	if s.CallDepth != nil {
-		depth = *s.CallDepth
+	if c.CallDepth != nil {
+		depth = *c.CallDepth
 	}
-	if s.OutputBytes != nil {
-		out = *s.OutputBytes
+	if c.OutputBytes != nil {
+		out = *c.OutputBytes
 	}
-	if s.TimeoutMs != nil {
-		timeoutMs = *s.TimeoutMs
+	if c.TimeoutMs != nil {
+		timeoutMs = *c.TimeoutMs
 	}
 	l.SetCaps(steps, depth, timeoutMs, out)
-	if s.MemoryBytes != nil {
-		l.SetMemoryCap(*s.MemoryBytes)
+	if c.MemoryBytes != nil {
+		l.SetMemoryCap(*c.MemoryBytes)
 	}
 	return nil
 }
